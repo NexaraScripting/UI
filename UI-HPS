@@ -1,0 +1,4958 @@
+-- =================================================================
+--                   HPS - HELIX PROJECT SCRIPT
+--            Clean Sidebar Dashboard V4 - Icon Only
+--         No Emoji - rbxassetid Icons - Smooth Animations
+-- =================================================================
+
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local Stats = game:GetService("Stats")
+local MarketplaceService = game:GetService("MarketplaceService")
+local Lighting = game:GetService("Lighting")
+local ContentProvider = game:GetService("ContentProvider")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- =================================================================
+-- 1. CONFIGURATION & THEME
+-- =================================================================
+local camera = workspace.CurrentCamera
+
+local function GetResponsiveWindowSize()
+    local vp = (camera and camera.ViewportSize) or Vector2.new(1280, 720)
+    local maxW = math.clamp(vp.X - 24, 340, 1100)
+    local maxH = math.clamp(vp.Y - 24, 280, 680)
+    return UDim2.fromOffset(math.floor(maxW), math.floor(maxH))
+end
+
+local Config = {
+    Version = "v1.0.0",
+    ToggleKey = Enum.KeyCode.RightShift,
+    WindowSize = GetResponsiveWindowSize(),
+    ShowWatermark = true,
+    BlurLevel = 0,
+    RunningGlow = true,
+    CustomBgId = "rbxassetid://5553002139",
+    AccentName = "Cyber Blue",
+    ThemeName = "Midnight",
+    StreamerMode = false
+}
+
+-- Modern Crisp Typography
+local Fonts = {
+    Regular = Enum.Font.BuilderSans,
+    Medium  = Enum.Font.BuilderSansMedium,
+    Bold    = Enum.Font.BuilderSansBold,
+}
+
+-- Base Theme Palettes (Dark Styles)
+local BaseThemes = {
+    ["Midnight"] = {
+        Background    = Color3.fromRGB(5, 8, 14),
+        Sidebar       = Color3.fromRGB(6, 11, 20),
+        SidebarHover  = Color3.fromRGB(12, 22, 38),
+        Card          = Color3.fromRGB(10, 17, 28),
+        CardInner     = Color3.fromRGB(7, 13, 22),
+        CardHover     = Color3.fromRGB(15, 27, 44),
+        Border        = Color3.fromRGB(18, 32, 52),
+        BorderSoft    = Color3.fromRGB(12, 22, 38),
+    },
+    ["Obsidian"] = {
+        Background    = Color3.fromRGB(7, 7, 9),
+        Sidebar       = Color3.fromRGB(10, 10, 13),
+        SidebarHover  = Color3.fromRGB(18, 19, 25),
+        Card          = Color3.fromRGB(13, 14, 18),
+        CardInner     = Color3.fromRGB(9, 10, 13),
+        CardHover     = Color3.fromRGB(20, 22, 28),
+        Border        = Color3.fromRGB(26, 28, 36),
+        BorderSoft    = Color3.fromRGB(18, 20, 26),
+    },
+    ["Charcoal"] = {
+        Background    = Color3.fromRGB(12, 14, 18),
+        Sidebar       = Color3.fromRGB(16, 18, 24),
+        SidebarHover  = Color3.fromRGB(24, 28, 36),
+        Card          = Color3.fromRGB(20, 23, 30),
+        CardInner     = Color3.fromRGB(15, 17, 22),
+        CardHover     = Color3.fromRGB(26, 30, 40),
+        Border        = Color3.fromRGB(32, 36, 48),
+        BorderSoft    = Color3.fromRGB(24, 28, 38),
+    }
+}
+
+-- Automatically disconnect previous connections on re-execute
+if _G.HPS_Cleanup then
+    pcall(_G.HPS_Cleanup)
+end
+if getgenv and getgenv().HPS_Cleanup then
+    pcall(getgenv().HPS_Cleanup)
+end
+
+local cleanupConns = {}
+
+_G.HPS_Cleanup = function()
+    for _, conn in ipairs(cleanupConns) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(cleanupConns)
+end
+if getgenv then getgenv().HPS_Cleanup = _G.HPS_Cleanup end
+
+local function TrackExecutionCount()
+    local count = 1
+    pcall(function()
+        local fileName = "hps_exec_count.txt"
+        if isfile and isfile(fileName) and readfile then
+            local raw = readfile(fileName)
+            local n = tonumber(raw)
+            if n then count = n + 1 end
+        elseif getgenv then
+            local g = getgenv()
+            if g.HPS_Executions then
+                count = g.HPS_Executions + 1
+            end
+        end
+        if writefile then
+            writefile(fileName, tostring(count))
+        end
+        if getgenv then
+            getgenv().HPS_Executions = count
+        end
+    end)
+    return count
+end
+local scriptExecCount = TrackExecutionCount()
+
+local bgBlur = nil
+
+local Theme = {
+    Background    = Color3.fromRGB(5, 8, 14),
+    Sidebar       = Color3.fromRGB(6, 11, 20),
+    SidebarHover  = Color3.fromRGB(12, 22, 38),
+    Card          = Color3.fromRGB(10, 17, 28),
+    CardInner     = Color3.fromRGB(7, 13, 22),
+    CardHover     = Color3.fromRGB(15, 27, 44),
+    Border        = Color3.fromRGB(18, 32, 52),
+    BorderSoft    = Color3.fromRGB(12, 22, 38),
+    Blue          = Color3.fromRGB(22, 115, 240),
+    BlueDark      = Color3.fromRGB(10, 32, 65),
+    BlueGlow      = Color3.fromRGB(40, 150, 255),
+    Text          = Color3.fromRGB(245, 248, 255),
+    SubText       = Color3.fromRGB(195, 210, 235),
+    Muted         = Color3.fromRGB(155, 175, 205),
+    Green         = Color3.fromRGB(0, 220, 135),
+    Orange        = Color3.fromRGB(240, 140, 30),
+    Red           = Color3.fromRGB(235, 65, 80),
+    White         = Color3.fromRGB(255, 255, 255),
+    ActiveBg      = Color3.fromRGB(14, 50, 110)
+}
+
+-- rbxassetid Icon Library (no emoji)
+local Icons = {
+    Logo      = "rbxthumb://type=Asset&id=136968184439857&w=420&h=420",
+    Home      = "rbxassetid://10709791437",
+    Settings  = "rbxassetid://10734950309",
+    Search    = "rbxassetid://6031154871",
+    User      = "rbxassetid://10723373498",
+    Game      = "rbxassetid://10723415766",
+    System    = "rbxassetid://10723346959",
+    Copy      = "rbxassetid://10709790537",
+    Check     = "rbxassetid://10709790944",
+    Time      = "rbxassetid://10709790426",
+    Palette   = "rbxassetid://10734910430",
+    Trash     = "rbxassetid://10747384394",
+    Changelog = "rbxassetid://10723367380",
+    Terminal  = "rbxassetid://10734982144",
+    Code      = "rbxassetid://10709790644",
+    Zap       = "rbxassetid://10734984400",
+    Refresh   = "rbxassetid://10734933222",
+    Shield    = "rbxassetid://10734954248",
+    Visuals   = "rbxassetid://10734963400",
+    Layers    = "rbxassetid://10723424505",
+    Eye       = "rbxassetid://10723346959",
+    EyeOff    = "rbxassetid://10723346871",
+    Gauge     = "rbxassetid://10723395708",
+    Keyboard  = "rbxassetid://10723416765",
+    Power     = "rbxassetid://10734930466",
+    Droplet   = "rbxassetid://10723344432",
+    Moon      = "rbxassetid://10734897102",
+    Image     = "rbxassetid://10723415040",
+    Discord   = "rbxthumb://type=Asset&id=7948857513&w=150&h=150",
+    Close     = "rbxassetid://6031094678",
+    ChevronDown = "rbxassetid://6034818372",
+    ChevronUp = "rbxassetid://6034818379",
+}
+
+-- Safe Parent Resolver
+local function GetSafeGuiParent()
+    local s, target = pcall(function()
+        if gethui then return gethui()
+        elseif CoreGui then return CoreGui
+        else return LocalPlayer:WaitForChild("PlayerGui") end
+    end)
+    return (s and target) or LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- Cleanup
+pcall(function()
+    if gethui and gethui():FindFirstChild("HPS_UI") then gethui():FindFirstChild("HPS_UI"):Destroy() end
+    if CoreGui and CoreGui:FindFirstChild("HPS_UI") then CoreGui:FindFirstChild("HPS_UI"):Destroy() end
+    if LocalPlayer and LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild("HPS_UI") then
+        LocalPlayer.PlayerGui:FindFirstChild("HPS_UI"):Destroy()
+    end
+    local oldBlur = Lighting:FindFirstChild("HPS_BackgroundBlur")
+    if oldBlur then oldBlur:Destroy() end
+end)
+
+-- BlurEffect for Background Blur slider (blurs game world behind UI, NOT the UI itself)
+bgBlur = Instance.new("BlurEffect")
+bgBlur.Name = "HPS_BackgroundBlur"
+bgBlur.Size = Config.BlurLevel
+bgBlur.Enabled = false
+bgBlur.Parent = Lighting
+
+-- =================================================================
+-- 2. UI HELPERS
+-- =================================================================
+local function Corner(obj, r)
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, r or 8); c.Parent = obj; return c
+end
+
+local function Stroke(obj, col, th)
+    local s = Instance.new("UIStroke"); s.Color = col or Theme.Border; s.Thickness = th or 1; s.Parent = obj; return s
+end
+
+local allCardFrames = {}
+local allCardStrokes = {}
+local customBg = nil
+local customBgNext = nil
+local customBgOverlay = nil
+
+local decalTextureCache = {
+    ["2817046761"] = "rbxassetid://2817046727",
+    ["5553002163"] = "rbxassetid://5553002139",
+    ["8219779976"] = "rbxassetid://8219779961",
+    ["6723684733"] = "rbxassetid://6723684726",
+    ["11424961500"] = "rbxassetid://11424961420",
+    ["5468715773"] = "rbxassetid://5468715749",
+}
+
+local function ResolveDecalToTexture(rawInput)
+    if not rawInput or rawInput == "" then return nil end
+    local clean = string.gsub(tostring(rawInput), "%s+", "")
+    if string.find(clean, "rbxthumb://") or string.find(clean, "rbxasset://") or string.find(clean, "rbxassetid://") or string.find(clean, "http://") or string.find(clean, "https://") then
+        return clean
+    end
+    if decalTextureCache[clean] then
+        return decalTextureCache[clean]
+    end
+    local numStr = string.match(clean, "(%d+)")
+    if not numStr then return clean end
+    if decalTextureCache[numStr] then
+        return decalTextureCache[numStr]
+    end
+    local numId = tonumber(numStr)
+    if not numId then return clean end
+
+    local s, objs = pcall(function()
+        return game:GetObjects("rbxassetid://" .. numId)
+    end)
+    if s and objs and #objs > 0 then
+        for _, item in ipairs(objs) do
+            if item:IsA("Decal") and item.Texture and item.Texture ~= "" then
+                decalTextureCache[clean] = item.Texture
+                decalTextureCache[numStr] = item.Texture
+                return item.Texture
+            end
+        end
+    end
+
+    local fallback = string.format("rbxthumb://type=Asset&id=%d&w=768&h=432", numId)
+    decalTextureCache[clean] = fallback
+    decalTextureCache[numStr] = fallback
+    return fallback
+end
+
+local function Label(parent, text, size, pos, font, color)
+    local l = Instance.new("TextLabel")
+    l.BackgroundTransparency = 1
+    l.RichText = true
+    l.Text = text
+    l.TextColor3 = color or Theme.Text
+    l.TextSize = size or 12
+    l.Font = font or Fonts.Medium
+    l.Position = pos or UDim2.fromOffset(0, 0)
+    l.Size = UDim2.fromOffset(200, 24)
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.Parent = parent
+    return l
+end
+
+local function Card(parent, pos, size)
+    local c = Instance.new("Frame")
+    c.Position = pos; c.Size = size
+    c.BackgroundColor3 = Theme.Card
+    c.BackgroundTransparency = (Config.CustomBgId ~= "" and customBg and customBg.Visible) and 0.14 or 0
+    c.BorderSizePixel = 0
+    c.ZIndex = 1
+    c.Parent = parent
+    Corner(c, 10)
+    local s = Stroke(c, Theme.Border, 1)
+    table.insert(allCardFrames, c)
+    table.insert(allCardStrokes, s)
+    return c
+end
+
+local function Tween(obj, t, props, style, dir)
+    return TweenService:Create(obj, TweenInfo.new(t, style or Enum.EasingStyle.Quint, dir or Enum.EasingDirection.Out), props)
+end
+
+-- =================================================================
+-- 3. ROOT GUI & MAIN WINDOW
+-- =================================================================
+local gui = Instance.new("ScreenGui")
+gui.Name = "HPS_UI"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = GetSafeGuiParent()
+
+-- Shared dynamic references for runtime theme & UI updates
+local runnerStroke = nil
+local runnerGrad = nil
+local topGlow = nil
+local topGlowGrad = nil
+local topDivGrad = nil
+local sideDivGrad = nil
+local heroGrad = nil
+local setIcoHeader = nil
+local visHeadIco = nil
+local cfgHeadIco = nil
+local setHeadIco = nil
+local setHeadTxt = nil
+local blurValLabel = nil
+local sliderFill = nil
+local sliderKnobStroke = nil
+local hudBar = nil
+local hudStroke = nil
+local hudStrokeGrad = nil
+local hudBrand = nil
+local hudPing = nil
+local hudFps = nil
+local hudTime = nil
+local hudLogo = nil
+local logoIcon = nil
+local heroHpsLabel = nil
+local heroAvatarStroke = nil
+local mobStroke = nil
+local timeIco = nil
+local sysHeadIco = nil
+local uHeadIco = nil
+local quickHeadIco = nil
+local clHeadIco = nil
+local execLabel = nil
+local sysKey = nil
+local curAccentLabel = nil
+local hudUser = nil
+local uDispLabel = nil
+local userNameLabel = nil
+local uAvatarImg = nil
+local heroWelcomeName = nil
+local streamerHeadIco = nil
+local sidebarFrame = nil
+local pageHolder = nil
+local searchContainer = nil
+local settingsTitle = nil
+local updateConfigCountUI = nil
+local pages = {}
+local navButtons = {}
+local currentPage = nil
+local pageAnims = {}
+local setNavStroke = nil
+local registeredToggles = {}
+local presetIndicatorWidgets = {}
+local themeModeButtons = {}
+local UpdateConfigStatus = nil
+local themeHeadIco = nil
+local bgInputBox = nil
+local bgApplyBtn = nil
+local activeThemeId = nil
+local UpdateThemeCardVisuals = nil
+local StreamerMeta = {
+    afkEnabled = false,
+    afkConn = nil,
+    joinedVal = nil,
+    ageVal = nil,
+    statusVal = nil,
+    joinedBlur = nil,
+    ageBlur = nil,
+    statusBlur = nil,
+    originalJoined = "",
+    originalAge = "",
+    originalStatus = "Active Member",
+}
+
+local main = Instance.new("Frame")
+main.Name = "HPS_Main"
+main.Size = UDim2.new(0, math.floor(Config.WindowSize.X.Offset * 0.96), 0, math.floor(Config.WindowSize.Y.Offset * 0.96))
+main.Position = UDim2.fromScale(0.5, 0.5)
+main.AnchorPoint = Vector2.new(0.5, 0.5)
+main.BackgroundColor3 = Theme.Background
+main.BorderSizePixel = 0
+main.ClipsDescendants = true
+main.Visible = false
+main.Parent = gui
+Corner(main, 14)
+
+customBg = Instance.new("ImageLabel")
+customBg.Name = "CustomBg_1"
+customBg.Size = UDim2.fromScale(1, 1)
+customBg.Position = UDim2.fromScale(0, 0)
+customBg.BackgroundTransparency = 1
+customBg.BorderSizePixel = 0
+customBg.ScaleType = Enum.ScaleType.Crop
+customBg.Image = "rbxassetid://5553002139"
+customBg.ImageTransparency = 0
+customBg.ZIndex = 1
+customBg.ClipsDescendants = true
+customBg.Visible = true
+customBg.Parent = main
+Corner(customBg, 14)
+
+customBgNext = Instance.new("ImageLabel")
+customBgNext.Name = "CustomBg_2"
+customBgNext.Size = UDim2.fromScale(1, 1)
+customBgNext.Position = UDim2.fromScale(0, 0)
+customBgNext.BackgroundTransparency = 1
+customBgNext.BorderSizePixel = 0
+customBgNext.ScaleType = Enum.ScaleType.Crop
+customBgNext.ImageTransparency = 1
+customBgNext.ZIndex = 1
+customBgNext.ClipsDescendants = true
+customBgNext.Visible = false
+customBgNext.Parent = main
+Corner(customBgNext, 14)
+
+customBgOverlay = Instance.new("Frame")
+customBgOverlay.Name = "VignetteOverlay"
+customBgOverlay.Size = UDim2.fromScale(1, 1)
+customBgOverlay.Position = UDim2.fromScale(0, 0)
+customBgOverlay.BackgroundColor3 = Color3.fromRGB(4, 6, 12)
+customBgOverlay.BackgroundTransparency = 0.28
+customBgOverlay.BorderSizePixel = 0
+customBgOverlay.ZIndex = 3
+customBgOverlay.ClipsDescendants = true
+customBgOverlay.Visible = true
+customBgOverlay.Parent = main
+Corner(customBgOverlay, 14)
+
+local activeBgIdx = 1
+local bgImages = { customBg, customBgNext }
+local bgBlurLayers = { {}, {} }
+
+local function ApplyWallpaperBlur(level)
+    -- Disabled: UI and wallpaper remain 100% crisp and sharp with zero blur or ghosting
+    if customBgOverlay and customBgOverlay.Visible then
+        customBgOverlay.ZIndex = 3
+        customBgOverlay.BackgroundTransparency = 0.28
+    end
+end
+
+-- Animated Running Border Light
+runnerStroke = Instance.new("UIStroke")
+runnerStroke.Name = "RunnerStroke"
+runnerStroke.Thickness = 1.0
+runnerStroke.Color = Theme.Blue
+runnerStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+runnerStroke.Enabled = true
+runnerStroke.Parent = main
+
+runnerGrad = Instance.new("UIGradient")
+runnerGrad.Name = "RunnerGradient"
+runnerGrad.Rotation = 0
+runnerGrad.Enabled = Config.RunningGlow
+runnerGrad.Parent = runnerStroke
+
+local function UpdateRunnerColors()
+    if runnerGrad then
+        runnerGrad.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0.00, Color3.fromRGB(16, 26, 42)),
+            ColorSequenceKeypoint.new(0.28, Color3.fromRGB(22, 38, 62)),
+            ColorSequenceKeypoint.new(0.44, Theme.Blue),
+            ColorSequenceKeypoint.new(0.50, Theme.BlueGlow),
+            ColorSequenceKeypoint.new(0.56, Theme.Blue),
+            ColorSequenceKeypoint.new(0.72, Color3.fromRGB(22, 38, 62)),
+            ColorSequenceKeypoint.new(1.00, Color3.fromRGB(16, 26, 42))
+        }
+    end
+end
+UpdateRunnerColors()
+
+table.insert(cleanupConns, RunService.RenderStepped:Connect(function(dt)
+    if Config.RunningGlow and main.Visible and runnerGrad then
+        runnerGrad.Rotation = (runnerGrad.Rotation + dt * 135) % 360
+    end
+end))
+
+-- Accent Presets (8 Punchy Colors)
+local AccentPresets = {
+    {
+        Name = "Cyber Blue",
+        Main = Color3.fromRGB(26, 128, 255),
+        Glow = Color3.fromRGB(56, 168, 255),
+        ActiveBg = Color3.fromRGB(16, 48, 105),
+        Preview = Color3.fromRGB(26, 128, 255)
+    },
+    {
+        Name = "Neon Violet",
+        Main = Color3.fromRGB(160, 60, 255),
+        Glow = Color3.fromRGB(195, 105, 255),
+        ActiveBg = Color3.fromRGB(60, 20, 105),
+        Preview = Color3.fromRGB(160, 60, 255)
+    },
+    {
+        Name = "Blood Crimson",
+        Main = Color3.fromRGB(245, 45, 75),
+        Glow = Color3.fromRGB(255, 85, 110),
+        ActiveBg = Color3.fromRGB(95, 15, 30),
+        Preview = Color3.fromRGB(245, 45, 75)
+    },
+    {
+        Name = "Toxic Emerald",
+        Main = Color3.fromRGB(0, 220, 120),
+        Glow = Color3.fromRGB(40, 255, 160),
+        ActiveBg = Color3.fromRGB(12, 70, 42),
+        Preview = Color3.fromRGB(0, 220, 120)
+    },
+    {
+        Name = "Solar Amber",
+        Main = Color3.fromRGB(255, 150, 20),
+        Glow = Color3.fromRGB(255, 185, 60),
+        ActiveBg = Color3.fromRGB(95, 52, 10),
+        Preview = Color3.fromRGB(255, 150, 20)
+    },
+    {
+        Name = "Frost Cyan",
+        Main = Color3.fromRGB(0, 225, 245),
+        Glow = Color3.fromRGB(80, 245, 255),
+        ActiveBg = Color3.fromRGB(12, 72, 95),
+        Preview = Color3.fromRGB(0, 225, 245)
+    },
+    {
+        Name = "Sakura Pink",
+        Main = Color3.fromRGB(255, 55, 150),
+        Glow = Color3.fromRGB(255, 110, 190),
+        ActiveBg = Color3.fromRGB(100, 18, 60),
+        Preview = Color3.fromRGB(255, 55, 150)
+    },
+    {
+        Name = "Ghost White",
+        Main = Color3.fromRGB(225, 235, 255),
+        Glow = Color3.fromRGB(255, 255, 255),
+        ActiveBg = Color3.fromRGB(45, 55, 75),
+        Preview = Color3.fromRGB(225, 235, 255)
+    }
+}
+
+local function ApplyAccent(preset)
+    Config.AccentName = preset.Name
+    Theme.Blue = preset.Main
+    Theme.BlueGlow = preset.Glow
+    Theme.ActiveBg = preset.ActiveBg
+
+    local animDuration = 0.35
+
+    -- 1. Main Window Border & Running Glow
+    if runnerStroke then
+        if Config.RunningGlow then
+            runnerStroke.Color = Color3.fromRGB(255, 255, 255)
+            if runnerGrad then runnerGrad.Enabled = true end
+        else
+            Tween(runnerStroke, animDuration, { Color = preset.Main }):Play()
+            if runnerGrad then runnerGrad.Enabled = false end
+        end
+    end
+    UpdateRunnerColors()
+
+    -- 2. Top Neon Glow Line
+    if topGlow then
+        Tween(topGlow, animDuration, { BackgroundColor3 = preset.Glow }):Play()
+    end
+    if topGlowGrad then
+        topGlowGrad.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, preset.Main),
+            ColorSequenceKeypoint.new(0.5, preset.Glow),
+            ColorSequenceKeypoint.new(1, preset.Main)
+        }
+    end
+
+    -- 3. Topbar and Sidebar Glowing Dividers
+    if topDivGrad then
+        topDivGrad.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, Theme.BorderSoft),
+            ColorSequenceKeypoint.new(0.2, Color3.fromRGB(math.floor(preset.Main.R * 60), math.floor(preset.Main.G * 60), math.floor(preset.Main.B * 60))),
+            ColorSequenceKeypoint.new(0.5, preset.Main),
+            ColorSequenceKeypoint.new(0.8, Color3.fromRGB(math.floor(preset.Main.R * 60), math.floor(preset.Main.G * 60), math.floor(preset.Main.B * 60))),
+            ColorSequenceKeypoint.new(1, Theme.BorderSoft)
+        }
+    end
+    if sideDivGrad then
+        sideDivGrad.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, Theme.BorderSoft),
+            ColorSequenceKeypoint.new(0.5, preset.Main),
+            ColorSequenceKeypoint.new(1, Theme.BorderSoft)
+        }
+    end
+
+    -- 4. Hero Banner Gradient
+    if heroGrad then
+        heroGrad.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(math.floor(preset.Main.R * 45), math.floor(preset.Main.G * 45), math.floor(preset.Main.B * 45))),
+            ColorSequenceKeypoint.new(0.5, Theme.Card),
+            ColorSequenceKeypoint.new(1, Theme.Background)
+        }
+    end
+
+    -- 5. Navigation Buttons & Active Tab
+    for bName, data in pairs(navButtons) do
+        if data.indicator then
+            Tween(data.indicator, animDuration, { BackgroundColor3 = preset.Glow }):Play()
+        end
+        if bName == currentPage then
+            Tween(data.bg, animDuration, { BackgroundColor3 = preset.ActiveBg }):Play()
+            if data.icon then data.icon.ImageColor3 = Theme.White end
+        end
+    end
+    if setNavStroke and currentPage == "Settings" then
+        Tween(setNavStroke, animDuration, { Color = preset.Glow }):Play()
+    end
+
+    -- 6. Page Scrollbars
+    for _, pg in pairs(pages) do
+        pg.ScrollBarImageColor3 = preset.Main
+    end
+
+    -- 7. ALL Active Toggles in entire GUI
+    for _, tog in ipairs(registeredToggles) do
+        if tog.update then tog.update(true) end
+    end
+
+    -- 8. Sliders
+    if sliderFill then Tween(sliderFill, animDuration, { BackgroundColor3 = preset.Main }):Play() end
+    if sliderKnobStroke then Tween(sliderKnobStroke, animDuration, { Color = preset.Main }):Play() end
+    if blurValLabel then Tween(blurValLabel, animDuration, { TextColor3 = preset.Glow }):Play() end
+
+    -- 9. Header Icons & Dynamic Labels
+    if setIcoHeader then Tween(setIcoHeader, animDuration, { ImageColor3 = preset.Glow }):Play() end
+    if visHeadIco then Tween(visHeadIco, animDuration, { ImageColor3 = preset.Glow }):Play() end
+    if cfgHeadIco then Tween(cfgHeadIco, animDuration, { ImageColor3 = preset.Glow }):Play() end
+    if setHeadIco then Tween(setHeadIco, animDuration, { ImageColor3 = preset.Glow }):Play() end
+    if sysHeadIco then Tween(sysHeadIco, animDuration, { ImageColor3 = preset.Glow }):Play() end
+    if uHeadIco then Tween(uHeadIco, animDuration, { ImageColor3 = preset.Glow }):Play() end
+    if quickHeadIco then Tween(quickHeadIco, animDuration, { ImageColor3 = preset.Glow }):Play() end
+    if clHeadIco then Tween(clHeadIco, animDuration, { ImageColor3 = preset.Glow }):Play() end
+    if heroHpsLabel then Tween(heroHpsLabel, animDuration, { TextColor3 = preset.Glow }):Play() end
+    if timeIco then Tween(timeIco, animDuration, { ImageColor3 = preset.Glow }):Play() end
+    if heroAvatarStroke then Tween(heroAvatarStroke, animDuration, { Color = preset.Main }):Play() end
+    if mobStroke then Tween(mobStroke, animDuration, { Color = preset.Main }):Play() end
+    if execLabel then Tween(execLabel, animDuration, { TextColor3 = preset.Glow }):Play() end
+    if sysKey then Tween(sysKey, animDuration, { TextColor3 = preset.Main }):Play() end
+    if themeHeadIco then Tween(themeHeadIco, animDuration, { ImageColor3 = preset.Glow }):Play() end
+    if streamerHeadIco then Tween(streamerHeadIco, animDuration, { ImageColor3 = preset.Glow }):Play() end
+
+    -- 10. Watermark HUD
+    if hudStrokeGrad then
+        hudStrokeGrad.Color = ColorSequence.new{
+            ColorSequenceKeypoint.new(0, preset.Glow),
+            ColorSequenceKeypoint.new(0.4, preset.Main),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 25, 45))
+        }
+    end
+    if hudBrand then Tween(hudBrand, animDuration, { TextColor3 = preset.Glow }):Play() end
+    if hudPing then Tween(hudPing, animDuration, { TextColor3 = preset.Main }):Play() end
+
+    -- 11. Preset Swatches UI Highlights
+    for pName, w in pairs(presetIndicatorWidgets) do
+        local isSel = (pName == preset.Name)
+        Tween(w.stroke, 0.2, {
+            Color = isSel and preset.Glow or Theme.BorderSoft,
+            Thickness = isSel and 2 or 1
+        }):Play()
+        Tween(w.btn, 0.2, {
+            BackgroundColor3 = isSel and Color3.fromRGB(24, 32, 48) or Theme.CardInner
+        }):Play()
+    end
+    if curAccentLabel then
+        curAccentLabel.Text = preset.Name
+        Tween(curAccentLabel, animDuration, { TextColor3 = preset.Glow }):Play()
+    end
+
+    -- 12. Config status text
+    if UpdateConfigStatus then UpdateConfigStatus() end
+end
+
+local function ApplyBaseTheme(name)
+    local b = BaseThemes[name]
+    if not b then return end
+    Config.ThemeName = name
+    for k, v in pairs(b) do
+        Theme[k] = v
+    end
+
+    Tween(main, 0.35, { BackgroundColor3 = Theme.Background }):Play()
+    local isWallActive = (Config.CustomBgId ~= "" or activeThemeId ~= nil)
+    if sidebarFrame then
+        Tween(sidebarFrame, 0.35, {
+            BackgroundColor3 = Theme.Sidebar,
+            BackgroundTransparency = 0
+        }):Play()
+        local fill = sidebarFrame:FindFirstChild("SidebarFill")
+        if fill then
+            Tween(fill, 0.35, {
+                BackgroundColor3 = Theme.Sidebar,
+                BackgroundTransparency = 0
+            }):Play()
+        end
+    end
+    for _, c in ipairs(allCardFrames) do
+        Tween(c, 0.35, {
+            BackgroundColor3 = Theme.Card,
+            BackgroundTransparency = isWallActive and 0.14 or 0
+        }):Play()
+    end
+    for _, s in ipairs(allCardStrokes) do
+        Tween(s, 0.35, { Color = Theme.Border }):Play()
+    end
+    for tName, btnData in pairs(themeModeButtons) do
+        local isSel = (tName == name)
+        Tween(btnData.btn, 0.25, {
+            BackgroundColor3 = isSel and Theme.ActiveBg or Theme.CardInner
+        }):Play()
+        Tween(btnData.stroke, 0.25, {
+            Color = isSel and Theme.Blue or Theme.BorderSoft
+        }):Play()
+        btnData.label.TextColor3 = isSel and Theme.White or Theme.Muted
+    end
+    UpdateRunnerColors()
+end
+
+local function UpdateGlassMode(enabled)
+    local cardTrans = enabled and 0.14 or 0
+    local sideTrans = enabled and 0.32 or 0
+    if sidebarFrame then
+        Tween(sidebarFrame, 0.35, { BackgroundTransparency = sideTrans }):Play()
+        local fill = sidebarFrame:FindFirstChild("SidebarFill")
+        if fill then
+            Tween(fill, 0.35, { BackgroundTransparency = sideTrans }):Play()
+        end
+    end
+    for _, c in ipairs(allCardFrames) do
+        Tween(c, 0.35, { BackgroundTransparency = cardTrans }):Play()
+    end
+    for _, s in ipairs(allCardStrokes) do
+        Tween(s, 0.35, {
+            Transparency = enabled and 0.3 or 0,
+            Color = enabled and Color3.fromRGB(24, 40, 64) or Theme.Border
+        }):Play()
+    end
+end
+
+local bgFadeTween1 = nil
+local bgFadeTween2 = nil
+local bgOverlayTween = nil
+local bgTransitionSeq = 0
+
+local function ApplyCustomWallpaper(rawInput, onDone)
+    if not rawInput or rawInput == "" then return end
+    if bgApplyBtn then bgApplyBtn.Text = "..." end
+    
+    bgTransitionSeq = bgTransitionSeq + 1
+    local curSeq = bgTransitionSeq
+
+    task.spawn(function()
+        local resolved = ResolveDecalToTexture(rawInput)
+        if curSeq ~= bgTransitionSeq then return end
+
+        if not resolved or resolved == "" then
+            if bgApplyBtn then
+                bgApplyBtn.Text = "Error"
+                task.delay(1.2, function()
+                    if bgApplyBtn and bgApplyBtn.Parent then bgApplyBtn.Text = "Apply" end
+                end)
+            end
+            if onDone then onDone(false) end
+            return
+        end
+
+        local curIdx = activeBgIdx
+        local curImg = bgImages[curIdx]
+
+        -- If already displaying this exact image and it is visible, don't re-trigger
+        if Config.CustomBgId == resolved and curImg.Visible and curImg.ImageTransparency < 0.05 then
+            if bgApplyBtn then
+                bgApplyBtn.Text = "Done"
+                task.delay(1, function()
+                    if bgApplyBtn and bgApplyBtn.Parent then bgApplyBtn.Text = "Apply" end
+                end)
+            end
+            if onDone then onDone(true) end
+            return
+        end
+
+        Config.CustomBgId = resolved
+
+        -- 1. Cancel previous tweens properly and handle mid-transition interrupts
+        if bgFadeTween1 then
+            bgFadeTween1:Cancel()
+            bgFadeTween1 = nil
+            local pendingNextIdx = (activeBgIdx == 1) and 2 or 1
+            local pendingImg = bgImages[pendingNextIdx]
+            if pendingImg and pendingImg.Visible and pendingImg.ImageTransparency < 0.95 then
+                bgImages[activeBgIdx].Visible = false
+                bgImages[activeBgIdx].ImageTransparency = 1
+                bgImages[activeBgIdx].ZIndex = 1
+                pendingImg.ImageTransparency = 0
+                pendingImg.ZIndex = 1
+                activeBgIdx = pendingNextIdx
+            end
+        end
+        if bgFadeTween2 then bgFadeTween2:Cancel() bgFadeTween2 = nil end
+        if bgOverlayTween then bgOverlayTween:Cancel() bgOverlayTween = nil end
+
+        local curIdx = activeBgIdx
+        local curImg = bgImages[curIdx]
+        local nextIdx = (curIdx == 1) and 2 or 1
+        local nextImg = bgImages[nextIdx]
+
+        -- 2. Setup incoming layer image and preload before starting fade
+        nextImg.Image = resolved
+        pcall(function()
+            ContentProvider:PreloadAsync({ nextImg })
+        end)
+        if curSeq ~= bgTransitionSeq then return end
+
+        for _, item in ipairs(bgBlurLayers[nextIdx]) do
+            if item.img.Visible then
+                item.img.Image = resolved
+            end
+        end
+        ApplyWallpaperBlur(Config.BlurLevel)
+
+        -- 3. Manage customBgOverlay (ZIndex = 3 stays strictly above both wallpapers and under UI)
+        if customBgOverlay then
+            customBgOverlay.ZIndex = 3
+            customBgOverlay.Visible = true
+            if customBgOverlay.BackgroundTransparency >= 0.95 then
+                customBgOverlay.BackgroundTransparency = 1
+                bgOverlayTween = Tween(customBgOverlay, 0.35, { BackgroundTransparency = 0.28 }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+                bgOverlayTween:Play()
+            else
+                customBgOverlay.BackgroundTransparency = 0.28
+            end
+        end
+
+        -- 4. Single-state smooth crossfade using direct ImageTransparency:
+        if not curImg.Visible or curImg.ImageTransparency >= 0.95 then
+            -- Initial fade in from empty/dark base
+            curImg.Visible = false
+            curImg.ImageTransparency = 1
+            curImg.ZIndex = 1
+
+            nextImg.ZIndex = 2
+            nextImg.ImageTransparency = 1
+            nextImg.Visible = true
+
+            bgFadeTween1 = Tween(nextImg, 0.35, { ImageTransparency = 0 }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            bgFadeTween1:Play()
+
+            bgFadeTween1.Completed:Connect(function(playbackState)
+                if playbackState == Enum.PlaybackState.Completed and curSeq == bgTransitionSeq then
+                    activeBgIdx = nextIdx
+                    nextImg.ZIndex = 1
+                    bgFadeTween1 = nil
+                end
+            end)
+        else
+            -- Crossfade: Outgoing layer stays steady underneath (ZIndex 1) so NO dark flash
+            curImg.ZIndex = 1
+            curImg.Visible = true
+            curImg.ImageTransparency = 0
+
+            -- Incoming layer fades in on top (ZIndex 2) from ImageTransparency 1 -> 0
+            nextImg.ZIndex = 2
+            nextImg.ImageTransparency = 1
+            nextImg.Visible = true
+
+            bgFadeTween1 = Tween(nextImg, 0.35, { ImageTransparency = 0 }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            bgFadeTween1:Play()
+
+            bgFadeTween1.Completed:Connect(function(playbackState)
+                if playbackState == Enum.PlaybackState.Completed and curSeq == bgTransitionSeq then
+                    curImg.Visible = false
+                    curImg.ImageTransparency = 1
+                    curImg.ZIndex = 1
+                    nextImg.ZIndex = 1
+                    activeBgIdx = nextIdx
+                    bgFadeTween1 = nil
+                end
+            end)
+        end
+
+        UpdateGlassMode(true)
+        if bgInputBox then bgInputBox.Text = tostring(rawInput) end
+        if bgApplyBtn then
+            bgApplyBtn.Text = "Done"
+            task.delay(1, function()
+                if bgApplyBtn and bgApplyBtn.Parent then bgApplyBtn.Text = "Apply" end
+            end)
+        end
+        if onDone then onDone(true) end
+    end)
+end
+
+local function ClearCustomWallpaper()
+    bgTransitionSeq = bgTransitionSeq + 1
+    local curSeq = bgTransitionSeq
+    Config.CustomBgId = ""
+    if bgInputBox then bgInputBox.Text = "" end
+
+    if bgFadeTween1 then bgFadeTween1:Cancel() bgFadeTween1 = nil end
+    if bgFadeTween2 then bgFadeTween2:Cancel() bgFadeTween2 = nil end
+    if bgOverlayTween then bgOverlayTween:Cancel() bgOverlayTween = nil end
+
+    local curImg = bgImages[activeBgIdx]
+    local otherIdx = (activeBgIdx == 1) and 2 or 1
+    local otherImg = bgImages[otherIdx]
+
+    otherImg.Visible = false
+    otherImg.ImageTransparency = 1
+    otherImg.ZIndex = 1
+
+    if curImg and curImg.Visible then
+        curImg.ZIndex = 1
+        bgFadeTween1 = Tween(curImg, 0.35, { ImageTransparency = 1 }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+        bgFadeTween1:Play()
+        if customBgOverlay and customBgOverlay.Visible then
+            customBgOverlay.ZIndex = 3
+            bgOverlayTween = Tween(customBgOverlay, 0.35, { BackgroundTransparency = 1 }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            bgOverlayTween:Play()
+        end
+        bgFadeTween1.Completed:Connect(function(playbackState)
+            if playbackState == Enum.PlaybackState.Completed and curSeq == bgTransitionSeq then
+                curImg.Visible = false
+                curImg.ImageTransparency = 1
+                if customBgOverlay then customBgOverlay.Visible = false end
+                bgFadeTween1 = nil
+                bgOverlayTween = nil
+            end
+        end)
+    else
+        if customBgOverlay then customBgOverlay.Visible = false end
+    end
+
+    UpdateGlassMode(false)
+end
+
+
+-- ======== TOP NEON GLOW LINE ========
+topGlow = Instance.new("Frame")
+topGlow.Name = "TopNeonGlow"
+topGlow.Size = UDim2.new(1, -28, 0, 2)
+topGlow.Position = UDim2.new(0, 14, 0, 0)
+topGlow.BackgroundColor3 = Color3.fromRGB(60, 170, 255)
+topGlow.BorderSizePixel = 0
+topGlow.ZIndex = 10
+topGlow.Parent = main
+Corner(topGlow, 1)
+
+-- Bright shimmer gradient
+topGlowGrad = Instance.new("UIGradient")
+topGlowGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 80, 180)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(100, 200, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 80, 180))
+}
+topGlowGrad.Transparency = NumberSequence.new{
+    NumberSequenceKeypoint.new(0, 0.6),
+    NumberSequenceKeypoint.new(0.4, 0),
+    NumberSequenceKeypoint.new(0.6, 0),
+    NumberSequenceKeypoint.new(1, 0.6)
+}
+topGlowGrad.Parent = topGlow
+
+-- Shimmer sweep animation (throttled when UI is hidden)
+task.spawn(function()
+    while gui.Parent do
+        if not isVisible then
+            task.wait(0.5)
+        else
+            topGlowGrad.Offset = Vector2.new(-1, 0)
+            Tween(topGlowGrad, 2.5, { Offset = Vector2.new(1, 0) }):Play()
+            task.wait(3.5)
+        end
+    end
+end)
+
+-- ======== TOGGLE & KEYBIND SYSTEM ========
+local isVisible = false
+local isBindingKey = false
+local sysKeyLabel = nil
+local settingsKeyLabel = nil
+local settingsKeyBtn = nil
+local currentAnimTween = nil
+
+local function ToggleUI()
+    if isVisible then
+        AnimClose()
+    else
+        AnimOpen()
+    end
+end
+
+-- Expose globally for external executors, scripts, and mobile triggers
+_G.ToggleHPS = ToggleUI
+_G.HPS_Config = Config
+_G.HPS_IsVisible = function() return isVisible end
+if getgenv then
+    getgenv().ToggleHPS = ToggleUI
+    getgenv().HPS_Config = Config
+    getgenv().HPS_IsVisible = function() return isVisible end
+end
+
+local function BindMenuKey(buttonInstance, labelInstance)
+    if isBindingKey then return end
+    isBindingKey = true
+
+    local prevKeyName = Config.ToggleKey.Name
+    labelInstance.Text = "[ Press Key ]"
+    labelInstance.TextColor3 = Theme.White
+    if buttonInstance then
+        Tween(buttonInstance, 0.15, { BackgroundColor3 = Color3.fromRGB(18, 42, 85) }):Play()
+    end
+
+    local conn
+    conn = UserInputService.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            local key = input.KeyCode
+            conn:Disconnect()
+
+            if key ~= Enum.KeyCode.Escape and key ~= Enum.KeyCode.Unknown then
+                Config.ToggleKey = key
+                labelInstance.Text = key.Name
+                if sysKeyLabel and sysKeyLabel ~= labelInstance then
+                    sysKeyLabel.Text = key.Name
+                end
+                if settingsKeyLabel and settingsKeyLabel ~= labelInstance then
+                    settingsKeyLabel.Text = key.Name
+                end
+            else
+                labelInstance.Text = prevKeyName
+            end
+
+            if labelInstance == settingsKeyLabel then
+                labelInstance.TextColor3 = Theme.White
+            else
+                labelInstance.TextColor3 = Theme.Blue
+            end
+            if sysKeyLabel then sysKeyLabel.TextColor3 = Theme.Blue end
+            if settingsKeyLabel then settingsKeyLabel.TextColor3 = Theme.White end
+
+            if buttonInstance then
+                Tween(buttonInstance, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+                Tween(buttonInstance, 0.08, { Size = UDim2.fromOffset(76, 21) }):Play()
+                task.wait(0.08)
+                Tween(buttonInstance, 0.22, { Size = UDim2.fromOffset(82, 24) }, Enum.EasingStyle.Back):Play()
+            end
+
+            task.delay(0.12, function()
+                isBindingKey = false
+            end)
+        end
+    end)
+end
+
+AnimClose = function()
+    if not isVisible and (not main or not main.Visible) then return end
+    isVisible = false
+    if bgBlur then bgBlur.Enabled = false end
+    if currentAnimTween then currentAnimTween:Cancel() end
+
+    local targetSize = UDim2.new(0, math.floor(Config.WindowSize.X.Offset * 0.94), 0, math.floor(Config.WindowSize.Y.Offset * 0.94))
+    currentAnimTween = Tween(main, 0.18, {
+        Size = targetSize
+    }, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+    currentAnimTween:Play()
+    currentAnimTween.Completed:Connect(function()
+        if not isVisible then
+            main.Visible = false
+        end
+    end)
+end
+
+AnimOpen = function()
+    if isVisible and main and main.Visible then return end
+    isVisible = true
+    if bgBlur and Config.BlurLevel > 0 then bgBlur.Enabled = true end
+    if currentAnimTween then currentAnimTween:Cancel() end
+
+    main.Size = UDim2.new(0, math.floor(Config.WindowSize.X.Offset * 0.94), 0, math.floor(Config.WindowSize.Y.Offset * 0.94))
+    main.Visible = true
+
+    currentAnimTween = Tween(main, 0.26, {
+        Size = Config.WindowSize
+    }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    currentAnimTween:Play()
+
+    -- Play cards entrance concurrently with window opening (Zero delay)
+    if currentPage and pageAnims[currentPage] then
+        task.spawn(function()
+            pcall(pageAnims[currentPage])
+        end)
+    end
+end
+
+-- Keybind listener without "not gp" barrier (guarantees RightShift & custom keys always trigger)
+local toggleConn = UserInputService.InputBegan:Connect(function(input, gp)
+    if isBindingKey then return end
+    if UserInputService:GetFocusedTextBox() then return end
+    if input.KeyCode == Config.ToggleKey then
+        ToggleUI()
+    end
+end)
+table.insert(cleanupConns, toggleConn)
+
+-- ======== DRAGGING HELPER (Touch & Mouse Support) ========
+local function MakeDraggable(frame, handle)
+    handle = handle or frame
+    local isDrag, dStart, sPos = false, nil, nil
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDrag = true
+            dStart = input.Position
+            sPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then isDrag = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if isDrag and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dStart
+            frame.Position = UDim2.new(sPos.X.Scale, sPos.X.Offset + delta.X, sPos.Y.Scale, sPos.Y.Offset + delta.Y)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDrag = false
+        end
+    end)
+end
+
+local function EnableDrag(f)
+    MakeDraggable(main, f)
+end
+
+-- ======== MOBILE FLOATING TOGGLE BUTTON (FAB) ========
+local mobileToggle = Instance.new("TextButton")
+mobileToggle.Name = "HPS_MobileToggle"
+mobileToggle.Size = UDim2.fromOffset(44, 44)
+mobileToggle.Position = UDim2.new(0, 16, 0.5, -22)
+mobileToggle.BackgroundColor3 = Color3.fromRGB(8, 14, 26)
+mobileToggle.BackgroundTransparency = 0.15
+mobileToggle.BorderSizePixel = 0
+mobileToggle.AutoButtonColor = false
+mobileToggle.Text = ""
+mobileToggle.ZIndex = 250
+mobileToggle.Parent = gui
+Corner(mobileToggle, 22)
+mobStroke = Stroke(mobileToggle, Theme.Blue, 1.8)
+
+local mobIco = Instance.new("ImageLabel")
+mobIco.Name = "MobIcon"
+mobIco.Size = UDim2.fromOffset(22, 22)
+mobIco.Position = UDim2.fromScale(0.5, 0.5)
+mobIco.AnchorPoint = Vector2.new(0.5, 0.5)
+mobIco.BackgroundTransparency = 1
+mobIco.Image = Icons.Logo
+mobIco.ImageColor3 = Color3.fromRGB(255, 255, 255)
+mobIco.ScaleType = Enum.ScaleType.Fit
+mobIco.ZIndex = 251
+mobIco.Parent = mobileToggle
+
+MakeDraggable(mobileToggle, mobileToggle)
+
+mobileToggle.MouseButton1Click:Connect(function()
+    ToggleUI()
+    Tween(mobileToggle, 0.08, { Size = UDim2.fromOffset(38, 38) }):Play()
+    task.wait(0.08)
+    Tween(mobileToggle, 0.22, { Size = UDim2.fromOffset(44, 44) }, Enum.EasingStyle.Back):Play()
+end)
+
+local function SyncMobileBtn()
+    local isMobile = UserInputService.TouchEnabled or not UserInputService.KeyboardEnabled
+    mobileToggle.Visible = isMobile or (_G.HPS_MobileButton == true)
+end
+SyncMobileBtn()
+UserInputService:GetPropertyChangedSignal("TouchEnabled"):Connect(SyncMobileBtn)
+
+do
+    -- =================================================================
+    -- 3.5. ON-SCREEN WATERMARK HUD BAR ("ping fps time logo name band")
+    -- =================================================================
+    hudBar = Instance.new("Frame")
+    hudBar.Name = "HPS_WatermarkHUD"
+    hudBar.Position = UDim2.new(1, -20, 0, 16)
+    hudBar.AnchorPoint = Vector2.new(1, 0)
+    hudBar.Size = UDim2.fromOffset(0, 28)
+    hudBar.AutomaticSize = Enum.AutomaticSize.X
+    hudBar.BackgroundColor3 = Color3.fromRGB(8, 14, 24)
+    hudBar.BackgroundTransparency = 0.15
+    hudBar.BorderSizePixel = 0
+    hudBar.Visible = true
+    hudBar.ZIndex = 100
+    hudBar.Parent = gui
+
+    Corner(hudBar, 6)
+    hudStroke = Stroke(hudBar, Color3.fromRGB(255, 255, 255), 1)
+
+    hudStrokeGrad = Instance.new("UIGradient")
+    hudStrokeGrad.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Theme.BlueGlow),
+        ColorSequenceKeypoint.new(0.4, Theme.Blue),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 25, 45))
+    }
+    hudStrokeGrad.Rotation = 90
+    hudStrokeGrad.Parent = hudStroke
+
+    -- Padding & Layout
+    local hudPad = Instance.new("UIPadding")
+    hudPad.PaddingLeft = UDim.new(0, 10)
+    hudPad.PaddingRight = UDim.new(0, 12)
+    hudPad.PaddingTop = UDim.new(0, 0)
+    hudPad.PaddingBottom = UDim.new(0, 0)
+    hudPad.Parent = hudBar
+
+    local hudLayout = Instance.new("UIListLayout")
+    hudLayout.FillDirection = Enum.FillDirection.Horizontal
+    hudLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    hudLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    hudLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    hudLayout.Padding = UDim.new(0, 7)
+    hudLayout.Parent = hudBar
+
+    -- 1. Logo
+    hudLogo = Instance.new("ImageLabel")
+    hudLogo.Name = "HUD_Logo"
+    hudLogo.LayoutOrder = 1
+    hudLogo.Size = UDim2.fromOffset(18, 18)
+    hudLogo.BackgroundTransparency = 1
+    hudLogo.Image = Icons.Logo
+    hudLogo.ImageColor3 = Color3.fromRGB(255, 255, 255)
+    hudLogo.ScaleType = Enum.ScaleType.Fit
+    hudLogo.ZIndex = 102
+    hudLogo.Parent = hudBar
+    Corner(hudLogo, 4)
+
+    -- 2. Brand ("HPS")
+    hudBrand = Instance.new("TextLabel")
+    hudBrand.Name = "HUD_Brand"
+    hudBrand.LayoutOrder = 2
+    hudBrand.AutomaticSize = Enum.AutomaticSize.X
+    hudBrand.Size = UDim2.fromOffset(0, 20)
+    hudBrand.BackgroundTransparency = 1
+    hudBrand.Text = "HPS"
+    hudBrand.TextColor3 = Theme.BlueGlow
+    hudBrand.Font = Fonts.Bold
+    hudBrand.TextSize = 11.5
+    hudBrand.ZIndex = 102
+    hudBrand.Parent = hudBar
+
+    local function HudSep(order)
+        local sep = Instance.new("TextLabel")
+        sep.LayoutOrder = order
+        sep.Size = UDim2.fromOffset(4, 20)
+        sep.BackgroundTransparency = 1
+        sep.Text = "|"
+        sep.TextColor3 = Theme.Border
+        sep.Font = Fonts.Bold
+        sep.TextSize = 11
+        sep.ZIndex = 102
+        sep.Parent = hudBar
+        return sep
+    end
+
+    HudSep(3)
+
+    -- 3. Name (Player Username)
+    hudUser = Instance.new("TextLabel")
+    hudUser.Name = "HUD_Name"
+    hudUser.LayoutOrder = 4
+    hudUser.AutomaticSize = Enum.AutomaticSize.X
+    hudUser.Size = UDim2.fromOffset(0, 20)
+    hudUser.BackgroundTransparency = 1
+    hudUser.Text = LocalPlayer.DisplayName
+    hudUser.TextColor3 = Theme.Text
+    hudUser.Font = Fonts.Medium
+    hudUser.TextSize = 10.5
+    hudUser.ZIndex = 102
+    hudUser.Parent = hudBar
+
+    HudSep(5)
+
+    -- 4. FPS
+    hudFps = Instance.new("TextLabel")
+    hudFps.Name = "HUD_FPS"
+    hudFps.LayoutOrder = 6
+    hudFps.AutomaticSize = Enum.AutomaticSize.X
+    hudFps.Size = UDim2.fromOffset(0, 20)
+    hudFps.BackgroundTransparency = 1
+    hudFps.Text = "60 fps"
+    hudFps.TextColor3 = Theme.Green
+    hudFps.Font = Fonts.Bold
+    hudFps.TextSize = 10.5
+    hudFps.ZIndex = 102
+    hudFps.Parent = hudBar
+
+    HudSep(7)
+
+    -- 5. Ping
+    hudPing = Instance.new("TextLabel")
+    hudPing.Name = "HUD_Ping"
+    hudPing.LayoutOrder = 8
+    hudPing.AutomaticSize = Enum.AutomaticSize.X
+    hudPing.Size = UDim2.fromOffset(0, 20)
+    hudPing.BackgroundTransparency = 1
+    hudPing.Text = "0 ms"
+    hudPing.TextColor3 = Theme.Blue
+    hudPing.Font = Fonts.Bold
+    hudPing.TextSize = 10.5
+    hudPing.ZIndex = 102
+    hudPing.Parent = hudBar
+
+    HudSep(9)
+
+    -- 6. Time
+    hudTime = Instance.new("TextLabel")
+    hudTime.Name = "HUD_Time"
+    hudTime.LayoutOrder = 10
+    hudTime.AutomaticSize = Enum.AutomaticSize.X
+    hudTime.Size = UDim2.fromOffset(0, 20)
+    hudTime.BackgroundTransparency = 1
+    hudTime.Text = os.date("%X")
+    hudTime.TextColor3 = Theme.Muted
+    hudTime.Font = Fonts.Medium
+    hudTime.TextSize = 10.5
+    hudTime.ZIndex = 102
+    hudTime.Parent = hudBar
+
+    MakeDraggable(hudBar, hudBar)
+
+    -- Auto-resolve logo from Decal or Cached CDN
+    task.spawn(function()
+        pcall(function()
+            local objs = game:GetObjects("rbxassetid://136968184439857")
+            if objs and #objs > 0 and objs[1]:IsA("Decal") and objs[1].Texture ~= "" then
+                local tex = objs[1].Texture
+                Icons.Logo = tex
+                if logoIcon then logoIcon.Image = tex end
+                if hudLogo then hudLogo.Image = tex end
+                return
+            end
+        end)
+        pcall(function()
+            if writefile and getcustomasset and (not isfile or not isfile("hps_logo.png")) then
+                local data = game:HttpGet("https://tr.rbxcdn.com/180DAY-5cdd6613aa040df8b0171efb55fb5806/420/420/Decal/Png/noFilter")
+                if data and #data > 500 then
+                    writefile("hps_logo.png", data)
+                end
+            end
+            if isfile and isfile("hps_logo.png") and getcustomasset then
+                local ca = getcustomasset("hps_logo.png")
+                Icons.Logo = ca
+                if logoIcon then logoIcon.Image = ca end
+                if hudLogo then hudLogo.Image = ca end
+            end
+        end)
+    end)
+end
+
+-- =================================================================
+-- 4. SIDEBAR (200px)
+-- =================================================================
+local SIDEBAR_W = 200
+
+local sidebar = Instance.new("Frame")
+sidebarFrame = sidebar
+sidebar.Name = "Sidebar"
+sidebar.Size = UDim2.new(0, SIDEBAR_W, 1, 0)
+sidebar.Position = UDim2.fromOffset(0, 0)
+sidebar.BackgroundColor3 = Theme.Sidebar
+sidebar.BackgroundTransparency = 0.32
+sidebar.BorderSizePixel = 0
+sidebar.ZIndex = 10
+sidebar.Parent = main
+
+-- Right separator line
+local sideEdge = Instance.new("Frame")
+sideEdge.Size = UDim2.new(0, 1, 1, 0)
+sideEdge.Position = UDim2.new(1, 0, 0, 0)
+sideEdge.BackgroundColor3 = Theme.Border
+sideEdge.BorderSizePixel = 0
+sideEdge.ZIndex = 3
+sideEdge.Parent = sidebar
+
+
+do
+    -- ======== HPS LOGO ========
+    local logoHolder = Instance.new("Frame")
+    logoHolder.Size = UDim2.new(1, 0, 0, 100)
+    logoHolder.Position = UDim2.fromOffset(0, 8)
+    logoHolder.BackgroundTransparency = 1
+    logoHolder.ZIndex = 3
+    logoHolder.Parent = sidebar
+
+    logoIcon = Instance.new("ImageLabel")
+    logoIcon.BackgroundTransparency = 1
+    logoIcon.Size = UDim2.fromOffset(46, 46)
+    logoIcon.Position = UDim2.new(0.5, -23, 0, 3)
+    logoIcon.Image = Icons.Logo
+    logoIcon.ImageColor3 = Color3.fromRGB(255, 255, 255)
+    logoIcon.ScaleType = Enum.ScaleType.Fit
+    logoIcon.ZIndex = 4
+    logoIcon.Parent = logoHolder
+    Corner(logoIcon, 10)
+
+    local logoText = Label(logoHolder, "<b>Helix Project Script</b>", 12, UDim2.new(0, 0, 0, 52), Fonts.Bold, Theme.Text)
+    logoText.Size = UDim2.new(1, 0, 0, 16)
+    logoText.TextXAlignment = Enum.TextXAlignment.Center
+    logoText.ZIndex = 4
+
+    local logoSub = Label(logoHolder, "V1.0 - INTERNAL CLIENT", 9, UDim2.new(0, 0, 0, 68), Fonts.Medium, Theme.SubText)
+    logoSub.Size = UDim2.new(1, 0, 0, 12)
+    logoSub.TextXAlignment = Enum.TextXAlignment.Center
+    logoSub.ZIndex = 4
+end
+
+-- ======== NAVIGATION (Home + Settings only) ========
+pages = {}
+navButtons = {}
+currentPage = nil
+
+-- 1. Functions Navigation Container (Top: for Home and future script/feature tabs)
+local navContainer = Instance.new("Frame")
+navContainer.Name = "NavContainer"
+navContainer.Size = UDim2.new(1, -24, 1, -230)
+navContainer.Position = UDim2.fromOffset(12, 112)
+navContainer.BackgroundTransparency = 1
+navContainer.ZIndex = 3
+navContainer.Parent = sidebar
+
+local navLayout = Instance.new("UIListLayout")
+navLayout.Padding = UDim.new(0, 4)
+navLayout.SortOrder = Enum.SortOrder.LayoutOrder
+navLayout.Parent = navContainer
+
+-- Page holder
+pageHolder = Instance.new("Frame")
+pageHolder.Name = "PageHolder"
+pageHolder.Position = UDim2.fromOffset(SIDEBAR_W + 1, 0)
+pageHolder.Size = UDim2.new(1, -(SIDEBAR_W + 1), 1, 0)
+pageHolder.BackgroundTransparency = 1
+pageHolder.ZIndex = 10
+pageHolder.Parent = main
+
+local function CreatePage(name)
+    local p = Instance.new("ScrollingFrame")
+    p.Name = "Page_" .. name
+    p.Position = UDim2.fromOffset(0, 56)
+    p.Size = UDim2.new(1, -10, 1, -56)
+    p.BackgroundTransparency = 1
+    p.BorderSizePixel = 0
+    p.ScrollBarThickness = 2
+    p.ScrollBarImageColor3 = Color3.fromRGB(55, 85, 125)
+    p.ScrollBarImageTransparency = 0.5
+    p.CanvasSize = UDim2.new()
+    p.Visible = false
+    p.ClipsDescendants = true
+    p.Parent = pageHolder
+    pages[name] = p
+    return p
+end
+
+-- pageAnims declared at top level
+
+local function SwitchPage(name, forceAnim)
+    if currentPage == name and not forceAnim then return end
+
+    for pName, pg in pairs(pages) do
+        if pName ~= name and pg.Visible then
+            pg.Visible = false
+        end
+    end
+
+    if pages[name] then
+        pages[name].CanvasPosition = Vector2.new(0, 0)
+        pages[name].Visible = true
+        if isVisible and pageAnims[name] then
+            pageAnims[name]()
+        end
+    end
+
+    for bName, data in pairs(navButtons) do
+        local isActive = (bName == name)
+        Tween(data.bg, 0.25, {
+            BackgroundColor3 = isActive and Theme.ActiveBg or Color3.fromRGB(0, 0, 0),
+            BackgroundTransparency = isActive and 0 or 1
+        }):Play()
+        Tween(data.icon, 0.2, { ImageColor3 = isActive and Theme.White or Theme.SubText }):Play()
+        Tween(data.text, 0.2, { TextColor3 = isActive and Theme.White or Theme.SubText }):Play()
+        if data.indicator then
+            Tween(data.indicator, 0.25, {
+                BackgroundTransparency = isActive and 0 or 1,
+                Size = isActive and UDim2.new(0, 3, 0, 20) or UDim2.new(0, 3, 0, 0)
+            }):Play()
+        end
+    end
+
+    if setNavStroke then
+        Tween(setNavStroke, 0.25, {
+            Color = (name == "Settings") and Theme.BlueGlow or Theme.BorderSoft
+        }):Play()
+    end
+
+    if searchContainer and settingsTitle then
+        if name == "Settings" then
+            searchContainer.Visible = false
+            if setIcoHeader then setIcoHeader.Image = Icons.Settings end
+            if setHeadTxt then setHeadTxt.Text = "Settings  <font color=\"#4a658a\">/</font>  Configuration" end
+            settingsTitle.Visible = true
+        else
+            settingsTitle.Visible = false
+            searchContainer.Visible = true
+        end
+    end
+
+    currentPage = name
+end
+
+local function CreateNavButton(name, icon, parent, customSize)
+    CreatePage(name)
+
+    local btn = Instance.new("TextButton")
+    btn.Name = "NavBtn_" .. name
+    btn.Size = customSize or UDim2.new(1, 0, 0, 38)
+    btn.BackgroundTransparency = 1
+    btn.Text = ""
+    btn.AutoButtonColor = false
+    btn.ZIndex = 4
+    btn.Parent = parent
+
+    local bg = Instance.new("Frame")
+    bg.Size = UDim2.fromScale(1, 1)
+    bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    bg.BackgroundTransparency = 1
+    bg.BorderSizePixel = 0
+    bg.ZIndex = 4
+    bg.Parent = btn
+    Corner(bg, 8)
+
+    local indicator = Instance.new("Frame")
+    indicator.Size = UDim2.new(0, 3, 0, 0)
+    indicator.Position = UDim2.new(0, -1, 0.5, -10)
+    indicator.BackgroundColor3 = Theme.BlueGlow
+    indicator.BackgroundTransparency = 1
+    indicator.BorderSizePixel = 0
+    indicator.ZIndex = 5
+    indicator.Parent = btn
+    Corner(indicator, 2)
+
+    local ico = Instance.new("ImageLabel")
+    ico.BackgroundTransparency = 1
+    ico.Size = UDim2.fromOffset(18, 18)
+    ico.Position = UDim2.fromOffset(14, 10)
+    ico.Image = icon
+    ico.ImageColor3 = Theme.SubText
+    ico.ZIndex = 5
+    ico.Parent = btn
+
+    local txt = Label(btn, name, 13, UDim2.fromOffset(42, 9), Fonts.Medium, Theme.SubText)
+    txt.Size = UDim2.new(1, -48, 0, 20)
+    txt.ZIndex = 5
+
+    navButtons[name] = { bg = bg, icon = ico, text = txt, indicator = indicator }
+
+    btn.MouseEnter:Connect(function()
+        if currentPage ~= name then
+            Tween(bg, 0.15, { BackgroundTransparency = 0.5, BackgroundColor3 = Theme.SidebarHover }):Play()
+            Tween(ico, 0.15, { ImageColor3 = Theme.White }):Play()
+            Tween(txt, 0.15, { TextColor3 = Theme.White }):Play()
+        end
+    end)
+    btn.MouseLeave:Connect(function()
+        if currentPage ~= name then
+            Tween(bg, 0.15, { BackgroundTransparency = 1 }):Play()
+            Tween(ico, 0.15, { ImageColor3 = Theme.SubText }):Play()
+            Tween(txt, 0.15, { TextColor3 = Theme.SubText }):Play()
+        end
+    end)
+    btn.MouseButton1Click:Connect(function()
+        Tween(bg, 0.08, { Size = UDim2.new(0.94, 0, 0.85, 0), Position = UDim2.new(0.03, 0, 0.075, 0) }):Play()
+        Tween(ico, 0.08, { Position = UDim2.fromOffset(16, 11) }):Play()
+        task.delay(0.08, function()
+            Tween(bg, 0.2, { Size = UDim2.fromScale(1, 1), Position = UDim2.fromScale(0, 0) }):Play()
+            Tween(ico, 0.2, { Position = UDim2.fromOffset(14, 10) }):Play()
+        end)
+        SwitchPage(name, true)
+    end)
+
+    return btn
+end
+
+-- 1. Create Top Functions: Home
+CreateNavButton("Home", Icons.Home, navContainer, UDim2.new(1, 0, 0, 38))
+
+-- 2. Sidebar Divider Line above Settings (Enclosed panel)
+local sideDiv = Instance.new("Frame")
+sideDiv.Name = "SidebarDivider"
+sideDiv.Size = UDim2.new(1, -24, 0, 1)
+sideDiv.Position = UDim2.new(0, 12, 1, -112)
+sideDiv.BackgroundColor3 = Color3.fromRGB(24, 45, 75)
+sideDiv.BorderSizePixel = 0
+sideDiv.ZIndex = 3
+sideDiv.Parent = sidebar
+
+sideDivGrad = Instance.new("UIGradient")
+sideDivGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(15, 28, 48)),
+    ColorSequenceKeypoint.new(0.3, Color3.fromRGB(35, 75, 135)),
+    ColorSequenceKeypoint.new(0.7, Color3.fromRGB(35, 75, 135)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 28, 48))
+}
+sideDivGrad.Parent = sideDiv
+
+do
+    -- 3. Dedicated Settings Framed Box at Bottom (Enclosed panel)
+    local setNavBox = Instance.new("Frame")
+    setNavBox.Name = "SettingsNavBox"
+    setNavBox.Size = UDim2.new(1, -20, 0, 42)
+    setNavBox.Position = UDim2.new(0, 10, 1, -104)
+    setNavBox.BackgroundColor3 = Color3.fromRGB(8, 15, 26)
+    setNavBox.BorderSizePixel = 0
+    setNavBox.ZIndex = 3
+    setNavBox.Parent = sidebar
+    Corner(setNavBox, 8)
+    setNavStroke = Stroke(setNavBox, Theme.BorderSoft, 1)
+
+    CreateNavButton("Settings", Icons.Settings, setNavBox, UDim2.fromScale(1, 1))
+
+    -- ======== SIDEBAR BOTTOM VERSION ========
+    local bottomInfo = Instance.new("Frame")
+    bottomInfo.Size = UDim2.new(1, -20, 0, 44)
+    bottomInfo.Position = UDim2.new(0, 10, 1, -54)
+    bottomInfo.BackgroundColor3 = Color3.fromRGB(8, 16, 32)
+    bottomInfo.ZIndex = 3
+    bottomInfo.Parent = sidebar
+    Corner(bottomInfo, 8)
+
+    local btGrad = Instance.new("UIGradient")
+    btGrad.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(10, 28, 55)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 10, 18))
+    }
+    btGrad.Rotation = -90
+    btGrad.Parent = bottomInfo
+
+    local bGameTitle = Label(bottomInfo, "Loading Game...", 11.5, UDim2.fromOffset(12, 6), Fonts.Bold, Theme.Text)
+    bGameTitle.Size = UDim2.new(1, -24, 0, 15)
+    bGameTitle.ZIndex = 4
+    bGameTitle.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local bStat = Label(bottomInfo, "Status: Active", 10, UDim2.fromOffset(12, 23), Fonts.Medium, Theme.Green)
+    bStat.Size = UDim2.new(1, -24, 0, 13)
+    bStat.ZIndex = 4
+
+    task.spawn(function()
+        local gameName = "Roblox Experience"
+        local s, info = pcall(function()
+            return MarketplaceService:GetProductInfo(game.PlaceId)
+        end)
+        if s and info and info.Name and info.Name ~= "" then
+            gameName = info.Name
+        else
+            pcall(function()
+                if game.Name and game.Name ~= "" then
+                    gameName = game.Name
+                end
+            end)
+        end
+        if bGameTitle and bGameTitle.Parent then
+            bGameTitle.Text = gameName
+        end
+    end)
+end
+
+-- =================================================================
+-- 5. TOPBAR
+-- =================================================================
+do
+local topbar = Instance.new("Frame")
+topbar.Name = "Topbar"
+topbar.Size = UDim2.new(1, 0, 0, 56)
+topbar.BackgroundTransparency = 1
+topbar.BorderSizePixel = 0
+topbar.ZIndex = 15
+topbar.Parent = pageHolder
+EnableDrag(topbar)
+
+-- Horizontal Divider Line (Enclosed divider)
+local topbarDivider = Instance.new("Frame")
+topbarDivider.Name = "TopbarDivider"
+topbarDivider.Size = UDim2.new(1, -1, 0, 1)
+topbarDivider.Position = UDim2.new(0, 0, 1, -1)
+topbarDivider.BackgroundColor3 = Color3.fromRGB(30, 58, 98)
+topbarDivider.BorderSizePixel = 0
+topbarDivider.ZIndex = 16
+topbarDivider.Parent = topbar
+
+topDivGrad = Instance.new("UIGradient")
+topDivGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(15, 28, 48)),
+    ColorSequenceKeypoint.new(0.2, Color3.fromRGB(35, 75, 135)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(55, 125, 220)),
+    ColorSequenceKeypoint.new(0.8, Color3.fromRGB(35, 75, 135)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 28, 48))
+}
+topDivGrad.Parent = topbarDivider
+
+-- Ambient shadow under divider line for elevation
+local topbarShadow = Instance.new("Frame")
+topbarShadow.Name = "TopbarShadow"
+topbarShadow.Size = UDim2.new(1, 0, 0, 4)
+topbarShadow.Position = UDim2.new(0, 0, 1, 0)
+topbarShadow.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+topbarShadow.BorderSizePixel = 0
+topbarShadow.ZIndex = 16
+topbarShadow.Parent = topbar
+
+local shadowGrad = Instance.new("UIGradient")
+shadowGrad.Transparency = NumberSequence.new{
+    NumberSequenceKeypoint.new(0, 0.45),
+    NumberSequenceKeypoint.new(1, 1)
+}
+shadowGrad.Rotation = 90
+shadowGrad.Parent = topbarShadow
+
+-- Sidebar Collapse / Fold Toggle Button (Seamless Ghost Button, Never Floating)
+local sideToggleBtn = Instance.new("TextButton")
+sideToggleBtn.Name = "SidebarToggleBtn"
+sideToggleBtn.Size = UDim2.fromOffset(32, 32)
+sideToggleBtn.Position = UDim2.fromOffset(14, 12)
+sideToggleBtn.BackgroundColor3 = Theme.CardInner
+sideToggleBtn.BackgroundTransparency = 1
+sideToggleBtn.AutoButtonColor = false
+sideToggleBtn.Text = ""
+sideToggleBtn.BorderSizePixel = 0
+sideToggleBtn.ZIndex = 19
+sideToggleBtn.Parent = topbar
+Corner(sideToggleBtn, 7)
+local sideToggleStroke = Stroke(sideToggleBtn, Theme.BorderSoft, 1)
+sideToggleStroke.Transparency = 1
+
+-- 3-bar modern hamburger / sidebar icon (No play button, zero floating look)
+local barHolder = Instance.new("Frame")
+barHolder.Size = UDim2.fromOffset(16, 14)
+barHolder.Position = UDim2.fromScale(0.5, 0.5)
+barHolder.AnchorPoint = Vector2.new(0.5, 0.5)
+barHolder.BackgroundTransparency = 1
+barHolder.ZIndex = 20
+barHolder.Parent = sideToggleBtn
+
+local function CreateBar(yOffset, width)
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(0, width, 0, 2)
+    bar.Position = UDim2.new(0, 0, 0, yOffset)
+    bar.BackgroundColor3 = Theme.SubText
+    bar.BorderSizePixel = 0
+    bar.ZIndex = 20
+    bar.Parent = barHolder
+    Corner(bar, 1)
+    return bar
+end
+
+local barTop = CreateBar(1, 16)
+local barMid = CreateBar(6, 11)
+local barBot = CreateBar(11, 16)
+
+local isSidebarCollapsed = false
+local currentSidebarTween = nil
+local currentPageTween = nil
+
+local function SetToggleBars(collapsed)
+    if collapsed then
+        Tween(barTop, 0.2, { Size = UDim2.new(0, 16, 0, 2), BackgroundColor3 = Theme.BlueGlow }):Play()
+        Tween(barMid, 0.2, { Size = UDim2.new(0, 16, 0, 2), BackgroundColor3 = Theme.BlueGlow }):Play()
+        Tween(barBot, 0.2, { Size = UDim2.new(0, 16, 0, 2), BackgroundColor3 = Theme.BlueGlow }):Play()
+    else
+        Tween(barTop, 0.2, { Size = UDim2.new(0, 16, 0, 2), BackgroundColor3 = Theme.SubText }):Play()
+        Tween(barMid, 0.2, { Size = UDim2.new(0, 11, 0, 2), BackgroundColor3 = Theme.SubText }):Play()
+        Tween(barBot, 0.2, { Size = UDim2.new(0, 16, 0, 2), BackgroundColor3 = Theme.SubText }):Play()
+    end
+end
+
+local function ToggleSidebar()
+    isSidebarCollapsed = not isSidebarCollapsed
+    
+    if currentSidebarTween then currentSidebarTween:Cancel() end
+    if currentPageTween then currentPageTween:Cancel() end
+    
+    if isSidebarCollapsed then
+        SetToggleBars(true)
+        sidebar.Visible = false
+        currentPageTween = Tween(pageHolder, 0.25, { Position = UDim2.fromOffset(0, 0), Size = UDim2.fromScale(1, 1) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+        currentPageTween:Play()
+    else
+        SetToggleBars(false)
+        sidebar.Visible = true
+        currentPageTween = Tween(pageHolder, 0.24, { Position = UDim2.fromOffset(SIDEBAR_W + 1, 0), Size = UDim2.new(1, -(SIDEBAR_W + 1), 1, 0) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+        currentPageTween:Play()
+    end
+end
+
+sideToggleBtn.MouseEnter:Connect(function()
+    Tween(sideToggleBtn, 0.15, { BackgroundTransparency = 0.4, BackgroundColor3 = Theme.CardInner }):Play()
+    Tween(sideToggleStroke, 0.15, { Transparency = 0.5, Color = Theme.BorderSoft }):Play()
+    Tween(barTop, 0.15, { BackgroundColor3 = Theme.White }):Play()
+    Tween(barMid, 0.15, { BackgroundColor3 = Theme.White }):Play()
+    Tween(barBot, 0.15, { BackgroundColor3 = Theme.White }):Play()
+end)
+
+sideToggleBtn.MouseLeave:Connect(function()
+    Tween(sideToggleBtn, 0.15, { BackgroundTransparency = 1 }):Play()
+    Tween(sideToggleStroke, 0.15, { Transparency = 1 }):Play()
+    SetToggleBars(isSidebarCollapsed)
+end)
+
+sideToggleBtn.MouseButton1Down:Connect(function()
+    Tween(barHolder, 0.08, { Size = UDim2.fromOffset(14, 12) }):Play()
+end)
+
+sideToggleBtn.MouseButton1Up:Connect(function()
+    Tween(barHolder, 0.15, { Size = UDim2.fromOffset(16, 14) }, Enum.EasingStyle.Back):Play()
+end)
+
+sideToggleBtn.MouseButton1Click:Connect(ToggleSidebar)
+
+-- Hotkey support: Ctrl + B to toggle sidebar
+local sidebarKeyConn = UserInputService.InputBegan:Connect(function(input, gp)
+    if not gp and input.KeyCode == Enum.KeyCode.B and (UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)) then
+        ToggleSidebar()
+    end
+end)
+table.insert(cleanupConns, sidebarKeyConn)
+
+-- Search
+searchContainer = Instance.new("Frame")
+searchContainer.Size = UDim2.new(1, -270, 0, 32)
+searchContainer.Position = UDim2.fromOffset(54, 12)
+searchContainer.BackgroundColor3 = Theme.CardInner
+searchContainer.ZIndex = 17
+searchContainer.Parent = topbar
+Corner(searchContainer, 8)
+local searchStroke = Stroke(searchContainer, Theme.BorderSoft, 1)
+
+local searchConstraint = Instance.new("UISizeConstraint")
+searchConstraint.MaxSize = Vector2.new(340, 32)
+searchConstraint.MinSize = Vector2.new(100, 32)
+searchConstraint.Parent = searchContainer
+
+-- Settings Context Title (replaces function search box when in Settings)
+settingsTitle = Instance.new("Frame")
+settingsTitle.Name = "SettingsTitleContainer"
+settingsTitle.Size = UDim2.new(1, -270, 0, 32)
+settingsTitle.Position = UDim2.fromOffset(54, 12)
+settingsTitle.BackgroundTransparency = 1
+settingsTitle.ZIndex = 17
+settingsTitle.Visible = false
+settingsTitle.Parent = topbar
+
+local settingsTitleConstraint = Instance.new("UISizeConstraint")
+settingsTitleConstraint.MaxSize = Vector2.new(340, 32)
+settingsTitleConstraint.MinSize = Vector2.new(100, 32)
+settingsTitleConstraint.Parent = settingsTitle
+
+setIcoHeader = Instance.new("ImageLabel")
+setIcoHeader.BackgroundTransparency = 1
+setIcoHeader.Position = UDim2.fromOffset(2, 7)
+setIcoHeader.Size = UDim2.fromOffset(18, 18)
+setIcoHeader.Image = Icons.Settings
+setIcoHeader.ImageColor3 = Theme.BlueGlow
+setIcoHeader.ZIndex = 18
+setIcoHeader.Parent = settingsTitle
+
+setHeadTxt = Label(settingsTitle, "Settings  <font color=\"#4a658a\">/</font>  Configuration", 12, UDim2.fromOffset(28, 7), Fonts.Medium, Theme.White)
+setHeadTxt.Size = UDim2.new(1, -30, 0, 18)
+setHeadTxt.ZIndex = 18
+
+local searchIco = Instance.new("ImageLabel")
+searchIco.BackgroundTransparency = 1
+searchIco.Position = UDim2.fromOffset(10, 8)
+searchIco.Size = UDim2.fromOffset(16, 16)
+searchIco.Image = Icons.Search
+searchIco.ImageColor3 = Theme.Muted
+searchIco.ZIndex = 18
+searchIco.Parent = searchContainer
+
+local searchBox = Instance.new("TextBox")
+searchBox.PlaceholderText = "Search modules, scripts, or tags..."
+searchBox.PlaceholderColor3 = Theme.Muted
+searchBox.Text = ""
+searchBox.TextColor3 = Theme.Text
+searchBox.TextSize = 11.5
+searchBox.Font = Fonts.Medium
+searchBox.Position = UDim2.fromOffset(32, 0)
+searchBox.Size = UDim2.new(1, -42, 1, 0)
+searchBox.BackgroundTransparency = 1
+searchBox.BorderSizePixel = 0
+searchBox.TextXAlignment = Enum.TextXAlignment.Left
+searchBox.ZIndex = 18
+searchBox.Parent = searchContainer
+
+searchBox.Focused:Connect(function()
+    Tween(searchContainer, 0.2, { BackgroundColor3 = Color3.fromRGB(10, 22, 44) }):Play()
+    Tween(searchStroke, 0.2, { Color = Theme.BlueGlow, Thickness = 1.4 }):Play()
+    Tween(searchIco, 0.2, { ImageColor3 = Theme.White }):Play()
+end)
+
+searchBox.FocusLost:Connect(function()
+    Tween(searchContainer, 0.2, { BackgroundColor3 = Theme.CardInner }):Play()
+    Tween(searchStroke, 0.2, { Color = Theme.BorderSoft, Thickness = 1 }):Play()
+    Tween(searchIco, 0.2, { ImageColor3 = Theme.Muted }):Play()
+end)
+
+-- Status (Ready)
+local statusF = Instance.new("Frame")
+statusF.BackgroundTransparency = 1
+statusF.Position = UDim2.new(1, -210, 0, 11)
+statusF.Size = UDim2.fromOffset(130, 34)
+statusF.ZIndex = 17
+statusF.Parent = topbar
+
+local sDot = Instance.new("Frame")
+sDot.Size = UDim2.fromOffset(8, 8)
+sDot.Position = UDim2.fromOffset(0, 6)
+sDot.BackgroundColor3 = Theme.Green
+sDot.BorderSizePixel = 0
+sDot.ZIndex = 18
+sDot.Parent = statusF
+Corner(sDot, 4)
+
+-- Pulsing green dot (throttled when UI hidden)
+task.spawn(function()
+    while gui.Parent do
+        if not isVisible then
+            task.wait(0.5)
+        else
+            Tween(sDot, 1, { BackgroundTransparency = 0.4 }):Play()
+            task.wait(1)
+            Tween(sDot, 1, { BackgroundTransparency = 0 }):Play()
+            task.wait(1)
+        end
+    end
+end)
+
+local sTitle = Label(statusF, "Ready", 13, UDim2.fromOffset(14, 0), Fonts.Bold, Theme.Text)
+sTitle.Size = UDim2.fromOffset(100, 16)
+sTitle.ZIndex = 18
+local sSub = Label(statusF, "Active", 10, UDim2.fromOffset(14, 15), Fonts.Medium, Theme.Muted)
+sSub.Size = UDim2.fromOffset(120, 14)
+sSub.ZIndex = 18
+
+-- Window Controls (Minimize & Close buttons)
+local controlsHolder = Instance.new("Frame")
+controlsHolder.Name = "WindowControls"
+controlsHolder.Size = UDim2.fromOffset(66, 28)
+controlsHolder.Position = UDim2.new(1, -78, 0, 14)
+controlsHolder.BackgroundTransparency = 1
+controlsHolder.ZIndex = 18
+controlsHolder.Parent = topbar
+
+local controlsLayout = Instance.new("UIListLayout")
+controlsLayout.FillDirection = Enum.FillDirection.Horizontal
+controlsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+controlsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+controlsLayout.Padding = UDim.new(0, 6)
+controlsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+controlsLayout.Parent = controlsHolder
+
+-- 1. Minimize Button
+local minBtn = Instance.new("TextButton")
+minBtn.Name = "MinBtn"
+minBtn.Size = UDim2.fromOffset(28, 28)
+minBtn.BackgroundColor3 = Color3.fromRGB(12, 20, 36)
+minBtn.BackgroundTransparency = 0.2
+minBtn.AutoButtonColor = false
+minBtn.Text = ""
+minBtn.LayoutOrder = 1
+minBtn.ZIndex = 19
+minBtn.Parent = controlsHolder
+Corner(minBtn, 7)
+local minStroke = Stroke(minBtn, Color3.fromRGB(24, 42, 70), 1)
+
+local minBar = Instance.new("Frame")
+minBar.Size = UDim2.fromOffset(11, 2)
+minBar.Position = UDim2.fromScale(0.5, 0.5)
+minBar.AnchorPoint = Vector2.new(0.5, 0.5)
+minBar.BackgroundColor3 = Color3.fromRGB(120, 145, 180)
+minBar.BorderSizePixel = 0
+minBar.ZIndex = 20
+minBar.Parent = minBtn
+Corner(minBar, 1)
+
+minBtn.MouseEnter:Connect(function()
+    Tween(minBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(20, 42, 78), BackgroundTransparency = 0 }):Play()
+    Tween(minStroke, 0.15, { Color = Theme.BlueGlow }):Play()
+    Tween(minBar, 0.15, { BackgroundColor3 = Theme.White }):Play()
+end)
+
+minBtn.MouseLeave:Connect(function()
+    Tween(minBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(12, 20, 36), BackgroundTransparency = 0.2 }):Play()
+    Tween(minStroke, 0.15, { Color = Color3.fromRGB(24, 42, 70) }):Play()
+    Tween(minBar, 0.15, { BackgroundColor3 = Color3.fromRGB(120, 145, 180) }):Play()
+end)
+
+minBtn.MouseButton1Down:Connect(function()
+    Tween(minBtn, 0.08, { Size = UDim2.fromOffset(25, 25) }):Play()
+end)
+
+minBtn.MouseButton1Up:Connect(function()
+    Tween(minBtn, 0.15, { Size = UDim2.fromOffset(28, 28) }, Enum.EasingStyle.Back):Play()
+end)
+
+-- 2. Close Button
+local closeBtn = Instance.new("TextButton")
+closeBtn.Name = "CloseBtn"
+closeBtn.Size = UDim2.fromOffset(28, 28)
+closeBtn.BackgroundColor3 = Color3.fromRGB(12, 20, 36)
+closeBtn.BackgroundTransparency = 0.2
+closeBtn.AutoButtonColor = false
+closeBtn.Text = ""
+closeBtn.LayoutOrder = 2
+closeBtn.ZIndex = 19
+closeBtn.Parent = controlsHolder
+Corner(closeBtn, 7)
+local closeStroke = Stroke(closeBtn, Color3.fromRGB(24, 42, 70), 1)
+
+local closeIco = Instance.new("ImageLabel")
+closeIco.Size = UDim2.fromOffset(13, 13)
+closeIco.Position = UDim2.fromScale(0.5, 0.5)
+closeIco.AnchorPoint = Vector2.new(0.5, 0.5)
+closeIco.BackgroundTransparency = 1
+closeIco.Image = Icons.Close
+closeIco.ImageColor3 = Color3.fromRGB(120, 145, 180)
+closeIco.ZIndex = 20
+closeIco.Parent = closeBtn
+
+closeBtn.MouseEnter:Connect(function()
+    Tween(closeBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(195, 34, 52), BackgroundTransparency = 0 }):Play()
+    Tween(closeStroke, 0.15, { Color = Color3.fromRGB(255, 75, 95) }):Play()
+    Tween(closeIco, 0.15, { ImageColor3 = Theme.White }):Play()
+end)
+
+closeBtn.MouseLeave:Connect(function()
+    Tween(closeBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(12, 20, 36), BackgroundTransparency = 0.2 }):Play()
+    Tween(closeStroke, 0.15, { Color = Color3.fromRGB(24, 42, 70) }):Play()
+    Tween(closeIco, 0.15, { ImageColor3 = Color3.fromRGB(120, 145, 180) }):Play()
+end)
+
+closeBtn.MouseButton1Down:Connect(function()
+    Tween(closeBtn, 0.08, { Size = UDim2.fromOffset(25, 25) }):Play()
+end)
+
+closeBtn.MouseButton1Up:Connect(function()
+    Tween(closeBtn, 0.15, { Size = UDim2.fromOffset(28, 28) }, Enum.EasingStyle.Back):Play()
+end)
+
+minBtn.MouseButton1Click:Connect(AnimClose)
+closeBtn.MouseButton1Click:Connect(AnimClose)
+end
+
+-- =================================================================
+-- UNLOAD SCRIPT SYSTEM & CONFIRMATION MODAL
+-- =================================================================
+local isUnloading = false
+local function UnloadScript()
+    if isUnloading then return end
+    isUnloading = true
+
+    -- 1. Animate UI close smoothly
+    if isVisible and main then
+        isVisible = false
+        if currentAnimTween then currentAnimTween:Cancel() end
+        local closeTw = Tween(main, 0.22, {
+            Size = UDim2.new(0, math.floor(Config.WindowSize.X.Offset * 0.94), 0, math.floor(Config.WindowSize.Y.Offset * 0.94))
+        }, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+        closeTw:Play()
+    end
+
+    -- 2. Destroy background blur in Lighting
+    if bgBlur then
+        pcall(function()
+            bgBlur.Enabled = false
+            bgBlur:Destroy()
+        end)
+        bgBlur = nil
+    end
+    pcall(function()
+        local b = Lighting:FindFirstChild("HPS_BackgroundBlur")
+        if b then b:Destroy() end
+    end)
+
+    -- 3. Disconnect all registered Heartbeat / RenderStepped / Input connections
+    for _, conn in ipairs(cleanupConns) do
+        pcall(function() conn:Disconnect() end)
+    end
+    table.clear(cleanupConns)
+
+    -- 4. Clean up global references
+    if _G.HPS_Cleanup then _G.HPS_Cleanup = nil end
+    if getgenv then
+        pcall(function()
+            if getgenv().HPS_Cleanup then getgenv().HPS_Cleanup = nil end
+        end)
+    end
+
+    -- 5. Destroy HUD & Mobile toggle button
+    pcall(function()
+        if hudBar and hudBar.Parent then hudBar:Destroy() end
+    end)
+    pcall(function()
+        if mobileToggle and mobileToggle.Parent then mobileToggle:Destroy() end
+    end)
+
+    -- 6. Destroy root ScreenGui after animation completes
+    task.delay(0.24, function()
+        pcall(function()
+            if gui and gui.Parent then
+                gui:Destroy()
+            end
+        end)
+    end)
+end
+
+local function ShowUnloadConfirmation()
+    if not main or not main.Parent then return end
+    local existingModal = main:FindFirstChild("UnloadModalOverlay")
+    if existingModal then existingModal:Destroy() end
+
+    local modalOverlay = Instance.new("TextButton")
+    modalOverlay.Name = "UnloadModalOverlay"
+    modalOverlay.Size = UDim2.fromScale(1, 1)
+    modalOverlay.Position = UDim2.fromScale(0, 0)
+    modalOverlay.BackgroundColor3 = Color3.fromRGB(4, 6, 12)
+    modalOverlay.BackgroundTransparency = 1
+    modalOverlay.BorderSizePixel = 0
+    modalOverlay.AutoButtonColor = false
+    modalOverlay.Text = ""
+    modalOverlay.ZIndex = 50
+    modalOverlay.Parent = main
+    Corner(modalOverlay, 14)
+
+    local dialog = Instance.new("Frame")
+    dialog.Name = "DialogBox"
+    dialog.Size = UDim2.fromOffset(360, 184)
+    dialog.Position = UDim2.fromScale(0.5, 0.5)
+    dialog.AnchorPoint = Vector2.new(0.5, 0.5)
+    dialog.BackgroundColor3 = Color3.fromRGB(9, 15, 26)
+    dialog.BorderSizePixel = 0
+    dialog.ZIndex = 51
+    dialog.Parent = modalOverlay
+    Corner(dialog, 10)
+    local dialogStroke = Stroke(dialog, Color3.fromRGB(235, 65, 80), 1.2)
+
+    -- Danger header badge
+    local warnBadge = Instance.new("Frame")
+    warnBadge.Size = UDim2.fromOffset(38, 38)
+    warnBadge.Position = UDim2.fromOffset(18, 18)
+    warnBadge.BackgroundColor3 = Color3.fromRGB(38, 14, 22)
+    warnBadge.ZIndex = 52
+    warnBadge.Parent = dialog
+    Corner(warnBadge, 8)
+    Stroke(warnBadge, Color3.fromRGB(235, 65, 80), 1)
+
+    local warnIco = Instance.new("ImageLabel")
+    warnIco.Size = UDim2.fromOffset(20, 20)
+    warnIco.Position = UDim2.fromScale(0.5, 0.5)
+    warnIco.AnchorPoint = Vector2.new(0.5, 0.5)
+    warnIco.BackgroundTransparency = 1
+    warnIco.Image = Icons.Trash
+    warnIco.ImageColor3 = Color3.fromRGB(255, 75, 95)
+    warnIco.ZIndex = 53
+    warnIco.Parent = warnBadge
+
+    -- Title & Description
+    local titleLbl = Label(dialog, "<b>Unload Script</b>", 14.5, UDim2.fromOffset(66, 16), Fonts.Bold, Theme.White)
+    titleLbl.Size = UDim2.new(1, -80, 0, 20)
+    titleLbl.ZIndex = 52
+
+    local descLbl = Label(dialog, "Are you sure you want to unload Helix Project Script?\nThis will disconnect all hooks and completely close the UI.", 11.5, UDim2.fromOffset(66, 38), Fonts.Medium, Theme.SubText)
+    descLbl.Size = UDim2.new(1, -80, 0, 36)
+    descLbl.TextWrapped = true
+    descLbl.ZIndex = 52
+
+    -- Divider
+    local div = Instance.new("Frame")
+    div.Size = UDim2.new(1, -36, 0, 1)
+    div.Position = UDim2.new(0, 18, 0, 120)
+    div.BackgroundColor3 = Theme.BorderSoft
+    div.BorderSizePixel = 0
+    div.ZIndex = 52
+    div.Parent = dialog
+
+    -- Cancel button
+    local cancelBtn = Instance.new("TextButton")
+    cancelBtn.Size = UDim2.fromOffset(150, 32)
+    cancelBtn.Position = UDim2.fromOffset(18, 134)
+    cancelBtn.BackgroundColor3 = Theme.CardInner
+    cancelBtn.Text = "Cancel"
+    cancelBtn.TextColor3 = Theme.SubText
+    cancelBtn.Font = Fonts.Medium
+    cancelBtn.TextSize = 12.5
+    cancelBtn.AutoButtonColor = false
+    cancelBtn.ZIndex = 52
+    cancelBtn.Parent = dialog
+    Corner(cancelBtn, 6)
+    local cancelStroke = Stroke(cancelBtn, Theme.BorderSoft, 1)
+
+    -- Confirm Unload button
+    local confirmBtn = Instance.new("TextButton")
+    confirmBtn.Size = UDim2.fromOffset(150, 32)
+    confirmBtn.Position = UDim2.new(1, -168, 0, 134)
+    confirmBtn.BackgroundColor3 = Color3.fromRGB(195, 34, 52)
+    confirmBtn.Text = "Confirm Unload"
+    confirmBtn.TextColor3 = Theme.White
+    confirmBtn.Font = Fonts.Bold
+    confirmBtn.TextSize = 12.5
+    confirmBtn.AutoButtonColor = false
+    confirmBtn.ZIndex = 52
+    confirmBtn.Parent = dialog
+    Corner(confirmBtn, 6)
+    local confirmStroke = Stroke(confirmBtn, Color3.fromRGB(235, 65, 80), 1)
+
+    cancelBtn.MouseEnter:Connect(function()
+        Tween(cancelBtn, 0.15, { BackgroundColor3 = Theme.CardHover, TextColor3 = Theme.White }):Play()
+        Tween(cancelStroke, 0.15, { Color = Theme.Border }):Play()
+    end)
+    cancelBtn.MouseLeave:Connect(function()
+        Tween(cancelBtn, 0.15, { BackgroundColor3 = Theme.CardInner, TextColor3 = Theme.SubText }):Play()
+        Tween(cancelStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    end)
+
+    confirmBtn.MouseEnter:Connect(function()
+        Tween(confirmBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(225, 45, 65) }):Play()
+        Tween(confirmStroke, 0.15, { Color = Color3.fromRGB(255, 95, 115) }):Play()
+    end)
+    confirmBtn.MouseLeave:Connect(function()
+        Tween(confirmBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(195, 34, 52) }):Play()
+        Tween(confirmStroke, 0.15, { Color = Color3.fromRGB(235, 65, 80) }):Play()
+    end)
+
+    Tween(modalOverlay, 0.2, { BackgroundTransparency = 0.45 }):Play()
+    dialog.Size = UDim2.fromOffset(340, 174)
+    Tween(dialog, 0.22, { Size = UDim2.fromOffset(360, 184) }, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+
+    local function CloseModal()
+        Tween(modalOverlay, 0.15, { BackgroundTransparency = 1 }):Play()
+        local tw = Tween(dialog, 0.15, { Size = UDim2.fromOffset(330, 170) }, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+        tw:Play()
+        tw.Completed:Connect(function()
+            modalOverlay:Destroy()
+        end)
+    end
+
+    cancelBtn.MouseButton1Click:Connect(CloseModal)
+    confirmBtn.MouseButton1Click:Connect(function()
+        CloseModal()
+        UnloadScript()
+    end)
+end
+
+-- =================================================================
+-- WELCOME & KEYLESS ANNOUNCEMENT POPUP (SHOW ONCE PER MACHINE)
+-- =================================================================
+local ShowWelcomeNotice = nil
+do
+    local NOTICE_FILE = "HPS_Configs/first_launch_notice.txt"
+
+    local function HasSeenWelcomeNotice()
+        local seen = false
+        pcall(function()
+            if isfile and isfile(NOTICE_FILE) then
+                seen = true
+            end
+        end)
+        if not seen and _G.HPS_WelcomeSeen then
+            seen = true
+        end
+        return seen
+    end
+
+    local function MarkWelcomeNoticeSeen()
+        _G.HPS_WelcomeSeen = true
+        pcall(function()
+            if isfolder and not isfolder("HPS_Configs") and makefolder then
+                makefolder("HPS_Configs")
+            end
+            if writefile then
+                writefile(NOTICE_FILE, "seen")
+            end
+        end)
+    end
+
+    ShowWelcomeNotice = function()
+    if HasSeenWelcomeNotice() then return end
+    if not gui or not gui.Parent then return end
+
+    local existingModal = gui:FindFirstChild("WelcomeModalOverlay")
+    if existingModal then existingModal:Destroy() end
+
+    local modalOverlay = Instance.new("TextButton")
+    modalOverlay.Name = "WelcomeModalOverlay"
+    modalOverlay.Size = UDim2.fromScale(1, 1)
+    modalOverlay.Position = UDim2.fromScale(0, 0)
+    modalOverlay.BackgroundColor3 = Color3.fromRGB(3, 6, 12)
+    modalOverlay.BackgroundTransparency = 1
+    modalOverlay.BorderSizePixel = 0
+    modalOverlay.AutoButtonColor = false
+    modalOverlay.Text = ""
+    modalOverlay.ZIndex = 290
+    modalOverlay.Parent = gui
+
+    local vp = (camera and camera.ViewportSize) or Vector2.new(1280, 720)
+    local dWidth = math.clamp(vp.X - 32, 340, 480)
+    local dHeight = math.clamp(vp.Y - 32, 300, 340)
+
+    local dialog = Instance.new("Frame")
+    dialog.Name = "WelcomeDialog"
+    dialog.Size = UDim2.fromOffset(dWidth - 24, dHeight - 20)
+    dialog.Position = UDim2.fromScale(0.5, 0.5)
+    dialog.AnchorPoint = Vector2.new(0.5, 0.5)
+    dialog.BackgroundColor3 = Color3.fromRGB(8, 14, 25)
+    dialog.BorderSizePixel = 0
+    dialog.ClipsDescendants = true
+    dialog.ZIndex = 291
+    dialog.Parent = modalOverlay
+    Corner(dialog, 12)
+    local dialogStroke = Stroke(dialog, Theme.Blue, 1.4)
+    MakeDraggable(dialog, dialog)
+
+    -- Ambient top glow
+    local topGlow = Instance.new("Frame")
+    topGlow.Size = UDim2.new(1, 0, 0, 2)
+    topGlow.Position = UDim2.fromOffset(0, 0)
+    topGlow.BackgroundColor3 = Theme.BlueGlow
+    topGlow.BorderSizePixel = 0
+    topGlow.ZIndex = 292
+    topGlow.Parent = dialog
+
+    local topGlowGrad = Instance.new("UIGradient")
+    topGlowGrad.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(15, 25, 45)),
+        ColorSequenceKeypoint.new(0.5, Theme.BlueGlow),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 25, 45))
+    }
+    topGlowGrad.Parent = topGlow
+
+    -- Top Header Icon / Badge
+    local logoBox = Instance.new("Frame")
+    logoBox.Size = UDim2.fromOffset(36, 36)
+    logoBox.Position = UDim2.fromOffset(18, 16)
+    logoBox.BackgroundColor3 = Color3.fromRGB(12, 24, 46)
+    logoBox.ZIndex = 293
+    logoBox.Parent = dialog
+    Corner(logoBox, 8)
+    Stroke(logoBox, Theme.Blue, 1)
+
+    local wIco = Instance.new("ImageLabel")
+    wIco.Size = UDim2.fromOffset(22, 22)
+    wIco.Position = UDim2.fromScale(0.5, 0.5)
+    wIco.AnchorPoint = Vector2.new(0.5, 0.5)
+    wIco.BackgroundTransparency = 1
+    wIco.Image = Icons.Logo
+    wIco.ImageColor3 = Color3.fromRGB(255, 255, 255)
+    wIco.ScaleType = Enum.ScaleType.Fit
+    wIco.ZIndex = 294
+    wIco.Parent = logoBox
+
+    -- Title & Subtitle
+    local wTitle = Label(dialog, "<b>Welcome to Helix Project Script</b>", 14.5, UDim2.fromOffset(64, 14), Fonts.Bold, Theme.White)
+    wTitle.Size = UDim2.new(1, -110, 0, 20)
+    wTitle.ZIndex = 293
+
+    local wSub = Label(dialog, "Official Early Access & System Announcement", 11, UDim2.fromOffset(64, 34), Fonts.Medium, Theme.Muted)
+    wSub.Size = UDim2.new(1, -110, 0, 15)
+    wSub.ZIndex = 293
+
+    -- Close Button (Top right X)
+    local closeXBtn = Instance.new("TextButton")
+    closeXBtn.Size = UDim2.fromOffset(26, 26)
+    closeXBtn.Position = UDim2.new(1, -16, 0, 16)
+    closeXBtn.AnchorPoint = Vector2.new(1, 0)
+    closeXBtn.BackgroundColor3 = Theme.CardInner
+    closeXBtn.Text = ""
+    closeXBtn.AutoButtonColor = false
+    closeXBtn.ZIndex = 295
+    closeXBtn.Parent = dialog
+    Corner(closeXBtn, 6)
+    local closeXStroke = Stroke(closeXBtn, Theme.BorderSoft, 1)
+
+    local closeXIco = Instance.new("ImageLabel")
+    closeXIco.Size = UDim2.fromOffset(12, 12)
+    closeXIco.Position = UDim2.fromScale(0.5, 0.5)
+    closeXIco.AnchorPoint = Vector2.new(0.5, 0.5)
+    closeXIco.BackgroundTransparency = 1
+    closeXIco.Image = Icons.Close
+    closeXIco.ImageColor3 = Theme.SubText
+    closeXIco.ZIndex = 296
+    closeXIco.Parent = closeXBtn
+
+    closeXBtn.MouseEnter:Connect(function()
+        Tween(closeXBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(180, 32, 48) }):Play()
+        Tween(closeXIco, 0.15, { ImageColor3 = Theme.White }):Play()
+    end)
+    closeXBtn.MouseLeave:Connect(function()
+        Tween(closeXBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+        Tween(closeXIco, 0.15, { ImageColor3 = Theme.SubText }):Play()
+    end)
+
+    -- Status Pill Badges
+    local badgeRow = Instance.new("Frame")
+    badgeRow.Size = UDim2.new(1, -36, 0, 22)
+    badgeRow.Position = UDim2.fromOffset(18, 60)
+    badgeRow.BackgroundTransparency = 1
+    badgeRow.ZIndex = 293
+    badgeRow.Parent = dialog
+
+    local bLayout = Instance.new("UIListLayout")
+    bLayout.FillDirection = Enum.FillDirection.Horizontal
+    bLayout.Padding = UDim.new(0, 8)
+    bLayout.Parent = badgeRow
+
+    local function CreatePill(text, textColor, strokeColor, bgColor)
+        local pill = Instance.new("Frame")
+        pill.Size = UDim2.fromOffset(0, 22)
+        pill.AutomaticSize = Enum.AutomaticSize.X
+        pill.BackgroundColor3 = bgColor
+        pill.ZIndex = 293
+        pill.Parent = badgeRow
+        Corner(pill, 4)
+        Stroke(pill, strokeColor, 1)
+
+        local pad = Instance.new("UIPadding")
+        pad.PaddingLeft = UDim.new(0, 8)
+        pad.PaddingRight = UDim.new(0, 8)
+        pad.Parent = pill
+
+        local lbl = Label(pill, text, 10, UDim2.fromOffset(0, 0), Fonts.Bold, textColor)
+        lbl.Size = UDim2.new(0, 0, 1, 0)
+        lbl.AutomaticSize = Enum.AutomaticSize.X
+        lbl.ZIndex = 294
+        return pill
+    end
+
+    CreatePill("KEYLESS ACCESS", Theme.Green, Color3.fromRGB(24, 78, 50), Color3.fromRGB(10, 32, 22))
+    CreatePill("ACTIVE DEVELOPMENT", Theme.BlueGlow, Color3.fromRGB(28, 58, 98), Color3.fromRGB(12, 24, 45))
+    CreatePill("BETA BUILD", Theme.SubText, Theme.BorderSoft, Theme.CardInner)
+
+    -- Info Card Body Container
+    local infoCard = Instance.new("Frame")
+    infoCard.Size = UDim2.new(1, -36, 0, 172)
+    infoCard.Position = UDim2.fromOffset(18, 90)
+    infoCard.BackgroundColor3 = Color3.fromRGB(6, 11, 20)
+    infoCard.ZIndex = 293
+    infoCard.Parent = dialog
+    Corner(infoCard, 8)
+    Stroke(infoCard, Theme.BorderSoft, 1)
+
+    local infoPad = Instance.new("UIPadding")
+    infoPad.PaddingLeft = UDim.new(0, 12)
+    infoPad.PaddingRight = UDim.new(0, 12)
+    infoPad.PaddingTop = UDim.new(0, 8)
+    infoPad.PaddingBottom = UDim.new(0, 8)
+    infoPad.Parent = infoCard
+
+    local infoList = Instance.new("UIListLayout")
+    infoList.FillDirection = Enum.FillDirection.Vertical
+    infoList.Padding = UDim.new(0, 6)
+    infoList.Parent = infoCard
+
+    local function CreateNoticeItem(icon, heading, detail, headingCol)
+        local item = Instance.new("Frame")
+        item.Size = UDim2.new(1, 0, 0, 46)
+        item.BackgroundTransparency = 1
+        item.ZIndex = 294
+        item.Parent = infoCard
+
+        local itmIco = Instance.new("ImageLabel")
+        itmIco.Size = UDim2.fromOffset(15, 15)
+        itmIco.Position = UDim2.fromOffset(0, 2)
+        itmIco.BackgroundTransparency = 1
+        itmIco.Image = icon
+        itmIco.ImageColor3 = headingCol or Theme.Blue
+        itmIco.ZIndex = 295
+        itmIco.Parent = item
+
+        local hLbl = Label(item, "<b>" .. heading .. "</b>", 12, UDim2.fromOffset(24, 0), Fonts.Bold, headingCol or Theme.White)
+        hLbl.Size = UDim2.new(1, -24, 0, 16)
+        hLbl.ZIndex = 295
+
+        local dLbl = Label(item, detail, 11, UDim2.fromOffset(24, 17), Fonts.Medium, Theme.SubText)
+        dLbl.Size = UDim2.new(1, -24, 0, 28)
+        dLbl.TextWrapped = true
+        dLbl.ZIndex = 295
+        return item
+    end
+
+    CreateNoticeItem(Icons.Zap, "Keyless Experience (No Key System)", "Currently 100% keyless with direct instant access. A key system may be introduced in future updates.", Theme.Green)
+    CreateNoticeItem(Icons.Code, "Work in Progress & Testing Phase", "Helix Project Script is actively evolving. Expect rapid optimizations, regular additions, and feature refinement.", Theme.BlueGlow)
+    CreateNoticeItem(Icons.Discord, "Donations & Support", "You can support development if you'd like, though we haven't even set up a donation system yet lol!", Color3.fromRGB(255, 180, 80))
+
+    -- Bottom Action Button
+    local startBtn = Instance.new("TextButton")
+    startBtn.Size = UDim2.new(1, -36, 0, 36)
+    startBtn.Position = UDim2.new(0, 18, 1, -48)
+    startBtn.BackgroundColor3 = Theme.ActiveBg
+    startBtn.Text = "Got It, Let's Go!"
+    startBtn.TextColor3 = Theme.White
+    startBtn.Font = Fonts.Bold
+    startBtn.TextSize = 13
+    startBtn.AutoButtonColor = false
+    startBtn.ZIndex = 295
+    startBtn.Parent = dialog
+    Corner(startBtn, 7)
+    local startStroke = Stroke(startBtn, Theme.Blue, 1.2)
+
+    startBtn.MouseEnter:Connect(function()
+        Tween(startBtn, 0.15, { BackgroundColor3 = Theme.BlueDark, TextColor3 = Theme.BlueGlow }):Play()
+        Tween(startStroke, 0.15, { Color = Theme.BlueGlow }):Play()
+    end)
+    startBtn.MouseLeave:Connect(function()
+        Tween(startBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg, TextColor3 = Theme.White }):Play()
+        Tween(startStroke, 0.15, { Color = Theme.Blue }):Play()
+    end)
+
+    -- Entrance Animation
+    Tween(modalOverlay, 0.25, { BackgroundTransparency = 0.4 }):Play()
+    Tween(dialog, 0.3, { Size = UDim2.fromOffset(dWidth, dHeight) }, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+
+    local function DismissNotice()
+        MarkWelcomeNoticeSeen()
+        Tween(modalOverlay, 0.18, { BackgroundTransparency = 1 }):Play()
+        local tw = Tween(dialog, 0.18, { Size = UDim2.fromOffset(dWidth - 30, dHeight - 30) }, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+        tw:Play()
+        tw.Completed:Connect(function()
+            modalOverlay:Destroy()
+        end)
+    end
+
+    startBtn.MouseButton1Click:Connect(DismissNotice)
+    closeXBtn.MouseButton1Click:Connect(DismissNotice)
+end
+end
+
+-- Content helper (offset below topbar and divider line)
+local function PageContent(page)
+    local f = Instance.new("Frame")
+    f.Name = "Content"
+    f.Position = UDim2.fromOffset(20, 20)
+    f.Size = UDim2.new(1, -40, 1, -28)
+    f.BackgroundTransparency = 1
+    f.Parent = page
+    return f
+end
+
+-- =================================================================
+-- CONFIGURATION STATE & SYSTEM
+-- =================================================================
+local ConfigState = {
+    Current = "none",
+    Autoload = "none",
+    AutoSave = false,
+    Selected = "autosave",
+    List = { "autosave", "default" },
+    Data = {
+        ["autosave"] = { ToggleKey = "RightShift", ShowFPS = true },
+        ["default"]  = { ToggleKey = "RightShift", ShowFPS = true },
+    }
+}
+
+local function GetConfigCount()
+    local count = #ConfigState.List
+    pcall(function()
+        if isfolder and not isfolder("HPS_Configs") and makefolder then
+            makefolder("HPS_Configs")
+        end
+        if listfiles and isfolder and isfolder("HPS_Configs") then
+            local files = listfiles("HPS_Configs")
+            if #files > 0 then
+                count = #files
+            end
+        end
+    end)
+    return count
+end
+
+local function InitHomePage()
+    -- =================================================================
+    -- 6. HOME PAGE
+    -- =================================================================
+local homePage = pages["Home"]
+local hc = PageContent(homePage)
+
+-- Left and Right columns & Forward References
+local userCard = nil
+local sysCard = nil
+local quickCard = nil
+local changelogCard = nil
+
+local leftCol = Instance.new("Frame")
+leftCol.Name = "LeftColumn"
+leftCol.Size = UDim2.new(0.58, -6, 0, 462)
+leftCol.BackgroundTransparency = 1
+leftCol.Parent = hc
+
+local rightCol = Instance.new("Frame")
+rightCol.Name = "RightColumn"
+rightCol.Size = UDim2.new(0.42, -6, 0, 462)
+rightCol.Position = UDim2.new(0.58, 6, 0, 0)
+rightCol.BackgroundTransparency = 1
+rightCol.Parent = hc
+
+-- Responsive Column Stacking for Small/Mobile screens
+local function UpdateHomeLayout()
+    local isNarrow = pageHolder.AbsoluteSize.X < 640
+    if isNarrow then
+        leftCol.Size = UDim2.new(1, 0, 0, 470)
+        leftCol.Position = UDim2.fromOffset(0, 0)
+
+        rightCol.Size = UDim2.new(1, 0, 0, 480)
+        rightCol.Position = UDim2.fromOffset(0, 480)
+
+        if changelogCard then
+            changelogCard.Size = UDim2.new(1, 0, 0, 52)
+            changelogCard.Position = UDim2.fromOffset(0, 970)
+        end
+
+        homePage.CanvasSize = UDim2.fromOffset(0, 1038)
+    else
+        leftCol.Size = UDim2.new(0.58, -6, 0, 462)
+        leftCol.Position = UDim2.fromOffset(0, 0)
+
+        rightCol.Size = UDim2.new(0.42, -6, 0, 462)
+        rightCol.Position = UDim2.new(0.58, 6, 0, 0)
+
+        if changelogCard then
+            changelogCard.Size = UDim2.new(1, 0, 0, 52)
+            changelogCard.Position = UDim2.fromOffset(0, 474)
+        end
+
+        homePage.CanvasSize = UDim2.fromOffset(0, 542)
+    end
+end
+pageHolder:GetPropertyChangedSignal("AbsoluteSize"):Connect(UpdateHomeLayout)
+camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+    Config.WindowSize = GetResponsiveWindowSize()
+    if isVisible and main and main.Visible then
+        Tween(main, 0.2, { Size = Config.WindowSize }):Play()
+    end
+    UpdateHomeLayout()
+end)
+task.defer(UpdateHomeLayout)
+
+-- ===== HERO BANNER (Left) =====
+local hero = Card(leftCol, UDim2.fromOffset(0, 0), UDim2.new(1, 0, 0, 160))
+hero.BackgroundColor3 = Color3.fromRGB(7, 14, 26)
+hero.ClipsDescendants = true
+
+-- Subtle Game Cover Background (Right-anchored with soft gradient blur)
+local heroCover = Instance.new("ImageLabel")
+heroCover.Name = "HeroGameCover"
+heroCover.Size = UDim2.new(0.68, 0, 1, 0)
+heroCover.Position = UDim2.new(1, 0, 0, 0)
+heroCover.AnchorPoint = Vector2.new(1, 0)
+heroCover.BackgroundTransparency = 1
+heroCover.ScaleType = Enum.ScaleType.Crop
+heroCover.Image = string.format("rbxthumb://type=Asset&id=%d&w=768&h=432", game.PlaceId)
+heroCover.ImageTransparency = 0.65
+heroCover.ZIndex = 1
+heroCover.Parent = hero
+Corner(heroCover, 10)
+
+-- Soft horizontal gradient fade into dark card background
+local heroCoverGrad = Instance.new("UIGradient")
+heroCoverGrad.Transparency = NumberSequence.new{
+    NumberSequenceKeypoint.new(0.00, 1.00),
+    NumberSequenceKeypoint.new(0.20, 0.92),
+    NumberSequenceKeypoint.new(0.50, 0.60),
+    NumberSequenceKeypoint.new(0.80, 0.25),
+    NumberSequenceKeypoint.new(1.00, 0.15)
+}
+heroCoverGrad.Parent = heroCover
+
+-- Subtle ambient dark tint overlay for frosted/blurred feel
+local heroVignette = Instance.new("Frame")
+heroVignette.Name = "HeroVignette"
+heroVignette.Size = UDim2.fromScale(1, 1)
+heroVignette.BackgroundColor3 = Color3.fromRGB(6, 11, 20)
+heroVignette.BackgroundTransparency = 0.4
+heroVignette.ZIndex = 2
+heroVignette.Parent = heroCover
+Corner(heroVignette, 10)
+
+local vigGrad = Instance.new("UIGradient")
+vigGrad.Transparency = NumberSequence.new{
+    NumberSequenceKeypoint.new(0, 0.7),
+    NumberSequenceKeypoint.new(0.6, 0.3),
+    NumberSequenceKeypoint.new(1, 0.5)
+}
+vigGrad.Rotation = 45
+vigGrad.Parent = heroVignette
+
+-- Try to load high-res icon or thumbnail if available
+task.spawn(function()
+    pcall(function()
+        local info = MarketplaceService:GetProductInfo(game.PlaceId)
+        if info and info.IconImageAssetId and info.IconImageAssetId > 0 then
+            heroCover.Image = string.format("rbxassetid://%d", info.IconImageAssetId)
+        end
+    end)
+end)
+
+heroGrad = Instance.new("UIGradient")
+heroGrad.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(10, 28, 60)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(7, 14, 26)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(5, 10, 18))
+}
+heroGrad.Rotation = 20
+heroGrad.Parent = hero
+
+-- HPS brand
+heroHpsLabel = Label(hero, "HPS", 14, UDim2.fromOffset(18, 12), Fonts.Bold, Theme.BlueGlow)
+heroHpsLabel.Size = UDim2.fromOffset(40, 16)
+heroHpsLabel.ZIndex = 5
+
+-- Welcome text (spans full card nicely)
+local wBack = Label(hero, "Welcome back,", 12, UDim2.fromOffset(18, 34), Fonts.Medium, Theme.Muted)
+wBack.Size = UDim2.new(1, -36, 0, 14)
+wBack.ZIndex = 5
+
+heroWelcomeName = Label(hero, Config.StreamerMode and "Anonymous" or LocalPlayer.DisplayName, 20, UDim2.fromOffset(18, 50), Fonts.Bold, Theme.White)
+heroWelcomeName.Size = UDim2.new(1, -36, 0, 24)
+heroWelcomeName.ZIndex = 5
+local wName = heroWelcomeName
+
+local sActive = Label(hero, "", 10.5, UDim2.fromOffset(18, 78), Fonts.Medium, Theme.Muted)
+sActive.Size = UDim2.new(1, -36, 0, 16)
+sActive.ZIndex = 5
+sActive.RichText = true
+
+-- Dedicated Discord Copy Button in Hero Banner (Top Right)
+local heroDiscordBtn = Instance.new("TextButton")
+heroDiscordBtn.Name = "HeroDiscordBtn"
+heroDiscordBtn.Size = UDim2.fromOffset(136, 30)
+heroDiscordBtn.Position = UDim2.new(1, -16, 0, 12)
+heroDiscordBtn.AnchorPoint = Vector2.new(1, 0)
+heroDiscordBtn.BackgroundColor3 = Color3.fromRGB(12, 24, 44)
+heroDiscordBtn.AutoButtonColor = false
+heroDiscordBtn.Text = ""
+heroDiscordBtn.ZIndex = 8
+heroDiscordBtn.Parent = hero
+Corner(heroDiscordBtn, 6)
+local hDiscordStroke = Stroke(heroDiscordBtn, Theme.BorderSoft, 1)
+
+local hDiscordIco = Instance.new("ImageLabel")
+hDiscordIco.BackgroundTransparency = 1
+hDiscordIco.Size = UDim2.fromOffset(18, 18)
+hDiscordIco.Position = UDim2.fromOffset(10, 6)
+hDiscordIco.Image = Icons.Discord
+hDiscordIco.ImageColor3 = Color3.fromRGB(88, 101, 242)
+hDiscordIco.ZIndex = 9
+hDiscordIco.Parent = heroDiscordBtn
+
+local hDiscordLbl = Label(heroDiscordBtn, "Discord Link", 11, UDim2.fromOffset(34, 6), Fonts.Bold, Theme.White)
+hDiscordLbl.Size = UDim2.new(1, -40, 0, 18)
+hDiscordLbl.ZIndex = 9
+
+heroDiscordBtn.MouseEnter:Connect(function()
+    Tween(heroDiscordBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg }):Play()
+    Tween(hDiscordStroke, 0.15, { Color = Color3.fromRGB(88, 101, 242) }):Play()
+    Tween(hDiscordIco, 0.15, { ImageColor3 = Theme.White }):Play()
+end)
+heroDiscordBtn.MouseLeave:Connect(function()
+    Tween(heroDiscordBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(12, 24, 44) }):Play()
+    Tween(hDiscordStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    Tween(hDiscordIco, 0.15, { ImageColor3 = Color3.fromRGB(88, 101, 242) }):Play()
+end)
+
+heroDiscordBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        if setclipboard then
+            setclipboard("https://discord.gg/wqydxwFke")
+        elseif toclipboard then
+            toclipboard("https://discord.gg/wqydxwFke")
+        end
+    end)
+    hDiscordIco.Image = Icons.Check
+    hDiscordIco.ImageColor3 = Theme.Green
+    hDiscordLbl.Text = "Copied!"
+    hDiscordLbl.TextColor3 = Theme.Green
+    Tween(hDiscordStroke, 0.15, { Color = Theme.Green }):Play()
+    task.delay(2, function()
+        hDiscordIco.Image = Icons.Discord
+        hDiscordIco.ImageColor3 = Color3.fromRGB(88, 101, 242)
+        hDiscordLbl.Text = "Discord Link"
+        hDiscordLbl.TextColor3 = Theme.White
+        Tween(hDiscordStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    end)
+end)
+
+-- Dynamic Typewriter Subtitle Effect ("Type & Backspace Simulation" - throttled when hidden)
+task.spawn(function()
+    local function ColorToHex(c)
+        if not c then return "#38A8FF" end
+        return string.format("#%02X%02X%02X", math.round(c.R * 255), math.round(c.G * 255), math.round(c.B * 255))
+    end
+
+    local typeMessages = {
+        "Cheat every day - Have fun & enjoy the game!",
+        "Wishing you the best gameplay - Have fun!",
+        "Currently open for testing - Beta Script",
+        "UI issues or bugs? Contact us on Discord"
+    }
+
+    local msgIdx = 1
+    while isVisible ~= nil do
+        if not sActive or not sActive.Parent then break end
+
+        if not isVisible then
+            task.wait(0.5)
+        else
+            local rawMsg = typeMessages[msgIdx]
+            local clusters = {}
+            for first, last in utf8.graphemes(rawMsg) do
+                table.insert(clusters, string.sub(rawMsg, first, last))
+            end
+
+            -- 1. Typing phase (types character by character)
+            for i = 1, #clusters do
+                local curText = table.concat(clusters, "", 1, i)
+                local cursorColor = ColorToHex(Theme.BlueGlow)
+                sActive.Text = curText .. "<font color=\"" .. cursorColor .. "\">|</font>"
+                task.wait(0.045 + math.random(1, 4) * 0.008)
+            end
+
+            -- 2. Pause & blink cursor at end
+            local fullText = rawMsg
+            for _ = 1, 4 do
+                local cursorColor = ColorToHex(Theme.BlueGlow)
+                sActive.Text = fullText .. "<font color=\"" .. cursorColor .. "\">|</font>"
+                task.wait(0.35)
+                sActive.Text = fullText
+                task.wait(0.35)
+            end
+
+            -- 3. Deleting phase (backspaces character by character)
+            for i = #clusters, 0, -1 do
+                local curText = (i > 0) and table.concat(clusters, "", 1, i) or ""
+                local cursorColor = ColorToHex(Theme.BlueGlow)
+                sActive.Text = curText .. "<font color=\"" .. cursorColor .. "\">|</font>"
+                task.wait(0.02)
+            end
+
+            -- Short pause before next message
+            task.wait(0.35)
+            msgIdx = (msgIdx % #typeMessages) + 1
+        end
+    end
+end)
+
+-- Stat boxes & In-Game Playtime (2 Left + 1 Right layout)
+local statsHolder = Instance.new("Frame")
+statsHolder.Size = UDim2.new(1, -36, 0, 44)
+statsHolder.Position = UDim2.new(0, 18, 1, -54)
+statsHolder.BackgroundTransparency = 1
+statsHolder.ZIndex = 5
+statsHolder.Parent = hero
+
+local statBoxFrames = {}
+
+-- Helper to create interactive stat cards
+local function CreateStatCard(idx, name, size, basePos)
+    local f = Instance.new("TextButton")
+    f.Name = name
+    f.Size = size
+    f.Position = basePos
+    f.BackgroundColor3 = Theme.CardInner
+    f.AutoButtonColor = false
+    f.Text = ""
+    f.Parent = statsHolder
+    Corner(f, 7)
+    local sStroke = Stroke(f, Theme.BorderSoft, 1)
+
+    -- Hover animation
+    f.MouseEnter:Connect(function()
+        Tween(f, 0.15, {
+            BackgroundColor3 = Color3.fromRGB(14, 32, 60),
+            Position = basePos + UDim2.fromOffset(0, -2)
+        }):Play()
+        Tween(sStroke, 0.15, { Color = Theme.Blue, Thickness = 1.2 }):Play()
+    end)
+    f.MouseLeave:Connect(function()
+        Tween(f, 0.15, {
+            BackgroundColor3 = Theme.CardInner,
+            Position = basePos
+        }):Play()
+        Tween(sStroke, 0.15, { Color = Theme.BorderSoft, Thickness = 1 }):Play()
+    end)
+
+    -- Click bounce
+    f.MouseButton1Click:Connect(function()
+        Tween(f, 0.08, {
+            Size = size - UDim2.fromOffset(4, 3),
+            Position = basePos + UDim2.fromOffset(2, 2)
+        }):Play()
+        Tween(sStroke, 0.08, { Color = Theme.BlueGlow }):Play()
+        task.wait(0.08)
+        Tween(f, 0.22, {
+            Size = size,
+            Position = basePos + UDim2.fromOffset(0, -2)
+        }, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+        Tween(sStroke, 0.2, { Color = Theme.Blue }):Play()
+    end)
+
+    table.insert(statBoxFrames, { frame = f, basePos = basePos, idx = idx })
+    return f, sStroke
+end
+
+-- 1. LEFT BOX 1: Configs count
+local cfgBox = CreateStatCard(1, "Stat_Configs", UDim2.new(0.24, 0, 1, 0), UDim2.new(0, 0, 0, 0))
+local cfgTitle = Label(cfgBox, "Configs", 10.5, UDim2.fromOffset(0, 5), Fonts.Medium, Theme.Muted)
+cfgTitle.Size = UDim2.new(1, 0, 0, 13)
+cfgTitle.TextXAlignment = Enum.TextXAlignment.Center
+
+local cfgVal = Label(cfgBox, string.format("<b>%d</b>", GetConfigCount()), 15, UDim2.fromOffset(0, 19), Fonts.Bold, Theme.Text)
+cfgVal.Size = UDim2.new(1, 0, 0, 18)
+cfgVal.TextXAlignment = Enum.TextXAlignment.Center
+
+updateConfigCountUI = function()
+    if cfgVal and cfgVal.Parent then
+        cfgVal.Text = string.format("<b>%d</b>", GetConfigCount())
+    end
+end
+
+-- 2. LEFT BOX 2: Script Executions count
+local execBox = CreateStatCard(2, "Stat_Executions", UDim2.new(0.24, 0, 1, 0), UDim2.new(0.255, 0, 0, 0))
+local execTitle = Label(execBox, "Executions", 10.5, UDim2.fromOffset(0, 5), Fonts.Medium, Theme.Muted)
+execTitle.Size = UDim2.new(1, 0, 0, 13)
+execTitle.TextXAlignment = Enum.TextXAlignment.Center
+
+local execVal = Label(execBox, string.format("<b>%d</b>", scriptExecCount), 15, UDim2.fromOffset(0, 19), Fonts.Bold, Theme.Text)
+execVal.Size = UDim2.new(1, 0, 0, 18)
+execVal.TextXAlignment = Enum.TextXAlignment.Center
+
+-- 3. RIGHT BOX: Time in Game (Playtime)
+local timeBox = CreateStatCard(3, "Stat_Playtime", UDim2.new(0.49, 0, 1, 0), UDim2.new(0.51, 0, 0, 0))
+
+timeIco = Instance.new("ImageLabel")
+timeIco.BackgroundTransparency = 1
+timeIco.Size = UDim2.fromOffset(15, 15)
+timeIco.Position = UDim2.new(0, 12, 0.5, -7)
+timeIco.Image = Icons.Time
+timeIco.ImageColor3 = Theme.BlueGlow
+timeIco.Parent = timeBox
+
+local timeTitle = Label(timeBox, "TIME IN GAME", 10.5, UDim2.fromOffset(34, 5), Fonts.Bold, Theme.Muted)
+timeTitle.Size = UDim2.new(1, -38, 0, 13)
+
+local timeVal = Label(timeBox, "<b>00m 00s</b>", 15, UDim2.fromOffset(34, 19), Fonts.Bold, Theme.Text)
+timeVal.Size = UDim2.new(1, -38, 0, 18)
+
+-- Time in Game Live Counter (throttled to 1 update/sec to eliminate UI lag)
+local sessionStart = tick()
+local lastElapsedSec = -1
+local gameTimeConn = RunService.Heartbeat:Connect(function()
+    local elapsed = math.floor(workspace.DistributedGameTime or (tick() - sessionStart))
+    if elapsed <= 0 then elapsed = math.floor(tick() - sessionStart) end
+    if elapsed == lastElapsedSec then return end
+    lastElapsedSec = elapsed
+    local hrs = math.floor(elapsed / 3600)
+    local mins = math.floor((elapsed % 3600) / 60)
+    local secs = elapsed % 60
+    if hrs > 0 then
+        timeVal.Text = string.format("<b>%dh %02dm %02ds</b>", hrs, mins, secs)
+    else
+        timeVal.Text = string.format("<b>%02dm %02ds</b>", mins, secs)
+    end
+end)
+table.insert(cleanupConns, gameTimeConn)
+
+-- ===== LEFT: THEME PRESETS / GALLERY =====
+local themeCard = Card(leftCol, UDim2.fromOffset(0, 174), UDim2.new(1, 0, 0, 288))
+themeCard.Name = "ThemePresetsCard"
+themeCard.ClipsDescendants = true
+
+themeHeadIco = Instance.new("ImageLabel")
+themeHeadIco.BackgroundTransparency = 1
+themeHeadIco.Size = UDim2.fromOffset(15, 15)
+themeHeadIco.Position = UDim2.fromOffset(16, 14)
+themeHeadIco.Image = Icons.Palette
+themeHeadIco.ImageColor3 = Theme.BlueGlow
+themeHeadIco.Parent = themeCard
+
+Label(themeCard, "<b>Theme Presets</b>", 13.5, UDim2.fromOffset(38, 11), Fonts.Bold, Theme.Text).Size = UDim2.fromOffset(180, 17)
+Label(themeCard, "Curated live wallpapers & matching color palettes", 11, UDim2.fromOffset(38, 28), Fonts.Medium, Theme.Muted).Size = UDim2.new(1, -150, 0, 14)
+
+-- Reset to Default Button
+local resetThemeBtn = Instance.new("TextButton")
+resetThemeBtn.Name = "ResetThemeBtn"
+resetThemeBtn.Size = UDim2.fromOffset(82, 24)
+resetThemeBtn.Position = UDim2.new(1, -14, 0, 14)
+resetThemeBtn.AnchorPoint = Vector2.new(1, 0)
+resetThemeBtn.BackgroundColor3 = Theme.CardInner
+resetThemeBtn.Text = "Default"
+resetThemeBtn.TextColor3 = Theme.Muted
+resetThemeBtn.Font = Fonts.Medium
+resetThemeBtn.TextSize = 12
+resetThemeBtn.AutoButtonColor = false
+resetThemeBtn.Parent = themeCard
+Corner(resetThemeBtn, 5)
+local resetStroke = Stroke(resetThemeBtn, Theme.BorderSoft, 1)
+
+resetThemeBtn.MouseEnter:Connect(function()
+    Tween(resetThemeBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg, TextColor3 = Theme.White }):Play()
+    Tween(resetStroke, 0.15, { Color = Theme.Blue }):Play()
+end)
+resetThemeBtn.MouseLeave:Connect(function()
+    Tween(resetThemeBtn, 0.15, { BackgroundColor3 = Theme.CardInner, TextColor3 = Theme.Muted }):Play()
+    Tween(resetStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+end)
+
+local FeaturedThemes = {
+    {
+        Id = "2817046761",
+        TextureId = "rbxassetid://2817046727",
+        Name = "Anime Horizon",
+        AccentName = "Blood Crimson",
+        BaseTheme = "Midnight",
+        Tag = "Crimson Red",
+        AccentColor = Color3.fromRGB(245, 45, 75)
+    },
+    {
+        Id = "6723684733",
+        TextureId = "rbxassetid://6723684726",
+        Name = "Aesthetic Dream",
+        AccentName = "Ghost White",
+        BaseTheme = "Obsidian",
+        Tag = "Pure White",
+        AccentColor = Color3.fromRGB(240, 245, 255)
+    },
+    {
+        Id = "8219779976",
+        TextureId = "rbxassetid://8219779961",
+        Name = "Kawaii Violet",
+        AccentName = "Neon Violet",
+        BaseTheme = "Midnight",
+        Tag = "Neon Violet",
+        AccentColor = Color3.fromRGB(160, 60, 255)
+    },
+    {
+        Id = "5468715773",
+        TextureId = "rbxassetid://5468715749",
+        Name = "Sakura Bloom",
+        AccentName = "Sakura Pink",
+        BaseTheme = "Charcoal",
+        Tag = "Sakura Pink",
+        AccentColor = Color3.fromRGB(255, 55, 150)
+    }
+}
+
+local cardsHolder = Instance.new("Frame")
+cardsHolder.Name = "ThemesGrid"
+cardsHolder.Size = UDim2.new(1, -24, 0, 224)
+cardsHolder.Position = UDim2.fromOffset(12, 50)
+cardsHolder.BackgroundTransparency = 1
+cardsHolder.Parent = themeCard
+
+local gridLayout = Instance.new("UIListLayout")
+gridLayout.FillDirection = Enum.FillDirection.Horizontal
+gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+gridLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+gridLayout.Padding = UDim.new(0, 8)
+gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+gridLayout.Parent = cardsHolder
+
+local themeCardWidgets = {}
+activeThemeId = nil
+
+UpdateThemeCardVisuals = function()
+    for _, w in ipairs(themeCardWidgets) do
+        local isSel = (w.data.Id == activeThemeId)
+        Tween(w.stroke, 0.25, {
+            Color = isSel and w.data.AccentColor or Theme.BorderSoft,
+            Thickness = isSel and 1.5 or 1
+        }):Play()
+        Tween(w.card, 0.25, {
+            BackgroundColor3 = isSel and Color3.fromRGB(12, 22, 38) or Theme.CardInner
+        }):Play()
+        Tween(w.pill, 0.25, {
+            BackgroundColor3 = isSel and w.data.AccentColor or Color3.fromRGB(12, 20, 32),
+            BackgroundTransparency = isSel and 0 or 0.2
+        }):Play()
+        Tween(w.pillStroke, 0.25, {
+            Color = isSel and w.data.AccentColor or Theme.BorderSoft
+        }):Play()
+        w.pill.Text = isSel and "Active" or "Apply Theme"
+        w.pill.TextColor3 = isSel and ((w.data.AccentName == "Ghost White") and Color3.fromRGB(15, 20, 30) or Theme.White) or Theme.SubText
+        w.checkBadge.Visible = isSel
+        Tween(w.nameLabel, 0.25, {
+            TextColor3 = isSel and Theme.White or Theme.Text
+        }):Play()
+    end
+end
+
+local function ApplyThemePreset(data)
+    if activeThemeId == data.Id then return end
+    activeThemeId = data.Id
+    UpdateThemeCardVisuals()
+    ApplyCustomWallpaper(data.TextureId or data.Id)
+    for _, preset in ipairs(AccentPresets) do
+        if preset.Name == data.AccentName then
+            ApplyAccent(preset)
+            break
+        end
+    end
+end
+
+resetThemeBtn.MouseButton1Click:Connect(function()
+    activeThemeId = nil
+    UpdateThemeCardVisuals()
+    ApplyCustomWallpaper("rbxassetid://5553002139")
+    for _, preset in ipairs(AccentPresets) do
+        if preset.Name == "Cyber Blue" then
+            ApplyAccent(preset)
+            break
+        end
+    end
+    ApplyBaseTheme("Midnight")
+end)
+
+for idx, data in ipairs(FeaturedThemes) do
+    local fCard = Instance.new("Frame")
+    fCard.Name = "ThemeCard_" .. idx
+    fCard.Size = UDim2.new(0.25, -6, 1, 0)
+    fCard.BackgroundColor3 = Theme.CardInner
+    fCard.BorderSizePixel = 0
+    fCard.LayoutOrder = idx
+    fCard.Parent = cardsHolder
+    Corner(fCard, 8)
+    local fCardStroke = Stroke(fCard, Theme.BorderSoft, 1)
+
+    -- Thumbnail Frame (Image container with rounded corners and gradient)
+    local thumbBox = Instance.new("Frame")
+    thumbBox.Name = "ThumbBox"
+    thumbBox.Size = UDim2.new(1, -10, 0, 108)
+    thumbBox.Position = UDim2.fromOffset(5, 5)
+    thumbBox.BackgroundColor3 = Color3.fromRGB(6, 10, 18)
+    thumbBox.BorderSizePixel = 0
+    thumbBox.ClipsDescendants = true
+    thumbBox.Parent = fCard
+    Corner(thumbBox, 6)
+
+    local thumbImg = Instance.new("ImageLabel")
+    thumbImg.Name = "ThumbImage"
+    thumbImg.Size = UDim2.fromScale(1, 1)
+    thumbImg.BackgroundTransparency = 1
+    thumbImg.ScaleType = Enum.ScaleType.Crop
+    thumbImg.Image = data.TextureId or string.format("rbxthumb://type=Asset&id=%s&w=768&h=432", data.Id)
+    thumbImg.Parent = thumbBox
+
+    local thumbGrad = Instance.new("UIGradient")
+    thumbGrad.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+        ColorSequenceKeypoint.new(0.65, Color3.fromRGB(255, 255, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 25, 45))
+    }
+    thumbGrad.Rotation = 90
+    thumbGrad.Parent = thumbImg
+
+    -- Active Checkmark Badge (Top-Right of thumbnail)
+    local checkBadge = Instance.new("Frame")
+    checkBadge.Name = "CheckBadge"
+    checkBadge.Size = UDim2.fromOffset(20, 20)
+    checkBadge.Position = UDim2.new(1, -6, 0, 6)
+    checkBadge.AnchorPoint = Vector2.new(1, 0)
+    checkBadge.BackgroundColor3 = data.AccentColor
+    checkBadge.BorderSizePixel = 0
+    checkBadge.ZIndex = 4
+    checkBadge.Visible = false
+    checkBadge.Parent = thumbBox
+    Corner(checkBadge, 10)
+
+    local checkIco = Instance.new("ImageLabel")
+    checkIco.Size = UDim2.fromOffset(12, 12)
+    checkIco.Position = UDim2.fromScale(0.5, 0.5)
+    checkIco.AnchorPoint = Vector2.new(0.5, 0.5)
+    checkIco.BackgroundTransparency = 1
+    checkIco.Image = Icons.Check
+    checkIco.ImageColor3 = Theme.White
+    checkIco.ZIndex = 5
+    checkIco.Parent = checkBadge
+
+    -- Text Body
+    local nameLbl = Instance.new("TextLabel")
+    nameLbl.Size = UDim2.new(1, -14, 0, 16)
+    nameLbl.Position = UDim2.fromOffset(7, 118)
+    nameLbl.BackgroundTransparency = 1
+    nameLbl.Text = data.Name
+    nameLbl.TextColor3 = Theme.Text
+    nameLbl.Font = Fonts.Bold
+    nameLbl.TextSize = 11.5
+    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+    nameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+    nameLbl.Parent = fCard
+
+    local tagRow = Instance.new("Frame")
+    tagRow.Size = UDim2.new(1, -14, 0, 14)
+    tagRow.Position = UDim2.fromOffset(7, 136)
+    tagRow.BackgroundTransparency = 1
+    tagRow.Parent = fCard
+
+    local tagDot = Instance.new("Frame")
+    tagDot.Size = UDim2.fromOffset(6, 6)
+    tagDot.Position = UDim2.fromOffset(0, 4)
+    tagDot.BackgroundColor3 = data.AccentColor
+    tagDot.BorderSizePixel = 0
+    tagDot.Parent = tagRow
+    Corner(tagDot, 3)
+
+    local tagLbl = Instance.new("TextLabel")
+    tagLbl.Size = UDim2.new(1, -12, 1, 0)
+    tagLbl.Position = UDim2.fromOffset(10, 0)
+    tagLbl.BackgroundTransparency = 1
+    tagLbl.Text = data.Tag
+    tagLbl.TextColor3 = Theme.Muted
+    tagLbl.Font = Fonts.Medium
+    tagLbl.TextSize = 10.5
+    tagLbl.TextXAlignment = Enum.TextXAlignment.Left
+    tagLbl.Parent = tagRow
+
+    -- Bottom Apply Pill Button
+    local pillBtn = Instance.new("TextButton")
+    pillBtn.Name = "ApplyPill"
+    pillBtn.Size = UDim2.new(1, -14, 0, 24)
+    pillBtn.Position = UDim2.new(0, 7, 1, -31)
+    pillBtn.BackgroundColor3 = Color3.fromRGB(12, 20, 32)
+    pillBtn.BackgroundTransparency = 0.2
+    pillBtn.Text = "Apply Theme"
+    pillBtn.TextColor3 = Theme.SubText
+    pillBtn.Font = Fonts.Bold
+    pillBtn.TextSize = 11
+    pillBtn.AutoButtonColor = false
+    pillBtn.Parent = fCard
+    Corner(pillBtn, 5)
+    local pillStroke = Stroke(pillBtn, Theme.BorderSoft, 1)
+
+    -- Full-card Click overlay button
+    local clickOverlay = Instance.new("TextButton")
+    clickOverlay.Name = "ClickOverlay"
+    clickOverlay.Size = UDim2.fromScale(1, 1)
+    clickOverlay.BackgroundTransparency = 1
+    clickOverlay.Text = ""
+    clickOverlay.AutoButtonColor = false
+    clickOverlay.ZIndex = 6
+    clickOverlay.Parent = fCard
+
+    clickOverlay.MouseEnter:Connect(function()
+        if activeThemeId ~= data.Id then
+            Tween(fCardStroke, 0.15, { Color = data.AccentColor }):Play()
+            Tween(fCard, 0.15, { BackgroundColor3 = Color3.fromRGB(14, 24, 40) }):Play()
+            Tween(pillStroke, 0.15, { Color = data.AccentColor }):Play()
+            Tween(pillBtn, 0.15, { TextColor3 = Theme.White }):Play()
+        end
+    end)
+
+    clickOverlay.MouseLeave:Connect(function()
+        if activeThemeId ~= data.Id then
+            Tween(fCardStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+            Tween(fCard, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+            Tween(pillStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+            Tween(pillBtn, 0.15, { TextColor3 = Theme.SubText }):Play()
+        end
+    end)
+
+    clickOverlay.MouseButton1Click:Connect(function()
+        if activeThemeId == data.Id then return end
+        Tween(thumbBox, 0.08, { Size = UDim2.new(1, -14, 0, 104), Position = UDim2.fromOffset(7, 7) }):Play()
+        task.delay(0.08, function()
+            Tween(thumbBox, 0.16, { Size = UDim2.new(1, -10, 0, 108), Position = UDim2.fromOffset(5, 5) }, Enum.EasingStyle.Back):Play()
+        end)
+        ApplyThemePreset(data)
+    end)
+
+    table.insert(themeCardWidgets, {
+        card = fCard,
+        stroke = fCardStroke,
+        thumb = thumbImg,
+        nameLabel = nameLbl,
+        pill = pillBtn,
+        pillStroke = pillStroke,
+        checkBadge = checkBadge,
+        data = data
+    })
+end
+
+-- ===== RIGHT 1: USER PROFILE =====
+userCard = Card(rightCol, UDim2.fromOffset(0, 0), UDim2.new(1, 0, 0, 160))
+userCard.Name = "UserProfileCard"
+
+uHeadIco = Instance.new("ImageLabel")
+uHeadIco.BackgroundTransparency = 1
+uHeadIco.Size = UDim2.fromOffset(14, 14)
+uHeadIco.Position = UDim2.fromOffset(16, 12)
+uHeadIco.Image = Icons.User
+uHeadIco.ImageColor3 = Theme.Blue
+uHeadIco.Parent = userCard
+
+Label(userCard, "<b>User Profile</b>", 13.5, UDim2.fromOffset(36, 10), Fonts.Bold, Theme.Text).Size = UDim2.fromOffset(160, 16)
+
+-- Avatar Circle
+local uAvatarBox = Instance.new("Frame")
+uAvatarBox.Name = "UserAvatarContainer"
+uAvatarBox.Size = UDim2.fromOffset(48, 48)
+uAvatarBox.Position = UDim2.fromOffset(16, 34)
+uAvatarBox.BackgroundColor3 = Color3.fromRGB(8, 14, 26)
+uAvatarBox.Parent = userCard
+Corner(uAvatarBox, 24)
+heroAvatarStroke = Stroke(uAvatarBox, Theme.Blue, 1.8)
+
+uAvatarImg = Instance.new("ImageLabel")
+uAvatarImg.Name = "AvatarImage"
+uAvatarImg.Size = UDim2.fromScale(1, 1)
+uAvatarImg.BackgroundTransparency = 1
+uAvatarImg.Image = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150", LocalPlayer.UserId)
+uAvatarImg.Parent = uAvatarBox
+Corner(uAvatarImg, 24)
+
+-- Online Status Dot
+local uStatusDot = Instance.new("Frame")
+uStatusDot.Name = "StatusDot"
+uStatusDot.Size = UDim2.fromOffset(12, 12)
+uStatusDot.Position = UDim2.new(1, -1, 1, -1)
+uStatusDot.AnchorPoint = Vector2.new(1, 1)
+uStatusDot.BackgroundColor3 = Theme.Green
+uStatusDot.Parent = uAvatarBox
+Corner(uStatusDot, 6)
+Stroke(uStatusDot, Color3.fromRGB(8, 14, 26), 2)
+
+-- User Interactive Hover / Click Bounce
+local uAvatarBtn = Instance.new("TextButton")
+uAvatarBtn.Size = UDim2.fromScale(1, 1)
+uAvatarBtn.BackgroundTransparency = 1
+uAvatarBtn.Text = ""
+uAvatarBtn.AutoButtonColor = false
+uAvatarBtn.Parent = uAvatarBox
+
+uAvatarBtn.MouseEnter:Connect(function()
+    Tween(heroAvatarStroke, 0.15, { Color = Theme.BlueGlow, Thickness = 2.4 }):Play()
+end)
+uAvatarBtn.MouseLeave:Connect(function()
+    Tween(heroAvatarStroke, 0.15, { Color = Theme.Blue, Thickness = 1.8 }):Play()
+end)
+uAvatarBtn.MouseButton1Click:Connect(function()
+    Tween(uAvatarBox, 0.08, { Size = UDim2.fromOffset(42, 42), Position = UDim2.fromOffset(19, 37) }):Play()
+    task.wait(0.08)
+    Tween(uAvatarBox, 0.22, { Size = UDim2.fromOffset(48, 48), Position = UDim2.fromOffset(16, 34) }, Enum.EasingStyle.Back):Play()
+end)
+
+-- User Display & Name
+uDispLabel = Label(userCard, Config.StreamerMode and "Hidden User" or LocalPlayer.DisplayName, 13.5, UDim2.fromOffset(72, 32), Fonts.Bold, Theme.Text)
+uDispLabel.Size = UDim2.new(1, -82, 0, 16)
+userNameLabel = Label(userCard, Config.StreamerMode and "@anonymous" or ("@" .. LocalPlayer.Name), 11.5, UDim2.fromOffset(72, 49), Fonts.Medium, Theme.Muted)
+userNameLabel.Size = UDim2.new(1, -82, 0, 14)
+
+-- Verified User Pill Badge
+local vPill = Instance.new("Frame")
+vPill.Size = UDim2.fromOffset(96, 18)
+vPill.Position = UDim2.fromOffset(72, 66)
+vPill.BackgroundColor3 = Theme.ActiveBg
+vPill.Parent = userCard
+Corner(vPill, 4)
+local vStroke = Stroke(vPill, Theme.Blue, 1)
+
+local vCheckIco = Instance.new("ImageLabel")
+vCheckIco.BackgroundTransparency = 1
+vCheckIco.Size = UDim2.fromOffset(10, 10)
+vCheckIco.Position = UDim2.fromOffset(6, 4)
+vCheckIco.Image = Icons.Check
+vCheckIco.ImageColor3 = Theme.Green
+vCheckIco.Parent = vPill
+
+Label(vPill, "Verified User", 10.5, UDim2.fromOffset(20, 0), Fonts.Bold, Theme.Green).Size = UDim2.new(1, -22, 1, 0)
+
+-- Subtle Separator Line
+local uSep = Instance.new("Frame")
+uSep.Size = UDim2.new(1, -32, 0, 1)
+uSep.Position = UDim2.fromOffset(16, 92)
+uSep.BackgroundColor3 = Theme.BorderSoft
+uSep.BorderSizePixel = 0
+uSep.Parent = userCard
+
+-- Metadata Rows
+local function UserMetaRow(y, k, v, valCol)
+    Label(userCard, k, 11.5, UDim2.fromOffset(16, y), Fonts.Medium, Theme.Muted).Size = UDim2.fromOffset(100, 14)
+    local vl = Label(userCard, Config.StreamerMode and "••••••••" or v, 11.5, UDim2.new(1, -120, 0, y), Fonts.Bold, valCol or Theme.Text)
+    vl.Size = UDim2.fromOffset(104, 14)
+    vl.TextXAlignment = Enum.TextXAlignment.Right
+
+    -- Frosted Blur / Censor Mask Pill
+    local blurBox = Instance.new("Frame")
+    blurBox.Name = "MetaBlurBox"
+    blurBox.Size = UDim2.fromOffset(86, 15)
+    blurBox.Position = UDim2.new(1, -102, 0, y)
+    blurBox.BackgroundColor3 = Color3.fromRGB(15, 24, 42)
+    blurBox.BackgroundTransparency = Config.StreamerMode and 0.15 or 1
+    blurBox.BorderSizePixel = 0
+    blurBox.ZIndex = 5
+    blurBox.Visible = Config.StreamerMode
+    blurBox.Parent = userCard
+    Corner(blurBox, 4)
+    local bStroke = Stroke(blurBox, Theme.BorderSoft, 1)
+    bStroke.Transparency = Config.StreamerMode and 0.3 or 1
+
+    local bTxt = Label(blurBox, "BLURRED", 8.5, UDim2.fromOffset(0, 0), Fonts.Bold, Theme.BlueGlow)
+    bTxt.Size = UDim2.fromScale(1, 1)
+    bTxt.TextXAlignment = Enum.TextXAlignment.Center
+    bTxt.ZIndex = 6
+
+    return vl, blurBox
+end
+
+local joinYear = math.floor(2026 - (LocalPlayer.AccountAge / 365))
+StreamerMeta.originalJoined = "Mar 12, " .. tostring(joinYear)
+StreamerMeta.originalAge = tostring(LocalPlayer.AccountAge) .. " days"
+StreamerMeta.originalStatus = "Active Member"
+
+StreamerMeta.joinedVal, StreamerMeta.joinedBlur = UserMetaRow(99, "Joined", StreamerMeta.originalJoined)
+StreamerMeta.ageVal, StreamerMeta.ageBlur = UserMetaRow(117, "Account Age", StreamerMeta.originalAge)
+StreamerMeta.statusVal, StreamerMeta.statusBlur = UserMetaRow(135, "Status", StreamerMeta.originalStatus, Theme.Green)
+
+-- ===== RIGHT 2: SYSTEM METRICS =====
+sysCard = Card(rightCol, UDim2.fromOffset(0, 174), UDim2.new(1, 0, 0, 136))
+sysCard.Name = "SystemMetricsCard"
+
+sysHeadIco = Instance.new("ImageLabel")
+sysHeadIco.BackgroundTransparency = 1
+sysHeadIco.Size = UDim2.fromOffset(14, 14)
+sysHeadIco.Position = UDim2.fromOffset(16, 12)
+sysHeadIco.Image = Icons.System
+sysHeadIco.ImageColor3 = Theme.Blue
+sysHeadIco.Parent = sysCard
+
+Label(sysCard, "<b>System Information</b>", 13.5, UDim2.fromOffset(36, 10), Fonts.Bold, Theme.Text).Size = UDim2.fromOffset(180, 16)
+
+local function SysRow(y, k, v)
+    Label(sysCard, k, 11.5, UDim2.fromOffset(16, y), Fonts.Medium, Theme.Muted).Size = UDim2.fromOffset(100, 14)
+    local vl = Label(sysCard, v, 11.5, UDim2.new(1, -120, 0, y), Enum.Font.Code, Theme.Text)
+    vl.Size = UDim2.fromOffset(104, 14)
+    vl.TextXAlignment = Enum.TextXAlignment.Right
+    return vl
+end
+
+-- Detect Executor and Version
+local function DetectExecutor()
+    local name = "Unknown"
+    local ver = "Unknown"
+
+    pcall(function()
+        if identifyexecutor then
+            local n, v = identifyexecutor()
+            if n and tostring(n) ~= "" then name = tostring(n) end
+            if v and tostring(v) ~= "" and tostring(v) ~= "nil" then ver = tostring(v) end
+        elseif identify_executor then
+            local n, v = identify_executor()
+            if n and tostring(n) ~= "" then name = tostring(n) end
+            if v and tostring(v) ~= "" and tostring(v) ~= "nil" then ver = tostring(v) end
+        elseif getexecutorname then
+            local n = getexecutorname()
+            if n and tostring(n) ~= "" then name = tostring(n) end
+        end
+    end)
+
+    pcall(function()
+        if syn then
+            if name == "Unknown" then name = "Synapse X" end
+            if ver == "Unknown" and syn.version then ver = tostring(syn.version) end
+        elseif KRNL_LOADED then
+            if name == "Unknown" then name = "KRNL" end
+        elseif is_sirhurt_closure then
+            if name == "Unknown" then name = "SirHurt" end
+        elseif FLUXUS_LOADED then
+            if name == "Unknown" then name = "Fluxus" end
+        elseif SENTINEL_LOADED then
+            if name == "Unknown" then name = "Sentinel" end
+        elseif shadow_env then
+            if name == "Unknown" then name = "Shadow" end
+        elseif OXYGEN_LOADED then
+            if name == "Unknown" then name = "Oxygen U" end
+        end
+    end)
+
+    if ver ~= "Unknown" and not string.find(ver, "^v") and not string.find(ver, "^V") and tonumber(string.sub(ver, 1, 1)) then
+        ver = "v" .. ver
+    end
+
+    return name, ver
+end
+
+local execName, execVer = DetectExecutor()
+local rbBuild = (version and string.match(version(), "%d+%.%d+%.%d+")) or "0.739.0"
+
+SysRow(30, "Roblox Build", rbBuild)
+execLabel = SysRow(50, "Executor", execName)
+if execLabel then execLabel.TextColor3 = Theme.BlueGlow end
+SysRow(70, "Version", execVer)
+local sysPingLabel = SysRow(90, "Data Ping", "0 ms")
+sysKey = SysRow(110, "Menu Keybind", Config.ToggleKey.Name)
+
+local sysKeyBtn = Instance.new("TextButton")
+sysKeyBtn.Size = UDim2.new(0, 94, 0, 16)
+sysKeyBtn.Position = UDim2.new(1, -110, 0, 110)
+sysKeyBtn.BackgroundTransparency = 1
+sysKeyBtn.Text = ""
+sysKeyBtn.AutoButtonColor = false
+sysKeyBtn.Parent = sysCard
+
+sysKeyBtn.MouseEnter:Connect(function()
+    if not isBindingKey then
+        Tween(sysKey, 0.15, { TextColor3 = Theme.BlueGlow }):Play()
+    end
+end)
+sysKeyBtn.MouseLeave:Connect(function()
+    if not isBindingKey then
+        Tween(sysKey, 0.15, { TextColor3 = Theme.Blue }):Play()
+    end
+end)
+sysKeyBtn.MouseButton1Click:Connect(function()
+    BindMenuKey(nil, sysKey)
+end)
+
+-- ===== RIGHT 3: QUICK ACTIONS / RECENT SCRIPTS =====
+quickCard = Card(rightCol, UDim2.fromOffset(0, 320), UDim2.new(1, 0, 0, 114))
+quickCard.Name = "QuickActionsCard"
+
+quickHeadIco = Instance.new("ImageLabel")
+quickHeadIco.BackgroundTransparency = 1
+quickHeadIco.Size = UDim2.fromOffset(14, 14)
+quickHeadIco.Position = UDim2.fromOffset(16, 12)
+quickHeadIco.Image = Icons.Terminal
+quickHeadIco.ImageColor3 = Theme.Blue
+quickHeadIco.Parent = quickCard
+
+Label(quickCard, "<b>Quick Actions</b>", 13.5, UDim2.fromOffset(36, 10), Fonts.Bold, Theme.Text).Size = UDim2.fromOffset(180, 16)
+Label(quickCard, "Utility shortcuts & tools", 11, UDim2.fromOffset(36, 26), Fonts.Medium, Theme.Muted).Size = UDim2.new(1, -40, 0, 14)
+
+local function CreateQuickActionRow(y, icon, title, actionText, callback)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, -32, 0, 28)
+    row.Position = UDim2.fromOffset(16, y)
+    row.BackgroundColor3 = Theme.CardInner
+    row.Parent = quickCard
+    Corner(row, 6)
+    local rStroke = Stroke(row, Theme.BorderSoft, 1)
+
+    local rIco = Instance.new("ImageLabel")
+    rIco.BackgroundTransparency = 1
+    rIco.Size = UDim2.fromOffset(13, 13)
+    rIco.Position = UDim2.fromOffset(10, 7)
+    rIco.Image = icon
+    rIco.ImageColor3 = Theme.SubText
+    rIco.Parent = row
+
+    local rLbl = Label(row, title, 12, UDim2.fromOffset(30, 6), Fonts.Medium, Theme.Text)
+    rLbl.Size = UDim2.new(1, -95, 0, 16)
+
+    local actBtn = Instance.new("TextButton")
+    actBtn.Size = UDim2.fromOffset(64, 22)
+    actBtn.Position = UDim2.new(1, -6, 0.5, 0)
+    actBtn.AnchorPoint = Vector2.new(1, 0.5)
+    actBtn.BackgroundColor3 = Theme.ActiveBg
+    actBtn.Text = actionText
+    actBtn.TextColor3 = Theme.White
+    actBtn.Font = Fonts.Medium
+    actBtn.TextSize = 11.5
+    actBtn.AutoButtonColor = false
+    actBtn.Parent = row
+    Corner(actBtn, 4)
+    local aStroke = Stroke(actBtn, Theme.Blue, 1)
+
+    actBtn.MouseEnter:Connect(function()
+        Tween(actBtn, 0.15, { BackgroundColor3 = Theme.BlueDark, TextColor3 = Theme.BlueGlow }):Play()
+        Tween(aStroke, 0.15, { Color = Theme.BlueGlow }):Play()
+        Tween(rStroke, 0.15, { Color = Theme.Blue }):Play()
+    end)
+    actBtn.MouseLeave:Connect(function()
+        Tween(actBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg, TextColor3 = Theme.White }):Play()
+        Tween(aStroke, 0.15, { Color = Theme.Blue }):Play()
+        Tween(rStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    end)
+
+    if callback then
+        actBtn.MouseButton1Click:Connect(function()
+            callback(actBtn)
+        end)
+    end
+    return row
+end
+
+-- Action 1: Rejoin Server
+CreateQuickActionRow(42, Icons.Refresh, "Rejoin Server", "Run", function(btn)
+    btn.Text = "Rejoining"
+    task.delay(0.5, function()
+        pcall(function()
+            local ts = game:GetService("TeleportService")
+            if #Players:GetPlayers() <= 1 then
+                ts:Teleport(game.PlaceId, LocalPlayer)
+            else
+                ts:TeleportToPlaceInstance(game.PlaceId, game.JobId, LocalPlayer)
+            end
+        end)
+    end)
+end)
+
+-- Action 2: Copy Place ID
+CreateQuickActionRow(74, Icons.Copy, "Copy Place ID", "Copy", function(btn)
+    pcall(function()
+        if setclipboard then setclipboard(tostring(game.PlaceId))
+        elseif toclipboard then toclipboard(tostring(game.PlaceId)) end
+    end)
+    btn.Text = "Copied"
+    btn.TextColor3 = Theme.Green
+    task.delay(1.5, function()
+        btn.Text = "Copy"
+        btn.TextColor3 = Theme.White
+    end)
+end)
+
+-- ===== BOTTOM: CHANGELOG & RELEASE HISTORY =====
+changelogCard = Card(hc, UDim2.fromOffset(0, 474), UDim2.new(1, 0, 0, 52))
+changelogCard.Name = "ChangelogCard"
+changelogCard.ClipsDescendants = true
+
+clHeadIco = Instance.new("ImageLabel")
+clHeadIco.Name = "ChangelogHeaderIcon"
+clHeadIco.BackgroundTransparency = 1
+clHeadIco.Size = UDim2.fromOffset(16, 16)
+clHeadIco.Position = UDim2.new(0, 16, 0.5, 0)
+clHeadIco.AnchorPoint = Vector2.new(0, 0.5)
+clHeadIco.Image = Icons.Changelog
+clHeadIco.ImageColor3 = Theme.BlueGlow
+clHeadIco.ScaleType = Enum.ScaleType.Fit
+clHeadIco.ZIndex = 4
+clHeadIco.Parent = changelogCard
+
+local clTitle = Label(changelogCard, "<b>Change Log & Release History</b>", 12, UDim2.new(0, 42, 0.5, 0), Fonts.Bold, Theme.Text)
+clTitle.AnchorPoint = Vector2.new(0, 0.5)
+clTitle.Size = UDim2.new(0, 260, 0, 20)
+
+-- Current version badge at top right
+local clBadge = Instance.new("Frame")
+clBadge.Size = UDim2.fromOffset(108, 24)
+clBadge.Position = UDim2.new(1, -16, 0.5, 0)
+clBadge.AnchorPoint = Vector2.new(1, 0.5)
+clBadge.BackgroundColor3 = Theme.ActiveBg
+clBadge.Parent = changelogCard
+Corner(clBadge, 5)
+Stroke(clBadge, Theme.Blue, 1)
+
+local clCheckIco = Instance.new("ImageLabel")
+clCheckIco.BackgroundTransparency = 1
+clCheckIco.Size = UDim2.fromOffset(11, 11)
+clCheckIco.Position = UDim2.new(0, 8, 0.5, 0)
+clCheckIco.AnchorPoint = Vector2.new(0, 0.5)
+clCheckIco.Image = Icons.Check
+clCheckIco.ImageColor3 = Theme.Green
+clCheckIco.ScaleType = Enum.ScaleType.Fit
+clCheckIco.Parent = clBadge
+
+local clBadgeTxt = Label(clBadge, Config.Version .. " Stable", 9, UDim2.new(0, 24, 0.5, 0), Fonts.Bold, Theme.White)
+clBadgeTxt.AnchorPoint = Vector2.new(0, 0.5)
+clBadgeTxt.Size = UDim2.new(1, -28, 0, 16)
+
+-- Live HUD Poller
+task.spawn(function()
+    local frames = 0
+    local lastTick = tick()
+    RunService.RenderStepped:Connect(function()
+        frames = frames + 1
+        local now = tick()
+        if now - lastTick >= 0.5 then
+            local curFps = math.floor(frames / (now - lastTick))
+            if hudFps then hudFps.Text = tostring(curFps) .. " fps" end
+            if hudTime then hudTime.Text = os.date("%X") end
+            local ping = 0
+            pcall(function() ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
+            local pingStr = string.format("%d ms", ping)
+            if hudPing then hudPing.Text = pingStr end
+            if sysPingLabel and sysPingLabel.Parent then sysPingLabel.Text = pingStr end
+            frames = 0
+            lastTick = now
+        end
+    end)
+end)
+
+homePage.CanvasSize = UDim2.fromOffset(0, 542)
+
+-- Page Entrance Animations: Home
+pageAnims["Home"] = function()
+    -- Hero card slides up
+    hero.Position = UDim2.fromOffset(0, 22)
+    Tween(hero, 0.35, { Position = UDim2.fromOffset(0, 0) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out):Play()
+
+    -- Stat boxes cascade pop
+    for _, sData in ipairs(statBoxFrames) do
+        sData.frame.Position = sData.basePos + UDim2.fromOffset(0, 12)
+        task.delay(0.04 + sData.idx * 0.035, function()
+            Tween(sData.frame, 0.28, { Position = sData.basePos }, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+        end)
+    end
+
+    -- Theme Presets card slides up
+    if themeCard then
+        themeCard.Position = UDim2.fromOffset(0, 174 + 22)
+        task.delay(0.06, function()
+            Tween(themeCard, 0.36, { Position = UDim2.fromOffset(0, 174) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out):Play()
+        end)
+    end
+
+    -- User Profile card slides up
+    if userCard then
+        userCard.Position = UDim2.fromOffset(0, 22)
+        task.delay(0.03, function()
+            Tween(userCard, 0.35, { Position = UDim2.fromOffset(0, 0) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out):Play()
+        end)
+    end
+
+    -- System Metrics card slides up
+    if sysCard then
+        sysCard.Position = UDim2.fromOffset(0, 174 + 22)
+        task.delay(0.06, function()
+            Tween(sysCard, 0.35, { Position = UDim2.fromOffset(0, 174) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out):Play()
+        end)
+    end
+
+    -- Quick Actions card slides up
+    if quickCard then
+        quickCard.Position = UDim2.fromOffset(0, 320 + 22)
+        task.delay(0.08, function()
+            Tween(quickCard, 0.35, { Position = UDim2.fromOffset(0, 320) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out):Play()
+        end)
+    end
+
+    -- Changelog card slides up
+    if changelogCard then
+        local targetY = (pageHolder.AbsoluteSize.X < 640) and 970 or 474
+        changelogCard.Position = UDim2.fromOffset(0, targetY + 22)
+        task.delay(0.1, function()
+            Tween(changelogCard, 0.38, { Position = UDim2.fromOffset(0, targetY) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out):Play()
+        end)
+    end
+end
+end
+InitHomePage()
+
+
+
+local function InitSettingsPage()
+    -- =================================================================
+    -- 7. SETTINGS PAGE
+    -- =================================================================
+    local settingsPage = pages["Settings"]
+    local sc = PageContent(settingsPage)
+    settingsPage.CanvasSize = UDim2.fromOffset(0, 530)
+    sc.Size = UDim2.new(1, -40, 0, 510)
+
+    -- Two-column layout for clean modular look
+    local leftSetCol = Instance.new("Frame")
+    leftSetCol.Size = UDim2.new(0.5, -8, 1, 0)
+    leftSetCol.Position = UDim2.fromOffset(0, 0)
+    leftSetCol.BackgroundTransparency = 1
+    leftSetCol.Parent = sc
+
+    local rightSetCol = Instance.new("Frame")
+    rightSetCol.Size = UDim2.new(0.5, -8, 1, 0)
+    rightSetCol.Position = UDim2.new(0.5, 8, 0, 0)
+    rightSetCol.BackgroundTransparency = 1
+    rightSetCol.Parent = sc
+
+    local settingRows = {}
+
+    -- 1. Helper for Clean Setting Toggles
+    local function CreateSettingToggle(parent, title, y, default, callback, icon)
+        local row = Instance.new("Frame")
+        row.Size = UDim2.new(1, -24, 0, 36)
+        row.Position = UDim2.fromOffset(12, y)
+        row.BackgroundColor3 = Theme.CardInner
+        row.BackgroundTransparency = 1
+        row.Parent = parent
+        Corner(row, 6)
+
+        row.MouseEnter:Connect(function()
+            Tween(row, 0.15, { BackgroundTransparency = 0.6, BackgroundColor3 = Theme.CardInner }):Play()
+        end)
+        row.MouseLeave:Connect(function()
+            Tween(row, 0.15, { BackgroundTransparency = 1 }):Play()
+        end)
+
+        local textOffsetX = 10
+        if icon then
+            local rowIco = Instance.new("ImageLabel")
+            rowIco.BackgroundTransparency = 1
+            rowIco.Size = UDim2.fromOffset(14, 14)
+            rowIco.Position = UDim2.fromOffset(10, 11)
+            rowIco.Image = icon
+            rowIco.ImageColor3 = Theme.SubText
+            rowIco.Parent = row
+            textOffsetX = 32
+        end
+
+        Label(row, title, 13, UDim2.fromOffset(textOffsetX, 8), Fonts.Medium, Theme.Text).Size = UDim2.new(1, -(textOffsetX + 54), 0, 20)
+
+        local toggleBg = Instance.new("TextButton")
+        toggleBg.Size = UDim2.fromOffset(36, 18)
+        toggleBg.Position = UDim2.new(1, -44, 0.5, -9)
+        toggleBg.Text = ""
+        toggleBg.AutoButtonColor = false
+        toggleBg.BackgroundColor3 = default and Theme.Blue or Theme.CardInner
+        toggleBg.Parent = row
+        Corner(toggleBg, 9)
+        local tgStroke = Stroke(toggleBg, default and Theme.Blue or Theme.Border, 1)
+
+        local dot = Instance.new("Frame")
+        dot.Size = UDim2.fromOffset(12, 12)
+        dot.Position = default and UDim2.fromOffset(21, 3) or UDim2.fromOffset(3, 3)
+        dot.BackgroundColor3 = Theme.White
+        dot.Parent = toggleBg
+        Corner(dot, 6)
+
+        local state = default
+        local isToggling = false
+
+        local function UpdateVisual(animate)
+            local targetX = state and 21 or 3
+            local targetBg = state and Theme.Blue or Theme.CardInner
+            local targetStroke = state and Theme.Blue or Theme.Border
+            if animate then
+                Tween(dot, 0.2, { Position = UDim2.fromOffset(targetX, 3) }, Enum.EasingStyle.Back):Play()
+                Tween(toggleBg, 0.2, { BackgroundColor3 = targetBg }):Play()
+                Tween(tgStroke, 0.2, { Color = targetStroke }):Play()
+            else
+                dot.Position = UDim2.fromOffset(targetX, 3)
+                toggleBg.BackgroundColor3 = targetBg
+                tgStroke.Color = targetStroke
+            end
+        end
+
+        toggleBg.MouseButton1Click:Connect(function()
+            if isToggling then return end
+            isToggling = true
+            state = not state
+            UpdateVisual(true)
+            task.delay(0.2, function() isToggling = false end)
+            if callback then callback(state) end
+        end)
+
+        table.insert(registeredToggles, {
+            bg = toggleBg,
+            stroke = tgStroke,
+            getState = function() return state end,
+            update = UpdateVisual
+        })
+
+        table.insert(settingRows, { row = row, baseY = y })
+        return row
+    end
+
+    -- =================================================================
+    -- CARD 1: SYSTEM PREFERENCES (Left Column - Top)
+    -- =================================================================
+    local setCard = Card(leftSetCol, UDim2.fromOffset(0, 0), UDim2.new(1, 0, 0, 168))
+
+    setHeadIco = Instance.new("ImageLabel")
+    setHeadIco.BackgroundTransparency = 1
+    setHeadIco.Size = UDim2.fromOffset(14, 14)
+    setHeadIco.Position = UDim2.fromOffset(14, 13)
+    setHeadIco.Image = Icons.Settings
+    setHeadIco.ImageColor3 = Theme.BlueGlow
+    setHeadIco.Parent = setCard
+
+    Label(setCard, "System Preferences", 13.5, UDim2.fromOffset(34, 11), Fonts.Bold, Theme.Text).Size = UDim2.fromOffset(200, 18)
+
+    -- Row 1: Menu Keybind (Y = 38)
+    local kbRow = Instance.new("Frame")
+    kbRow.Size = UDim2.new(1, -24, 0, 36)
+    kbRow.Position = UDim2.fromOffset(12, 38)
+    kbRow.BackgroundColor3 = Theme.CardInner
+    kbRow.BackgroundTransparency = 1
+    kbRow.Parent = setCard
+    Corner(kbRow, 6)
+
+    local kbIco = Instance.new("ImageLabel")
+    kbIco.BackgroundTransparency = 1
+    kbIco.Size = UDim2.fromOffset(14, 14)
+    kbIco.Position = UDim2.fromOffset(10, 11)
+    kbIco.Image = Icons.Keyboard
+    kbIco.ImageColor3 = Theme.SubText
+    kbIco.Parent = kbRow
+
+    Label(kbRow, "Menu Keybind", 13, UDim2.fromOffset(32, 8), Fonts.Medium, Theme.Text).Size = UDim2.new(1, -132, 0, 20)
+
+    local kbBtn = Instance.new("TextButton")
+    kbBtn.Size = UDim2.fromOffset(84, 24)
+    kbBtn.Position = UDim2.new(1, -88, 0.5, -12)
+    kbBtn.BackgroundColor3 = Theme.CardInner
+    kbBtn.Text = Config.ToggleKey.Name
+    kbBtn.TextColor3 = Theme.White
+    kbBtn.Font = Fonts.Bold
+    kbBtn.TextSize = 12
+    kbBtn.AutoButtonColor = false
+    kbBtn.Parent = kbRow
+    Corner(kbBtn, 6)
+    local kbStroke = Stroke(kbBtn, Theme.BorderSoft, 1)
+
+    settingsKeyLabel = kbBtn
+    settingsKeyBtn = kbBtn
+
+    kbBtn.MouseEnter:Connect(function()
+        if not isBindingKey then
+            Tween(kbBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg }):Play()
+            Tween(kbStroke, 0.15, { Color = Theme.Blue }):Play()
+        end
+    end)
+    kbBtn.MouseLeave:Connect(function()
+        if not isBindingKey then
+            Tween(kbBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+            Tween(kbStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+        end
+    end)
+    kbBtn.MouseButton1Click:Connect(function()
+        BindMenuKey(kbBtn, kbBtn)
+    end)
+    table.insert(settingRows, { row = kbRow, baseY = 38 })
+
+    -- Row 2: Watermark HUD (Y = 78)
+    CreateSettingToggle(setCard, "Watermark HUD", 78, Config.ShowWatermark, function(state)
+        Config.ShowWatermark = state
+        if hudBar then
+            if state then
+                hudBar.Visible = true
+                Tween(hudBar, 0.2, { BackgroundTransparency = 0.15 }):Play()
+            else
+                local tw = Tween(hudBar, 0.15, { BackgroundTransparency = 1 })
+                tw:Play()
+                tw.Completed:Connect(function()
+                    if not Config.ShowWatermark then hudBar.Visible = false end
+                end)
+            end
+        end
+    end, Icons.Eye)
+
+    -- Row 3: Unload Script (Y = 118)
+    local unloadRow = Instance.new("Frame")
+    unloadRow.Size = UDim2.new(1, -24, 0, 36)
+    unloadRow.Position = UDim2.fromOffset(12, 118)
+    unloadRow.BackgroundColor3 = Theme.CardInner
+    unloadRow.BackgroundTransparency = 1
+    unloadRow.Parent = setCard
+    Corner(unloadRow, 6)
+
+    local unloadIco = Instance.new("ImageLabel")
+    unloadIco.BackgroundTransparency = 1
+    unloadIco.Size = UDim2.fromOffset(14, 14)
+    unloadIco.Position = UDim2.fromOffset(10, 11)
+    unloadIco.Image = Icons.Power
+    unloadIco.ImageColor3 = Theme.SubText
+    unloadIco.Parent = unloadRow
+
+    Label(unloadRow, "Unload Script", 13, UDim2.fromOffset(32, 8), Fonts.Medium, Theme.Text).Size = UDim2.new(1, -132, 0, 20)
+
+    local unloadBtn = Instance.new("TextButton")
+    unloadBtn.Size = UDim2.fromOffset(84, 24)
+    unloadBtn.Position = UDim2.new(1, -88, 0.5, -12)
+    unloadBtn.BackgroundColor3 = Theme.CardInner
+    unloadBtn.Text = "Unload"
+    unloadBtn.TextColor3 = Color3.fromRGB(255, 90, 105)
+    unloadBtn.Font = Fonts.Bold
+    unloadBtn.TextSize = 12
+    unloadBtn.AutoButtonColor = false
+    unloadBtn.Parent = unloadRow
+    Corner(unloadBtn, 6)
+    local unloadStroke = Stroke(unloadBtn, Theme.BorderSoft, 1)
+
+    unloadBtn.MouseEnter:Connect(function()
+        Tween(unloadBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(45, 15, 25), TextColor3 = Color3.fromRGB(255, 120, 135) }):Play()
+        Tween(unloadStroke, 0.15, { Color = Color3.fromRGB(235, 65, 80) }):Play()
+    end)
+    unloadBtn.MouseLeave:Connect(function()
+        Tween(unloadBtn, 0.15, { BackgroundColor3 = Theme.CardInner, TextColor3 = Color3.fromRGB(255, 90, 105) }):Play()
+        Tween(unloadStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    end)
+    unloadBtn.MouseButton1Click:Connect(function()
+        Tween(unloadBtn, 0.08, { Size = UDim2.fromOffset(78, 22) }):Play()
+        task.wait(0.08)
+        Tween(unloadBtn, 0.15, { Size = UDim2.fromOffset(84, 24) }, Enum.EasingStyle.Back):Play()
+        ShowUnloadConfirmation()
+    end)
+    table.insert(settingRows, { row = unloadRow, baseY = 118 })
+
+    -- =================================================================
+    -- CARD 2: APPEARANCE & VISUALS (Left Column - Bottom)
+    -- =================================================================
+    local visualCard = Card(leftSetCol, UDim2.fromOffset(0, 180), UDim2.new(1, 0, 0, 310))
+
+    visHeadIco = Instance.new("ImageLabel")
+    visHeadIco.BackgroundTransparency = 1
+    visHeadIco.Size = UDim2.fromOffset(14, 14)
+    visHeadIco.Position = UDim2.fromOffset(14, 13)
+    visHeadIco.Image = Icons.Visuals
+    visHeadIco.ImageColor3 = Theme.BlueGlow
+    visHeadIco.Parent = visualCard
+
+    Label(visualCard, "Visual Appearance", 13.5, UDim2.fromOffset(34, 11), Fonts.Bold, Theme.Text).Size = UDim2.fromOffset(200, 18)
+
+    -- Row 1: Running Border Light (Y = 38)
+    CreateSettingToggle(visualCard, "Running Border Light", 38, Config.RunningGlow, function(state)
+        Config.RunningGlow = state
+        if runnerStroke then
+            if state then
+                runnerStroke.Color = Color3.fromRGB(255, 255, 255)
+                runnerStroke.Thickness = 1.4
+                if runnerGrad then runnerGrad.Enabled = true end
+            else
+                if runnerGrad then runnerGrad.Enabled = false end
+                runnerStroke.Color = Theme.Blue
+                runnerStroke.Thickness = 1.2
+            end
+        end
+    end, Icons.Zap)
+
+    -- Row 2: Background Blur (Y = 78)
+    local blurRow = Instance.new("Frame")
+    blurRow.Size = UDim2.new(1, -24, 0, 36)
+    blurRow.Position = UDim2.fromOffset(12, 78)
+    blurRow.BackgroundColor3 = Theme.CardInner
+    blurRow.BackgroundTransparency = 1
+    blurRow.Parent = visualCard
+    Corner(blurRow, 6)
+
+    local blurIco = Instance.new("ImageLabel")
+    blurIco.BackgroundTransparency = 1
+    blurIco.Size = UDim2.fromOffset(14, 14)
+    blurIco.Position = UDim2.fromOffset(10, 11)
+    blurIco.Image = Icons.Droplet
+    blurIco.ImageColor3 = Theme.SubText
+    blurIco.Parent = blurRow
+
+    Label(blurRow, "Background Blur", 13, UDim2.fromOffset(32, 8), Fonts.Medium, Theme.Text).Size = UDim2.new(1, -232, 0, 20)
+
+    blurValLabel = Label(blurRow, Config.BlurLevel > 0 and (Config.BlurLevel .. " px") or "Off", 12, UDim2.new(1, -195, 0, 8), Fonts.Bold, Theme.BlueGlow)
+    blurValLabel.Size = UDim2.fromOffset(45, 20)
+    blurValLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+    -- Interactive Slider Track
+    local sliderTrack = Instance.new("Frame")
+    sliderTrack.Size = UDim2.fromOffset(82, 6)
+    sliderTrack.Position = UDim2.new(1, -115, 0.5, -3)
+    sliderTrack.BackgroundColor3 = Color3.fromRGB(15, 22, 34)
+    sliderTrack.BorderSizePixel = 0
+    sliderTrack.ZIndex = 3
+    sliderTrack.Parent = blurRow
+    Corner(sliderTrack, 3)
+    Stroke(sliderTrack, Theme.BorderSoft, 1)
+
+    sliderFill = Instance.new("Frame")
+    sliderFill.Size = UDim2.new(Config.BlurLevel / 30, 0, 1, 0)
+    sliderFill.BackgroundColor3 = Theme.Blue
+    sliderFill.BorderSizePixel = 0
+    sliderFill.ZIndex = 4
+    sliderFill.Parent = sliderTrack
+    Corner(sliderFill, 3)
+
+    local sliderKnob = Instance.new("Frame")
+    sliderKnob.Name = "SliderKnob"
+    sliderKnob.Size = UDim2.fromOffset(14, 14)
+    sliderKnob.Position = UDim2.new(Config.BlurLevel / 30, -7, 0.5, -7)
+    sliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    sliderKnob.BorderSizePixel = 0
+    sliderKnob.ZIndex = 10
+    sliderKnob.Parent = sliderTrack
+    Corner(sliderKnob, 7)
+    sliderKnobStroke = Stroke(sliderKnob, Theme.Blue, 1.5)
+
+    local function UpdateBlur(val)
+        val = math.clamp(math.round(val), 0, 30)
+        Config.BlurLevel = val
+        if blurValLabel then
+            blurValLabel.Text = (val > 0) and (val .. " px") or "Off"
+        end
+        local pct = val / 30
+        if sliderFill then
+            sliderFill.Size = UDim2.new(pct, 0, 1, 0)
+        end
+        if sliderKnob then
+            sliderKnob.Position = UDim2.new(pct, -7, 0.5, -7)
+        end
+        if sliderKnobStroke then
+            sliderKnobStroke.Color = Theme.Blue
+        end
+        if bgBlur then
+            bgBlur.Size = val
+            bgBlur.Enabled = (val > 0 and isVisible)
+        end
+        ApplyWallpaperBlur(val)
+    end
+
+    -- Stepper minus button [-]
+    local minusBtn = Instance.new("TextButton")
+    minusBtn.Size = UDim2.fromOffset(22, 22)
+    minusBtn.Position = UDim2.new(1, -145, 0.5, -11)
+    minusBtn.BackgroundColor3 = Theme.CardInner
+    minusBtn.Text = "-"
+    minusBtn.TextColor3 = Theme.White
+    minusBtn.Font = Fonts.Bold
+    minusBtn.TextSize = 13
+    minusBtn.AutoButtonColor = false
+    minusBtn.Parent = blurRow
+    Corner(minusBtn, 4)
+    local minusStroke = Stroke(minusBtn, Theme.BorderSoft, 1)
+
+    minusBtn.MouseEnter:Connect(function()
+        Tween(minusBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg }):Play()
+        Tween(minusStroke, 0.15, { Color = Theme.Blue }):Play()
+    end)
+    minusBtn.MouseLeave:Connect(function()
+        Tween(minusBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+        Tween(minusStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    end)
+    minusBtn.MouseButton1Click:Connect(function()
+        UpdateBlur(Config.BlurLevel - 2)
+    end)
+
+    -- Stepper plus button [+]
+    local plusBtn = Instance.new("TextButton")
+    plusBtn.Size = UDim2.fromOffset(22, 22)
+    plusBtn.Position = UDim2.new(1, -26, 0.5, -11)
+    plusBtn.BackgroundColor3 = Theme.CardInner
+    plusBtn.Text = "+"
+    plusBtn.TextColor3 = Theme.White
+    plusBtn.Font = Fonts.Bold
+    plusBtn.TextSize = 13
+    plusBtn.AutoButtonColor = false
+    plusBtn.Parent = blurRow
+    Corner(plusBtn, 4)
+    local plusStroke = Stroke(plusBtn, Theme.BorderSoft, 1)
+
+    plusBtn.MouseEnter:Connect(function()
+        Tween(plusBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg }):Play()
+        Tween(plusStroke, 0.15, { Color = Theme.Blue }):Play()
+    end)
+    plusBtn.MouseLeave:Connect(function()
+        Tween(plusBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+        Tween(plusStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    end)
+    plusBtn.MouseButton1Click:Connect(function()
+        UpdateBlur(Config.BlurLevel + 2)
+    end)
+
+    local sliderBtn = Instance.new("TextButton")
+    sliderBtn.Size = UDim2.new(1, 14, 1, 20)
+    sliderBtn.Position = UDim2.fromOffset(-7, -10)
+    sliderBtn.BackgroundTransparency = 1
+    sliderBtn.Text = ""
+    sliderBtn.AutoButtonColor = false
+    sliderBtn.ZIndex = 12
+    sliderBtn.Parent = sliderTrack
+
+    local isDraggingBlur = false
+    local function UpdateFromMouse()
+        local mouse = UserInputService:GetMouseLocation()
+        local tX = sliderTrack.AbsolutePosition.X
+        local tW = sliderTrack.AbsoluteSize.X
+        if tW <= 0 then return end
+        local pct = math.clamp((mouse.X - tX) / tW, 0, 1)
+        UpdateBlur(pct * 30)
+    end
+
+    local function StartDrag()
+        isDraggingBlur = true
+        UpdateFromMouse()
+    end
+
+    sliderBtn.MouseButton1Down:Connect(StartDrag)
+    sliderBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            StartDrag()
+        end
+    end)
+    sliderTrack.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            StartDrag()
+        end
+    end)
+
+    local blurEndConn = UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDraggingBlur = false
+        end
+    end)
+    table.insert(cleanupConns, blurEndConn)
+
+    local blurMoveConn = UserInputService.InputChanged:Connect(function(input)
+        if isDraggingBlur and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            UpdateFromMouse()
+        end
+    end)
+    table.insert(cleanupConns, blurMoveConn)
+    table.insert(settingRows, { row = blurRow, baseY = 78 })
+
+    -- Row 3: Accent Color (Y = 118, height = 62)
+    local themeRow = Instance.new("Frame")
+    themeRow.Size = UDim2.new(1, -24, 0, 62)
+    themeRow.Position = UDim2.fromOffset(12, 118)
+    themeRow.BackgroundColor3 = Theme.CardInner
+    themeRow.BackgroundTransparency = 1
+    themeRow.Parent = visualCard
+    Corner(themeRow, 6)
+
+    local accentIco = Instance.new("ImageLabel")
+    accentIco.BackgroundTransparency = 1
+    accentIco.Size = UDim2.fromOffset(14, 14)
+    accentIco.Position = UDim2.fromOffset(10, 6)
+    accentIco.Image = Icons.Palette
+    accentIco.ImageColor3 = Theme.SubText
+    accentIco.Parent = themeRow
+
+    Label(themeRow, "Accent Color", 13, UDim2.fromOffset(32, 4), Fonts.Medium, Theme.Text).Size = UDim2.new(0.5, -22, 0, 18)
+
+    curAccentLabel = Label(themeRow, Config.AccentName, 12, UDim2.new(0.5, 0, 0, 4), Fonts.Bold, Theme.BlueGlow)
+    curAccentLabel.Size = UDim2.new(0.5, -10, 0, 18)
+    curAccentLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+    local themeHolder = Instance.new("Frame")
+    themeHolder.Size = UDim2.new(1, -12, 0, 32)
+    themeHolder.Position = UDim2.fromOffset(6, 26)
+    themeHolder.BackgroundTransparency = 1
+    themeHolder.Parent = themeRow
+
+    local themeLayout = Instance.new("UIListLayout")
+    themeLayout.FillDirection = Enum.FillDirection.Horizontal
+    themeLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    themeLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    themeLayout.Padding = UDim.new(0, 6)
+    themeLayout.Parent = themeHolder
+
+    presetIndicatorWidgets = {}
+
+    for idx, preset in ipairs(AccentPresets) do
+        local pBtn = Instance.new("TextButton")
+        pBtn.Size = UDim2.fromOffset(36, 28)
+        pBtn.BackgroundColor3 = (Config.AccentName == preset.Name) and Color3.fromRGB(24, 32, 48) or Theme.CardInner
+        pBtn.AutoButtonColor = false
+        pBtn.Text = ""
+        pBtn.Parent = themeHolder
+        Corner(pBtn, 6)
+        local isInitialSel = (Config.AccentName == preset.Name)
+        local pStroke = Stroke(pBtn, isInitialSel and preset.Glow or Theme.BorderSoft, isInitialSel and 2 or 1)
+
+        local pDot = Instance.new("Frame")
+        pDot.Size = UDim2.fromOffset(14, 14)
+        pDot.Position = UDim2.fromScale(0.5, 0.5)
+        pDot.AnchorPoint = Vector2.new(0.5, 0.5)
+        pDot.BackgroundColor3 = preset.Main
+        pDot.Parent = pBtn
+        Corner(pDot, 7)
+
+        presetIndicatorWidgets[preset.Name] = { stroke = pStroke, btn = pBtn, preset = preset }
+
+        pBtn.MouseEnter:Connect(function()
+            if Config.AccentName ~= preset.Name then
+                Tween(pBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(18, 25, 38) }):Play()
+                Tween(pStroke, 0.15, { Color = preset.Main }):Play()
+            end
+        end)
+        pBtn.MouseLeave:Connect(function()
+            if Config.AccentName ~= preset.Name then
+                Tween(pBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+                Tween(pStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+            end
+        end)
+        pBtn.MouseButton1Click:Connect(function()
+            ApplyAccent(preset)
+        end)
+    end
+    table.insert(settingRows, { row = themeRow, baseY = 118 })
+
+    -- Row 4: Base Theme Mode (Y = 184, height = 56)
+    local modeRow = Instance.new("Frame")
+    modeRow.Size = UDim2.new(1, -24, 0, 56)
+    modeRow.Position = UDim2.fromOffset(12, 184)
+    modeRow.BackgroundColor3 = Theme.CardInner
+    modeRow.BackgroundTransparency = 1
+    modeRow.Parent = visualCard
+    Corner(modeRow, 6)
+
+    local modeIco = Instance.new("ImageLabel")
+    modeIco.BackgroundTransparency = 1
+    modeIco.Size = UDim2.fromOffset(14, 14)
+    modeIco.Position = UDim2.fromOffset(10, 6)
+    modeIco.Image = Icons.Moon
+    modeIco.ImageColor3 = Theme.SubText
+    modeIco.Parent = modeRow
+
+    Label(modeRow, "Dark Theme Style", 13, UDim2.fromOffset(32, 4), Fonts.Medium, Theme.Text).Size = UDim2.new(1, -42, 0, 18)
+
+    local modeHolder = Instance.new("Frame")
+    modeHolder.Size = UDim2.new(1, -12, 0, 26)
+    modeHolder.Position = UDim2.fromOffset(6, 26)
+    modeHolder.BackgroundTransparency = 1
+    modeHolder.Parent = modeRow
+
+    local modeLayout = Instance.new("UIListLayout")
+    modeLayout.FillDirection = Enum.FillDirection.Horizontal
+    modeLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    modeLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    modeLayout.Padding = UDim.new(0, 8)
+    modeLayout.Parent = modeHolder
+
+    themeModeButtons = {}
+    local modeList = { "Midnight", "Obsidian", "Charcoal" }
+    for _, mName in ipairs(modeList) do
+        local mBtn = Instance.new("TextButton")
+        mBtn.Size = UDim2.new(0.32, -6, 1, 0)
+        mBtn.BackgroundColor3 = (Config.ThemeName == mName) and Theme.ActiveBg or Theme.CardInner
+        mBtn.AutoButtonColor = false
+        mBtn.Text = ""
+        mBtn.Parent = modeHolder
+        Corner(mBtn, 6)
+        local isCur = (Config.ThemeName == mName)
+        local mStroke = Stroke(mBtn, isCur and Theme.Blue or Theme.BorderSoft, 1)
+
+        local mLbl = Label(mBtn, mName, 12, UDim2.fromOffset(0, 0), Fonts.Medium, isCur and Theme.White or Theme.Muted)
+        mLbl.Size = UDim2.fromScale(1, 1)
+        mLbl.TextXAlignment = Enum.TextXAlignment.Center
+
+        themeModeButtons[mName] = { btn = mBtn, stroke = mStroke, label = mLbl }
+
+        mBtn.MouseEnter:Connect(function()
+            if Config.ThemeName ~= mName then
+                Tween(mBtn, 0.15, { BackgroundColor3 = Theme.SidebarHover }):Play()
+                Tween(mLbl, 0.15, { TextColor3 = Theme.Text }):Play()
+            end
+        end)
+        mBtn.MouseLeave:Connect(function()
+            if Config.ThemeName ~= mName then
+                Tween(mBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+                Tween(mLbl, 0.15, { TextColor3 = Theme.Muted }):Play()
+            end
+        end)
+        mBtn.MouseButton1Click:Connect(function()
+            ApplyBaseTheme(mName)
+        end)
+    end
+    table.insert(settingRows, { row = modeRow, baseY = 184 })
+
+    -- Row 5: Custom Wallpaper (Y = 244, height = 56)
+    local bgRow = Instance.new("Frame")
+    bgRow.Size = UDim2.new(1, -24, 0, 56)
+    bgRow.Position = UDim2.fromOffset(12, 244)
+    bgRow.BackgroundColor3 = Theme.CardInner
+    bgRow.BackgroundTransparency = 1
+    bgRow.Parent = visualCard
+    Corner(bgRow, 6)
+
+    local bgIco = Instance.new("ImageLabel")
+    bgIco.BackgroundTransparency = 1
+    bgIco.Size = UDim2.fromOffset(14, 14)
+    bgIco.Position = UDim2.fromOffset(10, 5)
+    bgIco.Image = Icons.Image
+    bgIco.ImageColor3 = Theme.SubText
+    bgIco.Parent = bgRow
+
+    Label(bgRow, "Custom Wallpaper", 13, UDim2.fromOffset(32, 3), Fonts.Medium, Theme.Text).Size = UDim2.new(1, -42, 0, 16)
+
+    local bgInputContainer = Instance.new("Frame")
+    bgInputContainer.Size = UDim2.new(1, -126, 0, 28)
+    bgInputContainer.Position = UDim2.fromOffset(10, 22)
+    bgInputContainer.BackgroundColor3 = Theme.CardInner
+    bgInputContainer.Parent = bgRow
+    Corner(bgInputContainer, 6)
+    local bgInputStroke = Stroke(bgInputContainer, Theme.BorderSoft, 1)
+
+    local bgInputBox = Instance.new("TextBox")
+    bgInputBox.PlaceholderText = "Asset ID / URL..."
+    bgInputBox.PlaceholderColor3 = Theme.Muted
+    bgInputBox.Text = Config.CustomBgId or ""
+    bgInputBox.TextColor3 = Theme.Text
+    bgInputBox.TextSize = 12
+    bgInputBox.Font = Fonts.Medium
+    bgInputBox.Position = UDim2.fromOffset(8, 0)
+    bgInputBox.Size = UDim2.new(1, -16, 1, 0)
+    bgInputBox.BackgroundTransparency = 1
+    bgInputBox.BorderSizePixel = 0
+    bgInputBox.TextXAlignment = Enum.TextXAlignment.Left
+    bgInputBox.ClearTextOnFocus = false
+    bgInputBox.Parent = bgInputContainer
+
+    local bgClearBtn = nil
+
+    bgInputBox.Focused:Connect(function()
+        Tween(bgInputContainer, 0.15, { BackgroundColor3 = Color3.fromRGB(14, 24, 40) }):Play()
+        Tween(bgInputStroke, 0.15, { Color = Theme.BlueGlow, Thickness = 1.2 }):Play()
+    end)
+    bgInputBox.FocusLost:Connect(function(enterPressed)
+        Tween(bgInputContainer, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+        Tween(bgInputStroke, 0.15, { Color = Theme.BorderSoft, Thickness = 1 }):Play()
+        if enterPressed and bgInputBox.Text ~= "" then
+            ApplyCustomWallpaper(bgInputBox.Text)
+        end
+    end)
+
+    -- Apply button
+    bgApplyBtn = Instance.new("TextButton")
+    bgApplyBtn.Size = UDim2.fromOffset(52, 28)
+    bgApplyBtn.Position = UDim2.new(1, -112, 0, 22)
+    bgApplyBtn.BackgroundColor3 = Theme.CardInner
+    bgApplyBtn.Text = "Apply"
+    bgApplyBtn.TextColor3 = Theme.Text
+    bgApplyBtn.Font = Fonts.Bold
+    bgApplyBtn.TextSize = 12
+    bgApplyBtn.AutoButtonColor = false
+    bgApplyBtn.Parent = bgRow
+    Corner(bgApplyBtn, 6)
+    local bgApplyStroke = Stroke(bgApplyBtn, Theme.BorderSoft, 1)
+
+    bgApplyBtn.MouseEnter:Connect(function()
+        Tween(bgApplyBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg, TextColor3 = Theme.White }):Play()
+        Tween(bgApplyStroke, 0.15, { Color = Theme.Blue }):Play()
+    end)
+    bgApplyBtn.MouseLeave:Connect(function()
+        Tween(bgApplyBtn, 0.15, { BackgroundColor3 = Theme.CardInner, TextColor3 = Theme.Text }):Play()
+        Tween(bgApplyStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    end)
+    bgApplyBtn.MouseButton1Click:Connect(function()
+        ApplyCustomWallpaper(bgInputBox.Text)
+    end)
+
+    -- Clear button
+    bgClearBtn = Instance.new("TextButton")
+    bgClearBtn.Size = UDim2.fromOffset(52, 28)
+    bgClearBtn.Position = UDim2.new(1, -56, 0, 22)
+    bgClearBtn.BackgroundColor3 = Theme.CardInner
+    bgClearBtn.Text = "Clear"
+    bgClearBtn.TextColor3 = Theme.Muted
+    bgClearBtn.Font = Fonts.Medium
+    bgClearBtn.TextSize = 12
+    bgClearBtn.AutoButtonColor = false
+    bgClearBtn.Parent = bgRow
+    Corner(bgClearBtn, 6)
+    local bgClearStroke = Stroke(bgClearBtn, Theme.BorderSoft, 1)
+
+    bgClearBtn.MouseEnter:Connect(function()
+        Tween(bgClearBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(36, 18, 26), TextColor3 = Color3.fromRGB(255, 100, 120) }):Play()
+        Tween(bgClearStroke, 0.15, { Color = Color3.fromRGB(180, 40, 60) }):Play()
+    end)
+    bgClearBtn.MouseLeave:Connect(function()
+        Tween(bgClearBtn, 0.15, { BackgroundColor3 = Theme.CardInner, TextColor3 = Theme.Muted }):Play()
+        Tween(bgClearStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    end)
+    bgClearBtn.MouseButton1Click:Connect(function()
+        ClearCustomWallpaper()
+    end)
+    table.insert(settingRows, { row = bgRow, baseY = 244 })
+
+    -- =================================================================
+    -- CARD 3: CONFIGURATION PROFILES (Right Column - Top)
+    -- =================================================================
+    local cfgCard = Card(rightSetCol, UDim2.fromOffset(0, 0), UDim2.new(1, 0, 0, 286))
+
+    cfgHeadIco = Instance.new("ImageLabel")
+    cfgHeadIco.BackgroundTransparency = 1
+    cfgHeadIco.Size = UDim2.fromOffset(14, 14)
+    cfgHeadIco.Position = UDim2.fromOffset(14, 13)
+    cfgHeadIco.Image = Icons.Code
+    cfgHeadIco.ImageColor3 = Theme.BlueGlow
+    cfgHeadIco.Parent = cfgCard
+
+    Label(cfgCard, "Configuration Profiles", 13.5, UDim2.fromOffset(34, 11), Fonts.Bold, Theme.Text).Size = UDim2.fromOffset(200, 18)
+
+    -- 1. Dropdown for Configs (Y = 38)
+    local ddBtn = Instance.new("TextButton")
+    ddBtn.Name = "ConfigsDropdown"
+    ddBtn.Size = UDim2.new(1, -24, 0, 30)
+    ddBtn.Position = UDim2.fromOffset(12, 38)
+    ddBtn.BackgroundColor3 = Theme.CardInner
+    ddBtn.Text = ""
+    ddBtn.AutoButtonColor = false
+    ddBtn.ZIndex = 10
+    ddBtn.Parent = cfgCard
+    Corner(ddBtn, 6)
+    local ddStroke = Stroke(ddBtn, Theme.BorderSoft, 1)
+
+    local ddText = Label(ddBtn, ConfigState.Selected, 12.5, UDim2.fromOffset(10, 0), Fonts.Medium, Theme.Text)
+    ddText.Size = UDim2.new(1, -36, 1, 0)
+    ddText.ZIndex = 11
+
+    local ddArrow = Instance.new("ImageLabel")
+    ddArrow.BackgroundTransparency = 1
+    ddArrow.Size = UDim2.fromOffset(14, 14)
+    ddArrow.Position = UDim2.new(1, -22, 0.5, -7)
+    ddArrow.Image = Icons.ChevronDown
+    ddArrow.ImageColor3 = Theme.Muted
+    ddArrow.ZIndex = 11
+    ddArrow.Parent = ddBtn
+
+    local ddList = Instance.new("Frame")
+    ddList.Name = "DropdownList"
+    ddList.Size = UDim2.new(1, 0, 0, 0)
+    ddList.Position = UDim2.new(0, 0, 1, 3)
+    ddList.BackgroundColor3 = Color3.fromRGB(9, 14, 22)
+    ddList.BorderSizePixel = 0
+    ddList.ClipsDescendants = true
+    ddList.Visible = false
+    ddList.ZIndex = 30
+    ddList.Parent = ddBtn
+    Corner(ddList, 6)
+    Stroke(ddList, Theme.Border, 1.2)
+
+    local ddListLayout = Instance.new("UIListLayout")
+    ddListLayout.Padding = UDim.new(0, 2)
+    ddListLayout.Parent = ddList
+
+    local isDropdownOpen = false
+
+    local function RefreshDropdownItems()
+        for _, child in ipairs(ddList:GetChildren()) do
+            if child:IsA("TextButton") then child:Destroy() end
+        end
+
+        for _, cfgName in ipairs(ConfigState.List) do
+            local isSel = (cfgName == ConfigState.Selected)
+            local itemBtn = Instance.new("TextButton")
+            itemBtn.Size = UDim2.new(1, -6, 0, 24)
+            itemBtn.BackgroundColor3 = isSel and Theme.ActiveBg or Theme.CardInner
+            itemBtn.BackgroundTransparency = isSel and 0 or 0.6
+            itemBtn.AutoButtonColor = false
+            itemBtn.Text = "  " .. cfgName
+            itemBtn.TextColor3 = isSel and Theme.White or Theme.Text
+            itemBtn.Font = Fonts.Medium
+            itemBtn.TextSize = 12
+            itemBtn.TextXAlignment = Enum.TextXAlignment.Left
+            itemBtn.ZIndex = 31
+            itemBtn.Parent = ddList
+            Corner(itemBtn, 4)
+
+            itemBtn.MouseEnter:Connect(function()
+                Tween(itemBtn, 0.12, { BackgroundColor3 = Theme.ActiveBg, BackgroundTransparency = 0 }):Play()
+            end)
+            itemBtn.MouseLeave:Connect(function()
+                if cfgName ~= ConfigState.Selected then
+                    Tween(itemBtn, 0.12, { BackgroundColor3 = Theme.CardInner, BackgroundTransparency = 0.6 }):Play()
+                end
+            end)
+            itemBtn.MouseButton1Click:Connect(function()
+                ConfigState.Selected = cfgName
+                ddText.Text = cfgName
+                RefreshDropdownItems()
+                isDropdownOpen = false
+                ddArrow.Image = Icons.ChevronDown
+                Tween(ddList, 0.2, { Size = UDim2.new(1, 0, 0, 0) }):Play()
+                task.delay(0.2, function() if not isDropdownOpen then ddList.Visible = false end end)
+            end)
+        end
+    end
+
+    ddBtn.MouseEnter:Connect(function()
+        Tween(ddStroke, 0.15, { Color = Theme.Blue }):Play()
+    end)
+    ddBtn.MouseLeave:Connect(function()
+        if not isDropdownOpen then Tween(ddStroke, 0.15, { Color = Theme.BorderSoft }):Play() end
+    end)
+    ddBtn.MouseButton1Click:Connect(function()
+        isDropdownOpen = not isDropdownOpen
+        ddArrow.Image = isDropdownOpen and Icons.ChevronUp or Icons.ChevronDown
+        if isDropdownOpen then
+            RefreshDropdownItems()
+            ddList.Visible = true
+            local totalH = math.min(#ConfigState.List * 26 + 4, 130)
+            Tween(ddList, 0.22, { Size = UDim2.new(1, 0, 0, totalH) }, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+        else
+            Tween(ddList, 0.2, { Size = UDim2.new(1, 0, 0, 0) }):Play()
+            task.delay(0.2, function() if not isDropdownOpen then ddList.Visible = false end end)
+        end
+    end)
+
+    -- 2. Input Box (Y = 74)
+    local cfgInputContainer = Instance.new("Frame")
+    cfgInputContainer.Size = UDim2.new(1, -24, 0, 28)
+    cfgInputContainer.Position = UDim2.fromOffset(12, 74)
+    cfgInputContainer.BackgroundColor3 = Theme.CardInner
+    cfgInputContainer.Parent = cfgCard
+    Corner(cfgInputContainer, 6)
+    local cfgInputStroke = Stroke(cfgInputContainer, Theme.BorderSoft, 1)
+
+    local cfgInputBox = Instance.new("TextBox")
+    cfgInputBox.PlaceholderText = "Profile name..."
+    cfgInputBox.PlaceholderColor3 = Theme.Muted
+    cfgInputBox.Text = ""
+    cfgInputBox.TextColor3 = Theme.Text
+    cfgInputBox.TextSize = 12
+    cfgInputBox.Font = Fonts.Medium
+    cfgInputBox.Position = UDim2.fromOffset(10, 0)
+    cfgInputBox.Size = UDim2.new(1, -20, 1, 0)
+    cfgInputBox.BackgroundTransparency = 1
+    cfgInputBox.BorderSizePixel = 0
+    cfgInputBox.TextXAlignment = Enum.TextXAlignment.Left
+    cfgInputBox.ClearTextOnFocus = false
+    cfgInputBox.Parent = cfgInputContainer
+
+    cfgInputBox.Focused:Connect(function()
+        Tween(cfgInputContainer, 0.15, { BackgroundColor3 = Color3.fromRGB(14, 24, 40) }):Play()
+        Tween(cfgInputStroke, 0.15, { Color = Theme.BlueGlow, Thickness = 1.2 }):Play()
+    end)
+    cfgInputBox.FocusLost:Connect(function()
+        Tween(cfgInputContainer, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+        Tween(cfgInputStroke, 0.15, { Color = Theme.BorderSoft, Thickness = 1 }):Play()
+    end)
+
+    -- 3. Status Line (Y = 106)
+    local cfgStatus = Label(cfgCard, "", 11.5, UDim2.fromOffset(14, 106), Fonts.Medium, Theme.Muted)
+    cfgStatus.Size = UDim2.new(1, -28, 0, 16)
+
+    UpdateConfigStatus = function()
+        local hex = Theme.BlueGlow:ToHex()
+        cfgStatus.Text = string.format("Active: <font color=\"#%s\">%s</font>  |  Autoload: <font color=\"#00dc87\">%s</font>", hex, ConfigState.Current, ConfigState.Autoload)
+    end
+    UpdateConfigStatus()
+
+    -- 4. 2x3 Grid Buttons
+    local function CreateGridButton(text, pos, onClick)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(0.5, -16, 0, 26)
+        btn.Position = pos
+        btn.BackgroundColor3 = Color3.fromRGB(15, 25, 42)
+        btn.AutoButtonColor = false
+        btn.Text = text
+        btn.TextColor3 = Theme.White
+        btn.Font = Fonts.Bold
+        btn.TextSize = 11.5
+        btn.Parent = cfgCard
+        Corner(btn, 6)
+        local bStroke = Stroke(btn, Color3.fromRGB(30, 48, 75), 1)
+
+        btn.MouseEnter:Connect(function()
+            Tween(btn, 0.15, { BackgroundColor3 = Theme.ActiveBg }):Play()
+            Tween(bStroke, 0.15, { Color = Theme.Blue }):Play()
+        end)
+        btn.MouseLeave:Connect(function()
+            Tween(btn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+            Tween(bStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+        end)
+        btn.MouseButton1Click:Connect(function()
+            Tween(btn, 0.08, { Size = UDim2.new(0.48, -16, 0, 24) }):Play()
+            task.wait(0.08)
+            Tween(btn, 0.2, { Size = UDim2.new(0.5, -16, 0, 26) }, Enum.EasingStyle.Back):Play()
+            if onClick then onClick() end
+        end)
+        return btn
+    end
+
+    -- Row 1 (Y = 126)
+    CreateGridButton("Create", UDim2.new(0, 12, 0, 126), function()
+        local name = string.gsub(cfgInputBox.Text, "^%s*(.-)%s*$", "%1")
+        if name == "" then name = "profile_" .. (#ConfigState.List + 1) end
+        local exists = false
+        for _, c in ipairs(ConfigState.List) do if c == name then exists = true break end end
+        if not exists then table.insert(ConfigState.List, name) end
+        ConfigState.Selected = name
+        ConfigState.Current = name
+        ConfigState.Data[name] = { ToggleKey = Config.ToggleKey.Name, ShowFPS = Config.ShowWatermark }
+        ddText.Text = name
+        cfgInputBox.Text = ""
+        RefreshDropdownItems()
+        UpdateConfigStatus()
+        if updateConfigCountUI then updateConfigCountUI() end
+    end)
+
+    CreateGridButton("Load", UDim2.new(0.5, 4, 0, 126), function()
+        local name = ConfigState.Selected
+        if name and ConfigState.Data[name] then
+            ConfigState.Current = name
+            local data = ConfigState.Data[name]
+            if data.ToggleKey and Enum.KeyCode[data.ToggleKey] then
+                Config.ToggleKey = Enum.KeyCode[data.ToggleKey]
+                if settingsKeyLabel then settingsKeyLabel.Text = Config.ToggleKey.Name end
+                if sysKeyLabel then sysKeyLabel.Text = Config.ToggleKey.Name end
+            end
+            if data.ShowFPS ~= nil then
+                Config.ShowWatermark = data.ShowFPS
+                if hudBar then hudBar.Visible = data.ShowFPS end
+            end
+            UpdateConfigStatus()
+        end
+    end)
+
+    -- Row 2 (Y = 156)
+    CreateGridButton("Save", UDim2.new(0, 12, 0, 156), function()
+        local name = ConfigState.Selected
+        if name then
+            ConfigState.Current = name
+            ConfigState.Data[name] = { ToggleKey = Config.ToggleKey.Name, ShowFPS = Config.ShowWatermark }
+            UpdateConfigStatus()
+        end
+    end)
+
+    CreateGridButton("Delete", UDim2.new(0.5, 4, 0, 156), function()
+        local name = ConfigState.Selected
+        if name and name ~= "default" and name ~= "autosave" then
+            for i, c in ipairs(ConfigState.List) do
+                if c == name then
+                    table.remove(ConfigState.List, i)
+                    break
+                end
+            end
+            ConfigState.Data[name] = nil
+            if ConfigState.Current == name then ConfigState.Current = "none" end
+            if ConfigState.Autoload == name then ConfigState.Autoload = "none" end
+            ConfigState.Selected = ConfigState.List[1] or "default"
+            ddText.Text = ConfigState.Selected
+            RefreshDropdownItems()
+            UpdateConfigStatus()
+            if updateConfigCountUI then updateConfigCountUI() end
+        end
+    end)
+
+    -- Row 3 (Y = 186)
+    CreateGridButton("Set Autoload", UDim2.new(0, 12, 0, 186), function()
+        ConfigState.Autoload = ConfigState.Selected
+        UpdateConfigStatus()
+    end)
+
+    CreateGridButton("Clear Autoload", UDim2.new(0.5, 4, 0, 186), function()
+        ConfigState.Autoload = "none"
+        UpdateConfigStatus()
+    end)
+
+    -- 5. Auto Save Checkbox (Y = 218)
+    local asRow = Instance.new("TextButton")
+    asRow.Size = UDim2.new(1, -24, 0, 22)
+    asRow.Position = UDim2.fromOffset(12, 218)
+    asRow.BackgroundTransparency = 1
+    asRow.Text = ""
+    asRow.AutoButtonColor = false
+    asRow.Parent = cfgCard
+
+    local asBox = Instance.new("Frame")
+    asBox.Size = UDim2.fromOffset(16, 16)
+    asBox.Position = UDim2.fromOffset(2, 3)
+    asBox.BackgroundColor3 = ConfigState.AutoSave and Theme.Blue or Theme.CardInner
+    asBox.Parent = asRow
+    Corner(asBox, 4)
+    local asBoxStroke = Stroke(asBox, ConfigState.AutoSave and Theme.Blue or Theme.BorderSoft, 1)
+
+    local asCheck = Instance.new("ImageLabel")
+    asCheck.BackgroundTransparency = 1
+    asCheck.Size = UDim2.fromOffset(12, 12)
+    asCheck.Position = UDim2.fromOffset(2, 2)
+    asCheck.Image = Icons.Check
+    asCheck.ImageColor3 = Theme.White
+    asCheck.Visible = ConfigState.AutoSave
+    asCheck.Parent = asBox
+
+    Label(asRow, "Auto-save profile (every 30s)", 12, UDim2.fromOffset(26, 2), Fonts.Medium, Theme.Text).Size = UDim2.new(1, -30, 0, 18)
+
+    asRow.MouseButton1Click:Connect(function()
+        ConfigState.AutoSave = not ConfigState.AutoSave
+        asCheck.Visible = ConfigState.AutoSave
+        Tween(asBox, 0.15, {
+            BackgroundColor3 = ConfigState.AutoSave and Theme.Blue or Theme.CardInner
+        }):Play()
+        asBoxStroke.Color = ConfigState.AutoSave and Theme.Blue or Theme.BorderSoft
+    end)
+
+    table.insert(registeredToggles, {
+        bg = asBox,
+        stroke = asBoxStroke,
+        getState = function() return ConfigState.AutoSave end,
+        update = function()
+            asBox.BackgroundColor3 = ConfigState.AutoSave and Theme.Blue or Theme.CardInner
+            asBoxStroke.Color = ConfigState.AutoSave and Theme.Blue or Theme.BorderSoft
+        end
+    })
+
+    -- 6. Refresh List Button (Y = 246)
+    local refBtn = Instance.new("TextButton")
+    refBtn.Size = UDim2.new(1, -24, 0, 28)
+    refBtn.Position = UDim2.fromOffset(12, 246)
+    refBtn.BackgroundColor3 = Color3.fromRGB(15, 25, 42)
+    refBtn.AutoButtonColor = false
+    refBtn.Text = "Refresh Profiles"
+    refBtn.TextColor3 = Theme.White
+    refBtn.Font = Fonts.Bold
+    refBtn.TextSize = 12
+    refBtn.Parent = cfgCard
+    Corner(refBtn, 6)
+    local refStroke = Stroke(refBtn, Color3.fromRGB(30, 48, 75), 1)
+
+    refBtn.MouseEnter:Connect(function()
+        Tween(refBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg }):Play()
+        Tween(refStroke, 0.15, { Color = Theme.Blue }):Play()
+    end)
+    refBtn.MouseLeave:Connect(function()
+        Tween(refBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+        Tween(refStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    end)
+    refBtn.MouseButton1Click:Connect(function()
+        Tween(refBtn, 0.08, { Size = UDim2.new(0.97, -24, 0, 25) }):Play()
+        task.wait(0.08)
+        Tween(refBtn, 0.2, { Size = UDim2.new(1, -24, 0, 28) }, Enum.EasingStyle.Back):Play()
+        RefreshDropdownItems()
+        UpdateConfigStatus()
+        if updateConfigCountUI then updateConfigCountUI() end
+    end)
+
+    -- =================================================================
+    -- CARD 4: STREAMER & PRIVACY (Right Column - Bottom)
+    -- =================================================================
+    local streamerCard = Card(rightSetCol, UDim2.fromOffset(0, 298), UDim2.new(1, 0, 0, 192))
+    streamerCard.Name = "StreamerCard"
+
+    streamerHeadIco = Instance.new("ImageLabel")
+    streamerHeadIco.BackgroundTransparency = 1
+    streamerHeadIco.Size = UDim2.fromOffset(14, 14)
+    streamerHeadIco.Position = UDim2.fromOffset(14, 13)
+    streamerHeadIco.Image = Icons.EyeOff
+    streamerHeadIco.ImageColor3 = Theme.BlueGlow
+    streamerHeadIco.Parent = streamerCard
+
+    Label(streamerCard, "Streamer & Privacy", 13.5, UDim2.fromOffset(34, 11), Fonts.Bold, Theme.Text).Size = UDim2.fromOffset(200, 18)
+
+    local originalProfileData = {
+        DisplayName = LocalPlayer.DisplayName,
+        Name = LocalPlayer.Name,
+        UserId = LocalPlayer.UserId
+    }
+
+    local function ApplyStreamerMask(enabled)
+        Config.StreamerMode = enabled
+        if enabled then
+            if hudUser then hudUser.Text = "Anonymous" end
+            if uDispLabel then uDispLabel.Text = "Hidden User" end
+            if userNameLabel then userNameLabel.Text = "@anonymous" end
+            if heroWelcomeName then heroWelcomeName.Text = "Anonymous" end
+            if uAvatarImg then uAvatarImg.Image = "rbxthumb://type=AvatarHeadShot&id=1&w=150&h=150" end
+            if StreamerMeta.joinedBlur then StreamerMeta.joinedBlur.Visible = true Tween(StreamerMeta.joinedBlur, 0.2, { BackgroundTransparency = 0.15 }):Play() end
+            if StreamerMeta.ageBlur then StreamerMeta.ageBlur.Visible = true Tween(StreamerMeta.ageBlur, 0.2, { BackgroundTransparency = 0.15 }):Play() end
+            if StreamerMeta.statusBlur then StreamerMeta.statusBlur.Visible = true Tween(StreamerMeta.statusBlur, 0.2, { BackgroundTransparency = 0.15 }):Play() end
+            if StreamerMeta.joinedVal then StreamerMeta.joinedVal.Text = "••••••••" end
+            if StreamerMeta.ageVal then StreamerMeta.ageVal.Text = "•••• days" end
+            if StreamerMeta.statusVal then StreamerMeta.statusVal.Text = "••••••••" end
+        else
+            if hudUser then hudUser.Text = originalProfileData.DisplayName end
+            if uDispLabel then uDispLabel.Text = originalProfileData.DisplayName end
+            if userNameLabel then userNameLabel.Text = "@" .. originalProfileData.Name end
+            if heroWelcomeName then heroWelcomeName.Text = originalProfileData.DisplayName end
+            if uAvatarImg then uAvatarImg.Image = string.format("rbxthumb://type=AvatarHeadShot&id=%d&w=150&h=150", originalProfileData.UserId) end
+            if StreamerMeta.joinedBlur then Tween(StreamerMeta.joinedBlur, 0.2, { BackgroundTransparency = 1 }):Play() task.delay(0.2, function() if not Config.StreamerMode and StreamerMeta.joinedBlur then StreamerMeta.joinedBlur.Visible = false end end) end
+            if StreamerMeta.ageBlur then Tween(StreamerMeta.ageBlur, 0.2, { BackgroundTransparency = 1 }):Play() task.delay(0.2, function() if not Config.StreamerMode and StreamerMeta.ageBlur then StreamerMeta.ageBlur.Visible = false end end) end
+            if StreamerMeta.statusBlur then Tween(StreamerMeta.statusBlur, 0.2, { BackgroundTransparency = 1 }):Play() task.delay(0.2, function() if not Config.StreamerMode and StreamerMeta.statusBlur then StreamerMeta.statusBlur.Visible = false end end) end
+            if StreamerMeta.joinedVal then StreamerMeta.joinedVal.Text = StreamerMeta.originalJoined end
+            if StreamerMeta.ageVal then StreamerMeta.ageVal.Text = StreamerMeta.originalAge end
+            if StreamerMeta.statusVal then StreamerMeta.statusVal.Text = StreamerMeta.originalStatus end
+        end
+    end
+
+    -- Row 1: Streamer Mode Toggle (Y = 38)
+    CreateSettingToggle(streamerCard, "Streamer Mode (Hide Identity)", 38, Config.StreamerMode or false, function(state)
+        ApplyStreamerMask(state)
+    end, Icons.EyeOff)
+
+    -- Row 2: Anti-AFK System Toggle (Y = 78)
+    CreateSettingToggle(streamerCard, "Anti-AFK System", 78, StreamerMeta.afkEnabled, function(state)
+        StreamerMeta.afkEnabled = state
+        if StreamerMeta.afkConn then
+            StreamerMeta.afkConn:Disconnect()
+            StreamerMeta.afkConn = nil
+        end
+        if StreamerMeta.afkEnabled then
+            StreamerMeta.afkConn = LocalPlayer.Idled:Connect(function()
+                local vu = game:GetService("VirtualUser")
+                pcall(function()
+                    vu:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                    task.wait(1)
+                    vu:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                end)
+            end)
+            table.insert(cleanupConns, StreamerMeta.afkConn)
+        end
+    end, Icons.Zap)
+
+    -- Tip Label at bottom (Y = 122)
+    local tipLbl = Label(streamerCard, "Masks identity, blurs account profile details, and prevents Roblox idle kick.", 10.5, UDim2.fromOffset(14, 122), Fonts.Medium, Theme.Muted)
+    tipLbl.Size = UDim2.new(1, -28, 0, 34)
+    tipLbl.TextWrapped = true
+
+    -- Page Entrance Animations: Settings
+    pageAnims["Settings"] = function()
+        setCard.Position = UDim2.fromOffset(0, 18)
+        Tween(setCard, 0.35, { Position = UDim2.fromOffset(0, 0) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out):Play()
+
+        visualCard.Position = UDim2.fromOffset(0, 180 + 18)
+        task.delay(0.05, function()
+            Tween(visualCard, 0.35, { Position = UDim2.fromOffset(0, 180) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out):Play()
+        end)
+
+        cfgCard.Position = UDim2.fromOffset(0, 18)
+        task.delay(0.08, function()
+            Tween(cfgCard, 0.38, { Position = UDim2.fromOffset(0, 0) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out):Play()
+        end)
+
+        streamerCard.Position = UDim2.fromOffset(0, 298 + 18)
+        task.delay(0.11, function()
+            Tween(streamerCard, 0.38, { Position = UDim2.fromOffset(0, 298) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out):Play()
+        end)
+
+        for idx, rowData in ipairs(settingRows) do
+            rowData.row.Position = UDim2.fromOffset(12, rowData.baseY + 8)
+            task.delay(0.02 + idx * 0.02, function()
+                Tween(rowData.row, 0.25, { Position = UDim2.fromOffset(12, rowData.baseY) }, Enum.EasingStyle.Back, Enum.EasingDirection.Out):Play()
+            end)
+        end
+    end
+end
+InitSettingsPage()
+
+-- =================================================================
+-- 8. DEFAULT TO HOME & SMOOTH INITIAL ENTRANCE
+-- =================================================================
+SwitchPage("Home", true)
+AnimOpen()
+activeThemeId = nil
+if UpdateThemeCardVisuals then
+    pcall(UpdateThemeCardVisuals)
+end
+
+-- Show one-time welcome notice if not seen yet
+task.defer(function()
+    pcall(ShowWelcomeNotice)
+end)
