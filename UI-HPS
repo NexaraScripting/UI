@@ -380,6 +380,9 @@ local bgInputBox = nil
 local bgApplyBtn = nil
 local activeThemeId = nil
 local UpdateThemeCardVisuals = nil
+local ShowUnloadConfirmation = nil
+local searchableHomeItems = {}
+local settingRows = {}
 local StreamerMeta = {
     afkEnabled = false,
     afkConn = nil,
@@ -1429,7 +1432,7 @@ do
     logoText.TextXAlignment = Enum.TextXAlignment.Center
     logoText.ZIndex = 4
 
-    local logoSub = Label(logoHolder, "V1.0 - INTERNAL CLIENT", 9, UDim2.new(0, 0, 0, 68), Fonts.Medium, Theme.SubText)
+    local logoSub = Label(logoHolder, "Version 1.0.0 beta", 9, UDim2.new(0, 0, 0, 68), Fonts.Medium, Theme.SubText)
     logoSub.Size = UDim2.new(1, 0, 0, 12)
     logoSub.TextXAlignment = Enum.TextXAlignment.Center
     logoSub.ZIndex = 4
@@ -1522,15 +1525,29 @@ local function SwitchPage(name, forceAnim)
         }):Play()
     end
 
-    if searchContainer and settingsTitle then
+    -- Search always visible on all pages; reset query on page switch
+    if searchContainer then
+        searchContainer.Visible = true
+        if not _searchSwitching and searchBox then
+            searchBox.Text = ""
+        end
+        -- Shift search bar right when Settings title is visible
         if name == "Settings" then
-            searchContainer.Visible = false
+            searchContainer.Position = UDim2.fromOffset(260, 12)
+            searchContainer.Size = UDim2.new(1, -470, 0, 32)
+        else
+            searchContainer.Position = UDim2.fromOffset(54, 12)
+            searchContainer.Size = UDim2.new(1, -270, 0, 32)
+        end
+    end
+    if settingsTitle then
+        settingsTitle.Visible = (name == "Settings")
+        if name == "Settings" then
             if setIcoHeader then setIcoHeader.Image = Icons.Settings end
             if setHeadTxt then setHeadTxt.Text = "Settings  <font color=\"#4a658a\">/</font>  Configuration" end
-            settingsTitle.Visible = true
+            if searchBox then searchBox.PlaceholderText = "Search scripts..." end
         else
-            settingsTitle.Visible = false
-            searchContainer.Visible = true
+            if searchBox then searchBox.PlaceholderText = "Search scripts..." end
         end
     end
 
@@ -1905,19 +1922,99 @@ searchIco.ZIndex = 18
 searchIco.Parent = searchContainer
 
 local searchBox = Instance.new("TextBox")
-searchBox.PlaceholderText = "Search modules, scripts, or tags..."
+searchBox.PlaceholderText = "Search scripts..."
 searchBox.PlaceholderColor3 = Theme.Muted
 searchBox.Text = ""
 searchBox.TextColor3 = Theme.Text
 searchBox.TextSize = 11.5
 searchBox.Font = Fonts.Medium
 searchBox.Position = UDim2.fromOffset(32, 0)
-searchBox.Size = UDim2.new(1, -42, 1, 0)
+searchBox.Size = UDim2.new(1, -62, 1, 0)
 searchBox.BackgroundTransparency = 1
 searchBox.BorderSizePixel = 0
 searchBox.TextXAlignment = Enum.TextXAlignment.Left
 searchBox.ZIndex = 18
 searchBox.Parent = searchContainer
+
+local searchClearBtn = Instance.new("ImageButton")
+searchClearBtn.Name = "SearchClearBtn"
+searchClearBtn.Size = UDim2.fromOffset(14, 14)
+searchClearBtn.Position = UDim2.new(1, -22, 0.5, -7)
+searchClearBtn.BackgroundTransparency = 1
+searchClearBtn.Image = Icons.Close
+searchClearBtn.ImageColor3 = Theme.Muted
+searchClearBtn.Visible = false
+searchClearBtn.ZIndex = 19
+searchClearBtn.Parent = searchContainer
+
+local function FilterPageItems(items, query)
+    local matchCount = 0
+    for _, it in ipairs(items) do
+        local target = it.row or it.frame
+        if target and target.Parent then
+            if query == "" then
+                target.Visible = true
+                matchCount = matchCount + 1
+            else
+                local tags = it.tags or ""
+                for _, child in ipairs(target:GetDescendants()) do
+                    if child:IsA("TextLabel") or child:IsA("TextBox") or child:IsA("TextButton") then
+                        tags = tags .. " " .. string.lower(child.Text)
+                    end
+                end
+                local match = (string.find(string.lower(tags), query, 1, true) ~= nil)
+                target.Visible = match
+                if match then matchCount = matchCount + 1 end
+            end
+        end
+    end
+    return matchCount
+end
+
+local _searchSwitching = false
+
+local function FilterItems(query)
+    query = string.lower(string.gsub(query or "", "^%s*(.-)%s*$", "%1"))
+    searchClearBtn.Visible = (query ~= "")
+
+    if query == "" then
+        FilterPageItems(searchableHomeItems, "")
+        FilterPageItems(settingRows, "")
+        return
+    end
+
+    local isSettings = (currentPage == "Settings")
+    local currentItems = isSettings and settingRows or searchableHomeItems
+    local otherPageName = isSettings and "Home" or "Settings"
+
+    local matches = FilterPageItems(currentItems, query)
+
+    if matches == 0 then
+        FilterPageItems(currentItems, "")
+        _searchSwitching = true
+        SwitchPage(otherPageName)
+        _searchSwitching = false
+        local switchedItems = (currentPage == "Settings") and settingRows or searchableHomeItems
+        FilterPageItems(switchedItems, query)
+        searchBox.Text = query
+        searchClearBtn.Visible = true
+    end
+end
+
+searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+    FilterItems(searchBox.Text)
+end)
+
+searchClearBtn.MouseEnter:Connect(function()
+    Tween(searchClearBtn, 0.15, { ImageColor3 = Theme.White }):Play()
+end)
+searchClearBtn.MouseLeave:Connect(function()
+    Tween(searchClearBtn, 0.15, { ImageColor3 = Theme.Muted }):Play()
+end)
+searchClearBtn.MouseButton1Click:Connect(function()
+    searchBox.Text = ""
+    FilterItems("")
+end)
 
 searchBox.Focused:Connect(function()
     Tween(searchContainer, 0.2, { BackgroundColor3 = Color3.fromRGB(10, 22, 44) }):Play()
@@ -2075,7 +2172,13 @@ closeBtn.MouseButton1Up:Connect(function()
 end)
 
 minBtn.MouseButton1Click:Connect(AnimClose)
-closeBtn.MouseButton1Click:Connect(AnimClose)
+closeBtn.MouseButton1Click:Connect(function()
+    if ShowUnloadConfirmation then
+        ShowUnloadConfirmation()
+    else
+        AnimClose()
+    end
+end)
 end
 
 -- =================================================================
@@ -2141,7 +2244,7 @@ local function UnloadScript()
     end)
 end
 
-local function ShowUnloadConfirmation()
+ShowUnloadConfirmation = function()
     if not main or not main.Parent then return end
     local existingModal = main:FindFirstChild("UnloadModalOverlay")
     if existingModal then existingModal:Destroy() end
@@ -2573,7 +2676,7 @@ local function PageContent(page)
 end
 
 -- =================================================================
--- CONFIGURATION STATE & SYSTEM
+-- CONFIGURATION STATE & SYSTEM (FULL DISK PERSISTENCE)
 -- =================================================================
 local ConfigState = {
     Current = "none",
@@ -2587,21 +2690,207 @@ local ConfigState = {
     }
 }
 
-local function GetConfigCount()
-    local count = #ConfigState.List
+local function EnsureConfigFolder()
     pcall(function()
         if isfolder and not isfolder("HPS_Configs") and makefolder then
             makefolder("HPS_Configs")
         end
+    end)
+end
+
+function ConfigState.ScanProfiles()
+    EnsureConfigFolder()
+    pcall(function()
         if listfiles and isfolder and isfolder("HPS_Configs") then
             local files = listfiles("HPS_Configs")
-            if #files > 0 then
-                count = #files
+            for _, f in ipairs(files) do
+                local fname = string.match(f, "([^\\/]+)%.json$")
+                if fname and fname ~= "" then
+                    local exists = false
+                    for _, c in ipairs(ConfigState.List) do
+                        if c == fname then exists = true break end
+                    end
+                    if not exists then
+                        table.insert(ConfigState.List, fname)
+                    end
+                    if isfile and readfile and not ConfigState.Data[fname] then
+                        local content = readfile(f)
+                        local s, parsed = pcall(function() return HttpService:JSONDecode(content) end)
+                        if s and type(parsed) == "table" then
+                            ConfigState.Data[fname] = parsed
+                        end
+                    end
+                end
+            end
+        end
+        if isfile and readfile and isfile("HPS_Configs/autoload.txt") then
+            local al = string.gsub(readfile("HPS_Configs/autoload.txt"), "^%s*(.-)%s*$", "%1")
+            if al ~= "" then
+                ConfigState.Autoload = al
             end
         end
     end)
-    return count
 end
+
+function ConfigState.SaveProfile(name)
+    if not name or name == "" then return false end
+    EnsureConfigFolder()
+    local data = {
+        ToggleKey = Config.ToggleKey.Name,
+        ShowFPS = Config.ShowWatermark,
+        RunningGlow = Config.RunningGlow,
+        BlurLevel = Config.BlurLevel,
+        AccentName = Config.AccentName,
+        ThemeName = Config.ThemeName,
+        CustomBgId = Config.CustomBgId or "",
+        StreamerMode = Config.StreamerMode or false,
+        AntiAFK = (StreamerMeta and StreamerMeta.afkEnabled) or false,
+    }
+    ConfigState.Data[name] = data
+    local exists = false
+    for _, c in ipairs(ConfigState.List) do if c == name then exists = true break end end
+    if not exists then table.insert(ConfigState.List, name) end
+    ConfigState.Current = name
+    ConfigState.Selected = name
+    pcall(function()
+        if writefile then
+            local json = HttpService:JSONEncode(data)
+            writefile("HPS_Configs/" .. name .. ".json", json)
+        end
+    end)
+    return true
+end
+
+function ConfigState.LoadProfile(name)
+    if not name or name == "" then return false end
+    EnsureConfigFolder()
+    pcall(function()
+        if isfile and readfile and isfile("HPS_Configs/" .. name .. ".json") then
+            local content = readfile("HPS_Configs/" .. name .. ".json")
+            local s, parsed = pcall(function() return HttpService:JSONDecode(content) end)
+            if s and type(parsed) == "table" then
+                ConfigState.Data[name] = parsed
+            end
+        end
+    end)
+    local data = ConfigState.Data[name]
+    if not data then return false end
+
+    ConfigState.Current = name
+    ConfigState.Selected = name
+
+    pcall(function()
+        if data.ToggleKey and Enum.KeyCode[data.ToggleKey] then
+            Config.ToggleKey = Enum.KeyCode[data.ToggleKey]
+            if settingsKeyLabel then settingsKeyLabel.Text = data.ToggleKey end
+            if sysKeyLabel then sysKeyLabel.Text = data.ToggleKey end
+            if sysKey then sysKey.Text = data.ToggleKey end
+        end
+        if data.ShowFPS ~= nil then
+            Config.ShowWatermark = data.ShowFPS
+            if hudBar then hudBar.Visible = data.ShowFPS end
+        end
+        if data.RunningGlow ~= nil and runnerStroke then
+            Config.RunningGlow = data.RunningGlow
+            if data.RunningGlow then
+                runnerStroke.Color = Color3.fromRGB(255, 255, 255)
+                runnerStroke.Thickness = 1.4
+                if runnerGrad then runnerGrad.Enabled = true end
+            else
+                if runnerGrad then runnerGrad.Enabled = false end
+                runnerStroke.Color = Theme.Blue
+                runnerStroke.Thickness = 1.2
+            end
+        end
+        if data.BlurLevel ~= nil and UpdateBlur then
+            UpdateBlur(data.BlurLevel)
+        end
+        if data.AccentName and AccentPresets and ApplyAccent then
+            for _, p in ipairs(AccentPresets) do
+                if p.Name == data.AccentName then
+                    ApplyAccent(p)
+                    break
+                end
+            end
+        end
+        if data.ThemeName and BaseThemes and ApplyBaseTheme and BaseThemes[data.ThemeName] then
+            ApplyBaseTheme(data.ThemeName)
+        end
+        if data.CustomBgId ~= nil then
+            if data.CustomBgId == "" and ClearCustomWallpaper then
+                ClearCustomWallpaper()
+            elseif ApplyCustomWallpaper then
+                ApplyCustomWallpaper(data.CustomBgId)
+            end
+        end
+        if data.StreamerMode ~= nil and ApplyStreamerMask then
+            ApplyStreamerMask(data.StreamerMode)
+        end
+        for _, tog in ipairs(registeredToggles) do
+            if tog.update then tog.update(true) end
+        end
+    end)
+    return true
+end
+
+function ConfigState.DeleteProfile(name)
+    if not name or name == "" or name == "default" or name == "autosave" then return false end
+    for i, c in ipairs(ConfigState.List) do
+        if c == name then
+            table.remove(ConfigState.List, i)
+            break
+        end
+    end
+    ConfigState.Data[name] = nil
+    pcall(function()
+        if isfile and delfile and isfile("HPS_Configs/" .. name .. ".json") then
+            delfile("HPS_Configs/" .. name .. ".json")
+        end
+    end)
+    if ConfigState.Current == name then ConfigState.Current = "none" end
+    if ConfigState.Autoload == name then ConfigState.ClearAutoload() end
+    ConfigState.Selected = ConfigState.List[1] or "default"
+    return true
+end
+
+function ConfigState.SetAutoload(name)
+    if not name or name == "" then return end
+    ConfigState.Autoload = name
+    pcall(function()
+        EnsureConfigFolder()
+        if writefile then
+            writefile("HPS_Configs/autoload.txt", name)
+        end
+    end)
+end
+
+function ConfigState.ClearAutoload()
+    ConfigState.Autoload = "none"
+    pcall(function()
+        if isfile and isfile("HPS_Configs/autoload.txt") and delfile then
+            delfile("HPS_Configs/autoload.txt")
+        elseif writefile then
+            writefile("HPS_Configs/autoload.txt", "")
+        end
+    end)
+end
+
+local function GetConfigCount()
+    ConfigState.ScanProfiles()
+    return #ConfigState.List
+end
+
+-- Auto-Save background worker (every 30s)
+task.spawn(function()
+    while gui and gui.Parent do
+        task.wait(30)
+        if ConfigState.AutoSave and ConfigState.Current ~= "none" then
+            pcall(function()
+                ConfigState.SaveProfile(ConfigState.Current)
+            end)
+        end
+    end
+end)
 
 local function InitHomePage()
     -- =================================================================
@@ -2938,13 +3227,19 @@ end
 
 -- 1. LEFT BOX 1: Configs count
 local cfgBox = CreateStatCard(1, "Stat_Configs", UDim2.new(0.24, 0, 1, 0), UDim2.new(0, 0, 0, 0))
-local cfgTitle = Label(cfgBox, "Configs", 10.5, UDim2.fromOffset(0, 5), Fonts.Medium, Theme.Muted)
-cfgTitle.Size = UDim2.new(1, 0, 0, 13)
-cfgTitle.TextXAlignment = Enum.TextXAlignment.Center
+local cfgIco = Instance.new("ImageLabel")
+cfgIco.BackgroundTransparency = 1
+cfgIco.Size = UDim2.fromOffset(15, 15)
+cfgIco.Position = UDim2.new(0, 10, 0.5, -7)
+cfgIco.Image = Icons.Code
+cfgIco.ImageColor3 = Theme.BlueGlow
+cfgIco.Parent = cfgBox
 
-local cfgVal = Label(cfgBox, string.format("<b>%d</b>", GetConfigCount()), 15, UDim2.fromOffset(0, 19), Fonts.Bold, Theme.Text)
-cfgVal.Size = UDim2.new(1, 0, 0, 18)
-cfgVal.TextXAlignment = Enum.TextXAlignment.Center
+local cfgTitle = Label(cfgBox, "Configs", 10.5, UDim2.fromOffset(30, 5), Fonts.Medium, Theme.Muted)
+cfgTitle.Size = UDim2.new(1, -32, 0, 13)
+
+local cfgVal = Label(cfgBox, string.format("<b>%d</b>", GetConfigCount()), 15, UDim2.fromOffset(30, 19), Fonts.Bold, Theme.Text)
+cfgVal.Size = UDim2.new(1, -32, 0, 18)
 
 updateConfigCountUI = function()
     if cfgVal and cfgVal.Parent then
@@ -2954,13 +3249,19 @@ end
 
 -- 2. LEFT BOX 2: Script Executions count
 local execBox = CreateStatCard(2, "Stat_Executions", UDim2.new(0.24, 0, 1, 0), UDim2.new(0.255, 0, 0, 0))
-local execTitle = Label(execBox, "Executions", 10.5, UDim2.fromOffset(0, 5), Fonts.Medium, Theme.Muted)
-execTitle.Size = UDim2.new(1, 0, 0, 13)
-execTitle.TextXAlignment = Enum.TextXAlignment.Center
+local execIco = Instance.new("ImageLabel")
+execIco.BackgroundTransparency = 1
+execIco.Size = UDim2.fromOffset(15, 15)
+execIco.Position = UDim2.new(0, 10, 0.5, -7)
+execIco.Image = Icons.Terminal
+execIco.ImageColor3 = Theme.BlueGlow
+execIco.Parent = execBox
 
-local execVal = Label(execBox, string.format("<b>%d</b>", scriptExecCount), 15, UDim2.fromOffset(0, 19), Fonts.Bold, Theme.Text)
-execVal.Size = UDim2.new(1, 0, 0, 18)
-execVal.TextXAlignment = Enum.TextXAlignment.Center
+local execTitle = Label(execBox, "Executions", 10.5, UDim2.fromOffset(30, 5), Fonts.Medium, Theme.Muted)
+execTitle.Size = UDim2.new(1, -32, 0, 13)
+
+local execVal = Label(execBox, string.format("<b>%d</b>", scriptExecCount), 15, UDim2.fromOffset(30, 19), Fonts.Bold, Theme.Text)
+execVal.Size = UDim2.new(1, -32, 0, 18)
 
 -- 3. RIGHT BOX: Time in Game (Playtime)
 local timeBox = CreateStatCard(3, "Stat_Playtime", UDim2.new(0.49, 0, 1, 0), UDim2.new(0.51, 0, 0, 0))
@@ -3017,26 +3318,38 @@ Label(themeCard, "Curated live wallpapers & matching color palettes", 11, UDim2.
 -- Reset to Default Button
 local resetThemeBtn = Instance.new("TextButton")
 resetThemeBtn.Name = "ResetThemeBtn"
-resetThemeBtn.Size = UDim2.fromOffset(82, 24)
+resetThemeBtn.Size = UDim2.fromOffset(84, 24)
 resetThemeBtn.Position = UDim2.new(1, -14, 0, 14)
 resetThemeBtn.AnchorPoint = Vector2.new(1, 0)
 resetThemeBtn.BackgroundColor3 = Theme.CardInner
-resetThemeBtn.Text = "Default"
-resetThemeBtn.TextColor3 = Theme.Muted
-resetThemeBtn.Font = Fonts.Medium
-resetThemeBtn.TextSize = 12
+resetThemeBtn.Text = ""
 resetThemeBtn.AutoButtonColor = false
 resetThemeBtn.Parent = themeCard
 Corner(resetThemeBtn, 5)
 local resetStroke = Stroke(resetThemeBtn, Theme.BorderSoft, 1)
 
+local resetIco = Instance.new("ImageLabel")
+resetIco.BackgroundTransparency = 1
+resetIco.Size = UDim2.fromOffset(11, 11)
+resetIco.Position = UDim2.new(0, 8, 0.5, -5)
+resetIco.Image = Icons.Refresh
+resetIco.ImageColor3 = Theme.Muted
+resetIco.Parent = resetThemeBtn
+
+local resetTxt = Label(resetThemeBtn, "Default", 11.5, UDim2.fromOffset(23, 0), Fonts.Medium, Theme.Muted)
+resetTxt.Size = UDim2.new(1, -25, 1, 0)
+
 resetThemeBtn.MouseEnter:Connect(function()
-    Tween(resetThemeBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg, TextColor3 = Theme.White }):Play()
+    Tween(resetThemeBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg }):Play()
     Tween(resetStroke, 0.15, { Color = Theme.Blue }):Play()
+    Tween(resetIco, 0.15, { ImageColor3 = Theme.White }):Play()
+    Tween(resetTxt, 0.15, { TextColor3 = Theme.White }):Play()
 end)
 resetThemeBtn.MouseLeave:Connect(function()
-    Tween(resetThemeBtn, 0.15, { BackgroundColor3 = Theme.CardInner, TextColor3 = Theme.Muted }):Play()
+    Tween(resetThemeBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
     Tween(resetStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    Tween(resetIco, 0.15, { ImageColor3 = Theme.Muted }):Play()
+    Tween(resetTxt, 0.15, { TextColor3 = Theme.Muted }):Play()
 end)
 
 local FeaturedThemes = {
@@ -3380,7 +3693,61 @@ end)
 uDispLabel = Label(userCard, Config.StreamerMode and "Hidden User" or LocalPlayer.DisplayName, 13.5, UDim2.fromOffset(72, 32), Fonts.Bold, Theme.Text)
 uDispLabel.Size = UDim2.new(1, -82, 0, 16)
 userNameLabel = Label(userCard, Config.StreamerMode and "@anonymous" or ("@" .. LocalPlayer.Name), 11.5, UDim2.fromOffset(72, 49), Fonts.Medium, Theme.Muted)
-userNameLabel.Size = UDim2.new(1, -82, 0, 14)
+userNameLabel.Size = UDim2.new(1, -156, 0, 14)
+
+-- Copy User ID Button
+local copyIdBtn = Instance.new("TextButton")
+copyIdBtn.Name = "CopyUserIdBtn"
+copyIdBtn.Size = UDim2.fromOffset(68, 20)
+copyIdBtn.Position = UDim2.new(1, -16, 0, 46)
+copyIdBtn.AnchorPoint = Vector2.new(1, 0)
+copyIdBtn.BackgroundColor3 = Theme.CardInner
+copyIdBtn.Text = ""
+copyIdBtn.AutoButtonColor = false
+copyIdBtn.Parent = userCard
+Corner(copyIdBtn, 4)
+local copyIdStroke = Stroke(copyIdBtn, Theme.BorderSoft, 1)
+
+local copyIdIco = Instance.new("ImageLabel")
+copyIdIco.BackgroundTransparency = 1
+copyIdIco.Size = UDim2.fromOffset(10, 10)
+copyIdIco.Position = UDim2.new(0, 6, 0.5, -5)
+copyIdIco.Image = Icons.Copy
+copyIdIco.ImageColor3 = Theme.SubText
+copyIdIco.Parent = copyIdBtn
+
+local copyIdTxt = Label(copyIdBtn, "Copy ID", 10.5, UDim2.fromOffset(20, 0), Fonts.Medium, Theme.SubText)
+copyIdTxt.Size = UDim2.new(1, -22, 1, 0)
+
+copyIdBtn.MouseEnter:Connect(function()
+    Tween(copyIdBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg }):Play()
+    Tween(copyIdStroke, 0.15, { Color = Theme.Blue }):Play()
+    Tween(copyIdIco, 0.15, { ImageColor3 = Theme.White }):Play()
+    Tween(copyIdTxt, 0.15, { TextColor3 = Theme.White }):Play()
+end)
+copyIdBtn.MouseLeave:Connect(function()
+    Tween(copyIdBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+    Tween(copyIdStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    Tween(copyIdIco, 0.15, { ImageColor3 = Theme.SubText }):Play()
+    Tween(copyIdTxt, 0.15, { TextColor3 = Theme.SubText }):Play()
+end)
+copyIdBtn.MouseButton1Click:Connect(function()
+    pcall(function()
+        local uid = Config.StreamerMode and "0" or tostring(LocalPlayer.UserId)
+        if setclipboard then setclipboard(uid)
+        elseif toclipboard then toclipboard(uid) end
+    end)
+    copyIdTxt.Text = "Copied"
+    copyIdTxt.TextColor3 = Theme.Green
+    copyIdIco.ImageColor3 = Theme.Green
+    task.delay(1.5, function()
+        if copyIdTxt and copyIdTxt.Parent then
+            copyIdTxt.Text = "Copy ID"
+            copyIdTxt.TextColor3 = Theme.SubText
+            copyIdIco.ImageColor3 = Theme.SubText
+        end
+    end)
+end)
 
 -- Verified User Pill Badge
 local vPill = Instance.new("Frame")
@@ -3410,8 +3777,19 @@ uSep.BorderSizePixel = 0
 uSep.Parent = userCard
 
 -- Metadata Rows
-local function UserMetaRow(y, k, v, valCol)
-    Label(userCard, k, 11.5, UDim2.fromOffset(16, y), Fonts.Medium, Theme.Muted).Size = UDim2.fromOffset(100, 14)
+local function UserMetaRow(y, k, v, valCol, icon)
+    if icon then
+        local rIco = Instance.new("ImageLabel")
+        rIco.BackgroundTransparency = 1
+        rIco.Size = UDim2.fromOffset(12, 12)
+        rIco.Position = UDim2.fromOffset(16, y + 1)
+        rIco.Image = icon
+        rIco.ImageColor3 = Theme.SubText
+        rIco.Parent = userCard
+        Label(userCard, k, 11.5, UDim2.fromOffset(32, y), Fonts.Medium, Theme.Muted).Size = UDim2.fromOffset(90, 14)
+    else
+        Label(userCard, k, 11.5, UDim2.fromOffset(16, y), Fonts.Medium, Theme.Muted).Size = UDim2.fromOffset(100, 14)
+    end
     local vl = Label(userCard, Config.StreamerMode and "••••••••" or v, 11.5, UDim2.new(1, -120, 0, y), Fonts.Bold, valCol or Theme.Text)
     vl.Size = UDim2.fromOffset(104, 14)
     vl.TextXAlignment = Enum.TextXAlignment.Right
@@ -3444,9 +3822,9 @@ StreamerMeta.originalJoined = "Mar 12, " .. tostring(joinYear)
 StreamerMeta.originalAge = tostring(LocalPlayer.AccountAge) .. " days"
 StreamerMeta.originalStatus = "Active Member"
 
-StreamerMeta.joinedVal, StreamerMeta.joinedBlur = UserMetaRow(99, "Joined", StreamerMeta.originalJoined)
-StreamerMeta.ageVal, StreamerMeta.ageBlur = UserMetaRow(117, "Account Age", StreamerMeta.originalAge)
-StreamerMeta.statusVal, StreamerMeta.statusBlur = UserMetaRow(135, "Status", StreamerMeta.originalStatus, Theme.Green)
+StreamerMeta.joinedVal, StreamerMeta.joinedBlur = UserMetaRow(99, "Joined", StreamerMeta.originalJoined, nil, Icons.Time)
+StreamerMeta.ageVal, StreamerMeta.ageBlur = UserMetaRow(117, "Account Age", StreamerMeta.originalAge, nil, Icons.User)
+StreamerMeta.statusVal, StreamerMeta.statusBlur = UserMetaRow(135, "Status", StreamerMeta.originalStatus, Theme.Green, Icons.Shield)
 
 -- ===== RIGHT 2: SYSTEM METRICS =====
 sysCard = Card(rightCol, UDim2.fromOffset(0, 174), UDim2.new(1, 0, 0, 136))
@@ -3462,8 +3840,19 @@ sysHeadIco.Parent = sysCard
 
 Label(sysCard, "<b>System Information</b>", 13.5, UDim2.fromOffset(36, 10), Fonts.Bold, Theme.Text).Size = UDim2.fromOffset(180, 16)
 
-local function SysRow(y, k, v)
-    Label(sysCard, k, 11.5, UDim2.fromOffset(16, y), Fonts.Medium, Theme.Muted).Size = UDim2.fromOffset(100, 14)
+local function SysRow(y, k, v, icon)
+    if icon then
+        local rIco = Instance.new("ImageLabel")
+        rIco.BackgroundTransparency = 1
+        rIco.Size = UDim2.fromOffset(12, 12)
+        rIco.Position = UDim2.fromOffset(16, y + 1)
+        rIco.Image = icon
+        rIco.ImageColor3 = Theme.SubText
+        rIco.Parent = sysCard
+        Label(sysCard, k, 11.5, UDim2.fromOffset(32, y), Fonts.Medium, Theme.Muted).Size = UDim2.fromOffset(90, 14)
+    else
+        Label(sysCard, k, 11.5, UDim2.fromOffset(16, y), Fonts.Medium, Theme.Muted).Size = UDim2.fromOffset(100, 14)
+    end
     local vl = Label(sysCard, v, 11.5, UDim2.new(1, -120, 0, y), Enum.Font.Code, Theme.Text)
     vl.Size = UDim2.fromOffset(104, 14)
     vl.TextXAlignment = Enum.TextXAlignment.Right
@@ -3519,12 +3908,12 @@ end
 local execName, execVer = DetectExecutor()
 local rbBuild = (version and string.match(version(), "%d+%.%d+%.%d+")) or "0.739.0"
 
-SysRow(30, "Roblox Build", rbBuild)
-execLabel = SysRow(50, "Executor", execName)
+SysRow(30, "Roblox Build", rbBuild, Icons.Game)
+execLabel = SysRow(50, "Executor", execName, Icons.Terminal)
 if execLabel then execLabel.TextColor3 = Theme.BlueGlow end
-SysRow(70, "Version", execVer)
-local sysPingLabel = SysRow(90, "Data Ping", "0 ms")
-sysKey = SysRow(110, "Menu Keybind", Config.ToggleKey.Name)
+SysRow(70, "Version", execVer, Icons.Code)
+local sysPingLabel = SysRow(90, "Data Ping", "0 ms", Icons.Gauge)
+sysKey = SysRow(110, "Menu Keybind", Config.ToggleKey.Name, Icons.Keyboard)
 
 local sysKeyBtn = Instance.new("TextButton")
 sysKeyBtn.Size = UDim2.new(0, 94, 0, 16)
@@ -3654,41 +4043,113 @@ clHeadIco = Instance.new("ImageLabel")
 clHeadIco.Name = "ChangelogHeaderIcon"
 clHeadIco.BackgroundTransparency = 1
 clHeadIco.Size = UDim2.fromOffset(16, 16)
-clHeadIco.Position = UDim2.new(0, 16, 0.5, 0)
-clHeadIco.AnchorPoint = Vector2.new(0, 0.5)
+clHeadIco.Position = UDim2.new(0, 16, 0, 18)
 clHeadIco.Image = Icons.Changelog
 clHeadIco.ImageColor3 = Theme.BlueGlow
 clHeadIco.ScaleType = Enum.ScaleType.Fit
 clHeadIco.ZIndex = 4
 clHeadIco.Parent = changelogCard
 
-local clTitle = Label(changelogCard, "<b>Change Log & Release History</b>", 12, UDim2.new(0, 42, 0.5, 0), Fonts.Bold, Theme.Text)
-clTitle.AnchorPoint = Vector2.new(0, 0.5)
+local clTitle = Label(changelogCard, "<b>Change Log & Release History</b>", 12, UDim2.new(0, 42, 0, 16), Fonts.Bold, Theme.Text)
 clTitle.Size = UDim2.new(0, 260, 0, 20)
 
--- Current version badge at top right
-local clBadge = Instance.new("Frame")
-clBadge.Size = UDim2.fromOffset(108, 24)
-clBadge.Position = UDim2.new(1, -16, 0.5, 0)
-clBadge.AnchorPoint = Vector2.new(1, 0.5)
-clBadge.BackgroundColor3 = Theme.ActiveBg
-clBadge.Parent = changelogCard
-Corner(clBadge, 5)
-Stroke(clBadge, Theme.Blue, 1)
 
-local clCheckIco = Instance.new("ImageLabel")
-clCheckIco.BackgroundTransparency = 1
-clCheckIco.Size = UDim2.fromOffset(11, 11)
-clCheckIco.Position = UDim2.new(0, 8, 0.5, 0)
-clCheckIco.AnchorPoint = Vector2.new(0, 0.5)
-clCheckIco.Image = Icons.Check
-clCheckIco.ImageColor3 = Theme.Green
-clCheckIco.ScaleType = Enum.ScaleType.Fit
-clCheckIco.Parent = clBadge
 
-local clBadgeTxt = Label(clBadge, Config.Version .. " Stable", 9, UDim2.new(0, 24, 0.5, 0), Fonts.Bold, Theme.White)
-clBadgeTxt.AnchorPoint = Vector2.new(0, 0.5)
-clBadgeTxt.Size = UDim2.new(1, -28, 0, 16)
+-- Expand / Collapse Chevron Button
+local isClExpanded = false
+local clExpandBtn = Instance.new("TextButton")
+clExpandBtn.Name = "ChangelogExpandBtn"
+clExpandBtn.Size = UDim2.fromOffset(26, 24)
+clExpandBtn.Position = UDim2.new(1, -16, 0, 14)
+clExpandBtn.AnchorPoint = Vector2.new(1, 0)
+clExpandBtn.BackgroundColor3 = Theme.CardInner
+clExpandBtn.Text = ""
+clExpandBtn.AutoButtonColor = false
+clExpandBtn.Parent = changelogCard
+Corner(clExpandBtn, 5)
+local clExpStroke = Stroke(clExpandBtn, Theme.BorderSoft, 1)
+
+local clChevron = Instance.new("ImageLabel")
+clChevron.Size = UDim2.fromOffset(13, 13)
+clChevron.Position = UDim2.fromScale(0.5, 0.5)
+clChevron.AnchorPoint = Vector2.new(0.5, 0.5)
+clChevron.BackgroundTransparency = 1
+clChevron.Image = Icons.ChevronDown
+clChevron.ImageColor3 = Theme.SubText
+clChevron.Parent = clExpandBtn
+
+-- Expanded Drawer Content
+local clDrawer = Instance.new("Frame")
+clDrawer.Name = "ChangelogDrawer"
+clDrawer.Size = UDim2.new(1, -32, 0, 106)
+clDrawer.Position = UDim2.fromOffset(16, 52)
+clDrawer.BackgroundTransparency = 1
+clDrawer.Parent = changelogCard
+
+local clDiv = Instance.new("Frame")
+clDiv.Size = UDim2.new(1, 0, 0, 1)
+clDiv.BackgroundColor3 = Theme.BorderSoft
+clDiv.BorderSizePixel = 0
+clDiv.Parent = clDrawer
+
+local function CreateChangelogItem(y, icon, iconColor, text)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 22)
+    row.Position = UDim2.fromOffset(0, y)
+    row.BackgroundTransparency = 1
+    row.Parent = clDrawer
+
+    local ico = Instance.new("ImageLabel")
+    ico.BackgroundTransparency = 1
+    ico.Size = UDim2.fromOffset(13, 13)
+    ico.Position = UDim2.fromOffset(4, 4)
+    ico.Image = icon
+    ico.ImageColor3 = iconColor
+    ico.Parent = row
+
+    local lbl = Label(row, text, 11, UDim2.fromOffset(24, 2), Fonts.Medium, Theme.Text)
+    lbl.Size = UDim2.new(1, -26, 0, 18)
+    return row
+end
+
+-- Changelog entries cleared; add future release notes here using:
+-- CreateChangelogItem(yOffset, icon, iconColor, "<b>vX.X.X</b> - Description")
+
+local function ToggleChangelog()
+    isClExpanded = not isClExpanded
+    clChevron.Image = isClExpanded and Icons.ChevronUp or Icons.ChevronDown
+    if isClExpanded then
+        Tween(changelogCard, 0.25, { Size = UDim2.new(1, 0, 0, 168) }, Enum.EasingStyle.Quart, Enum.EasingDirection.Out):Play()
+        homePage.CanvasSize = UDim2.fromOffset(0, 660)
+    else
+        Tween(changelogCard, 0.22, { Size = UDim2.new(1, 0, 0, 52) }, Enum.EasingStyle.Quart, Enum.EasingDirection.In):Play()
+        homePage.CanvasSize = UDim2.fromOffset(0, 542)
+    end
+end
+
+clExpandBtn.MouseEnter:Connect(function()
+    Tween(clExpandBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg }):Play()
+    Tween(clExpStroke, 0.15, { Color = Theme.Blue }):Play()
+    Tween(clChevron, 0.15, { ImageColor3 = Theme.White }):Play()
+end)
+clExpandBtn.MouseLeave:Connect(function()
+    Tween(clExpandBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+    Tween(clExpStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+    Tween(clChevron, 0.15, { ImageColor3 = Theme.SubText }):Play()
+end)
+clExpandBtn.MouseButton1Click:Connect(ToggleChangelog)
+
+-- Register Home Page Searchable Cards
+table.clear(searchableHomeItems)
+table.insert(searchableHomeItems, { frame = hero, tags = "hero welcome banner user identity level client internal" })
+table.insert(searchableHomeItems, { frame = cfgBox, tags = "configs configuration profile profiles count storage json" })
+table.insert(searchableHomeItems, { frame = execBox, tags = "executions execution script exec count runs stat" })
+table.insert(searchableHomeItems, { frame = timeBox, tags = "time playtime game session hours minutes seconds counter stat" })
+table.insert(searchableHomeItems, { frame = themeCard, tags = "theme presets wallpapers anime colors palette horizon neon dark mode" })
+table.insert(searchableHomeItems, { frame = userCard, tags = "user account profile joined age verified id member status" })
+table.insert(searchableHomeItems, { frame = sysCard, tags = "system roblox build executor version ping keybind metrics information" })
+table.insert(searchableHomeItems, { frame = quickCard, tags = "quick actions rejoin server copy place id utility shortcuts tools" })
+table.insert(searchableHomeItems, { frame = changelogCard, tags = "changelog release history updates version logs notes changes" })
 
 -- Live HUD Poller
 task.spawn(function()
@@ -3796,7 +4257,7 @@ local function InitSettingsPage()
     rightSetCol.BackgroundTransparency = 1
     rightSetCol.Parent = sc
 
-    local settingRows = {}
+    table.clear(settingRows)
 
     -- 1. Helper for Clean Setting Toggles
     local function CreateSettingToggle(parent, title, y, default, callback, icon)
@@ -3988,24 +4449,36 @@ local function InitSettingsPage()
     Label(unloadRow, "Unload Script", 13, UDim2.fromOffset(32, 8), Fonts.Medium, Theme.Text).Size = UDim2.new(1, -132, 0, 20)
 
     local unloadBtn = Instance.new("TextButton")
-    unloadBtn.Size = UDim2.fromOffset(84, 24)
-    unloadBtn.Position = UDim2.new(1, -88, 0.5, -12)
+    unloadBtn.Size = UDim2.fromOffset(86, 24)
+    unloadBtn.Position = UDim2.new(1, -90, 0.5, -12)
     unloadBtn.BackgroundColor3 = Theme.CardInner
-    unloadBtn.Text = "Unload"
-    unloadBtn.TextColor3 = Color3.fromRGB(255, 90, 105)
-    unloadBtn.Font = Fonts.Bold
-    unloadBtn.TextSize = 12
+    unloadBtn.Text = ""
     unloadBtn.AutoButtonColor = false
     unloadBtn.Parent = unloadRow
     Corner(unloadBtn, 6)
     local unloadStroke = Stroke(unloadBtn, Theme.BorderSoft, 1)
 
+    local unIco = Instance.new("ImageLabel")
+    unIco.BackgroundTransparency = 1
+    unIco.Size = UDim2.fromOffset(11, 11)
+    unIco.Position = UDim2.new(0, 8, 0.5, -5)
+    unIco.Image = Icons.Power
+    unIco.ImageColor3 = Color3.fromRGB(255, 90, 105)
+    unIco.Parent = unloadBtn
+
+    local unTxt = Label(unloadBtn, "Unload", 11.5, UDim2.fromOffset(23, 0), Fonts.Bold, Color3.fromRGB(255, 90, 105))
+    unTxt.Size = UDim2.new(1, -25, 1, 0)
+
     unloadBtn.MouseEnter:Connect(function()
-        Tween(unloadBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(45, 15, 25), TextColor3 = Color3.fromRGB(255, 120, 135) }):Play()
+        Tween(unloadBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(45, 15, 25) }):Play()
+        Tween(unTxt, 0.15, { TextColor3 = Color3.fromRGB(255, 120, 135) }):Play()
+        Tween(unIco, 0.15, { ImageColor3 = Color3.fromRGB(255, 120, 135) }):Play()
         Tween(unloadStroke, 0.15, { Color = Color3.fromRGB(235, 65, 80) }):Play()
     end)
     unloadBtn.MouseLeave:Connect(function()
-        Tween(unloadBtn, 0.15, { BackgroundColor3 = Theme.CardInner, TextColor3 = Color3.fromRGB(255, 90, 105) }):Play()
+        Tween(unloadBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+        Tween(unTxt, 0.15, { TextColor3 = Color3.fromRGB(255, 90, 105) }):Play()
+        Tween(unIco, 0.15, { ImageColor3 = Color3.fromRGB(255, 90, 105) }):Play()
         Tween(unloadStroke, 0.15, { Color = Theme.BorderSoft }):Play()
     end)
     unloadBtn.MouseButton1Click:Connect(function()
@@ -4430,24 +4903,36 @@ local function InitSettingsPage()
 
     -- Apply button
     bgApplyBtn = Instance.new("TextButton")
-    bgApplyBtn.Size = UDim2.fromOffset(52, 28)
-    bgApplyBtn.Position = UDim2.new(1, -112, 0, 22)
+    bgApplyBtn.Size = UDim2.fromOffset(54, 28)
+    bgApplyBtn.Position = UDim2.new(1, -116, 0, 22)
     bgApplyBtn.BackgroundColor3 = Theme.CardInner
-    bgApplyBtn.Text = "Apply"
-    bgApplyBtn.TextColor3 = Theme.Text
-    bgApplyBtn.Font = Fonts.Bold
-    bgApplyBtn.TextSize = 12
+    bgApplyBtn.Text = ""
     bgApplyBtn.AutoButtonColor = false
     bgApplyBtn.Parent = bgRow
     Corner(bgApplyBtn, 6)
     local bgApplyStroke = Stroke(bgApplyBtn, Theme.BorderSoft, 1)
 
+    local bgApplyIco = Instance.new("ImageLabel")
+    bgApplyIco.BackgroundTransparency = 1
+    bgApplyIco.Size = UDim2.fromOffset(11, 11)
+    bgApplyIco.Position = UDim2.new(0, 7, 0.5, -5)
+    bgApplyIco.Image = Icons.Check
+    bgApplyIco.ImageColor3 = Theme.Text
+    bgApplyIco.Parent = bgApplyBtn
+
+    local bgApplyTxt = Label(bgApplyBtn, "Apply", 11, UDim2.fromOffset(21, 0), Fonts.Bold, Theme.Text)
+    bgApplyTxt.Size = UDim2.new(1, -22, 1, 0)
+
     bgApplyBtn.MouseEnter:Connect(function()
-        Tween(bgApplyBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg, TextColor3 = Theme.White }):Play()
+        Tween(bgApplyBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg }):Play()
+        Tween(bgApplyTxt, 0.15, { TextColor3 = Theme.White }):Play()
+        Tween(bgApplyIco, 0.15, { ImageColor3 = Theme.White }):Play()
         Tween(bgApplyStroke, 0.15, { Color = Theme.Blue }):Play()
     end)
     bgApplyBtn.MouseLeave:Connect(function()
-        Tween(bgApplyBtn, 0.15, { BackgroundColor3 = Theme.CardInner, TextColor3 = Theme.Text }):Play()
+        Tween(bgApplyBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+        Tween(bgApplyTxt, 0.15, { TextColor3 = Theme.Text }):Play()
+        Tween(bgApplyIco, 0.15, { ImageColor3 = Theme.Text }):Play()
         Tween(bgApplyStroke, 0.15, { Color = Theme.BorderSoft }):Play()
     end)
     bgApplyBtn.MouseButton1Click:Connect(function()
@@ -4456,24 +4941,36 @@ local function InitSettingsPage()
 
     -- Clear button
     bgClearBtn = Instance.new("TextButton")
-    bgClearBtn.Size = UDim2.fromOffset(52, 28)
-    bgClearBtn.Position = UDim2.new(1, -56, 0, 22)
+    bgClearBtn.Size = UDim2.fromOffset(54, 28)
+    bgClearBtn.Position = UDim2.new(1, -58, 0, 22)
     bgClearBtn.BackgroundColor3 = Theme.CardInner
-    bgClearBtn.Text = "Clear"
-    bgClearBtn.TextColor3 = Theme.Muted
-    bgClearBtn.Font = Fonts.Medium
-    bgClearBtn.TextSize = 12
+    bgClearBtn.Text = ""
     bgClearBtn.AutoButtonColor = false
     bgClearBtn.Parent = bgRow
     Corner(bgClearBtn, 6)
     local bgClearStroke = Stroke(bgClearBtn, Theme.BorderSoft, 1)
 
+    local bgClearIco = Instance.new("ImageLabel")
+    bgClearIco.BackgroundTransparency = 1
+    bgClearIco.Size = UDim2.fromOffset(11, 11)
+    bgClearIco.Position = UDim2.new(0, 7, 0.5, -5)
+    bgClearIco.Image = Icons.Trash
+    bgClearIco.ImageColor3 = Theme.Muted
+    bgClearIco.Parent = bgClearBtn
+
+    local bgClearTxt = Label(bgClearBtn, "Clear", 11, UDim2.fromOffset(21, 0), Fonts.Medium, Theme.Muted)
+    bgClearTxt.Size = UDim2.new(1, -22, 1, 0)
+
     bgClearBtn.MouseEnter:Connect(function()
-        Tween(bgClearBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(36, 18, 26), TextColor3 = Color3.fromRGB(255, 100, 120) }):Play()
+        Tween(bgClearBtn, 0.15, { BackgroundColor3 = Color3.fromRGB(36, 18, 26) }):Play()
+        Tween(bgClearTxt, 0.15, { TextColor3 = Color3.fromRGB(255, 100, 120) }):Play()
+        Tween(bgClearIco, 0.15, { ImageColor3 = Color3.fromRGB(255, 100, 120) }):Play()
         Tween(bgClearStroke, 0.15, { Color = Color3.fromRGB(180, 40, 60) }):Play()
     end)
     bgClearBtn.MouseLeave:Connect(function()
-        Tween(bgClearBtn, 0.15, { BackgroundColor3 = Theme.CardInner, TextColor3 = Theme.Muted }):Play()
+        Tween(bgClearBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
+        Tween(bgClearTxt, 0.15, { TextColor3 = Theme.Muted }):Play()
+        Tween(bgClearIco, 0.15, { ImageColor3 = Theme.Muted }):Play()
         Tween(bgClearStroke, 0.15, { Color = Theme.BorderSoft }):Play()
     end)
     bgClearBtn.MouseButton1Click:Connect(function()
@@ -4646,27 +5143,39 @@ local function InitSettingsPage()
     UpdateConfigStatus()
 
     -- 4. 2x3 Grid Buttons
-    local function CreateGridButton(text, pos, onClick)
+    local function CreateGridButton(text, icon, pos, onClick)
         local btn = Instance.new("TextButton")
         btn.Size = UDim2.new(0.5, -16, 0, 26)
         btn.Position = pos
         btn.BackgroundColor3 = Color3.fromRGB(15, 25, 42)
         btn.AutoButtonColor = false
-        btn.Text = text
-        btn.TextColor3 = Theme.White
-        btn.Font = Fonts.Bold
-        btn.TextSize = 11.5
+        btn.Text = ""
         btn.Parent = cfgCard
         Corner(btn, 6)
         local bStroke = Stroke(btn, Color3.fromRGB(30, 48, 75), 1)
 
+        local bIco = Instance.new("ImageLabel")
+        bIco.BackgroundTransparency = 1
+        bIco.Size = UDim2.fromOffset(12, 12)
+        bIco.Position = UDim2.new(0, 8, 0.5, -6)
+        bIco.Image = icon or Icons.Code
+        bIco.ImageColor3 = Theme.SubText
+        bIco.Parent = btn
+
+        local bTxt = Label(btn, text, 11, UDim2.fromOffset(24, 0), Fonts.Bold, Theme.White)
+        bTxt.Size = UDim2.new(1, -26, 1, 0)
+
         btn.MouseEnter:Connect(function()
             Tween(btn, 0.15, { BackgroundColor3 = Theme.ActiveBg }):Play()
             Tween(bStroke, 0.15, { Color = Theme.Blue }):Play()
+            Tween(bIco, 0.15, { ImageColor3 = Theme.White }):Play()
+            Tween(bTxt, 0.15, { TextColor3 = Theme.White }):Play()
         end)
         btn.MouseLeave:Connect(function()
             Tween(btn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
             Tween(bStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+            Tween(bIco, 0.15, { ImageColor3 = Theme.SubText }):Play()
+            Tween(bTxt, 0.15, { TextColor3 = Theme.SubText }):Play()
         end)
         btn.MouseButton1Click:Connect(function()
             Tween(btn, 0.08, { Size = UDim2.new(0.48, -16, 0, 24) }):Play()
@@ -4678,15 +5187,10 @@ local function InitSettingsPage()
     end
 
     -- Row 1 (Y = 126)
-    CreateGridButton("Create", UDim2.new(0, 12, 0, 126), function()
+    CreateGridButton("Create", Icons.Code, UDim2.new(0, 12, 0, 126), function()
         local name = string.gsub(cfgInputBox.Text, "^%s*(.-)%s*$", "%1")
         if name == "" then name = "profile_" .. (#ConfigState.List + 1) end
-        local exists = false
-        for _, c in ipairs(ConfigState.List) do if c == name then exists = true break end end
-        if not exists then table.insert(ConfigState.List, name) end
-        ConfigState.Selected = name
-        ConfigState.Current = name
-        ConfigState.Data[name] = { ToggleKey = Config.ToggleKey.Name, ShowFPS = Config.ShowWatermark }
+        ConfigState.SaveProfile(name)
         ddText.Text = name
         cfgInputBox.Text = ""
         RefreshDropdownItems()
@@ -4694,47 +5198,27 @@ local function InitSettingsPage()
         if updateConfigCountUI then updateConfigCountUI() end
     end)
 
-    CreateGridButton("Load", UDim2.new(0.5, 4, 0, 126), function()
+    CreateGridButton("Load", Icons.Refresh, UDim2.new(0.5, 4, 0, 126), function()
         local name = ConfigState.Selected
-        if name and ConfigState.Data[name] then
-            ConfigState.Current = name
-            local data = ConfigState.Data[name]
-            if data.ToggleKey and Enum.KeyCode[data.ToggleKey] then
-                Config.ToggleKey = Enum.KeyCode[data.ToggleKey]
-                if settingsKeyLabel then settingsKeyLabel.Text = Config.ToggleKey.Name end
-                if sysKeyLabel then sysKeyLabel.Text = Config.ToggleKey.Name end
-            end
-            if data.ShowFPS ~= nil then
-                Config.ShowWatermark = data.ShowFPS
-                if hudBar then hudBar.Visible = data.ShowFPS end
-            end
+        if name then
+            ConfigState.LoadProfile(name)
             UpdateConfigStatus()
         end
     end)
 
     -- Row 2 (Y = 156)
-    CreateGridButton("Save", UDim2.new(0, 12, 0, 156), function()
+    CreateGridButton("Save", Icons.Check, UDim2.new(0, 12, 0, 156), function()
         local name = ConfigState.Selected
         if name then
-            ConfigState.Current = name
-            ConfigState.Data[name] = { ToggleKey = Config.ToggleKey.Name, ShowFPS = Config.ShowWatermark }
+            ConfigState.SaveProfile(name)
             UpdateConfigStatus()
         end
     end)
 
-    CreateGridButton("Delete", UDim2.new(0.5, 4, 0, 156), function()
+    CreateGridButton("Delete", Icons.Trash, UDim2.new(0.5, 4, 0, 156), function()
         local name = ConfigState.Selected
         if name and name ~= "default" and name ~= "autosave" then
-            for i, c in ipairs(ConfigState.List) do
-                if c == name then
-                    table.remove(ConfigState.List, i)
-                    break
-                end
-            end
-            ConfigState.Data[name] = nil
-            if ConfigState.Current == name then ConfigState.Current = "none" end
-            if ConfigState.Autoload == name then ConfigState.Autoload = "none" end
-            ConfigState.Selected = ConfigState.List[1] or "default"
+            ConfigState.DeleteProfile(name)
             ddText.Text = ConfigState.Selected
             RefreshDropdownItems()
             UpdateConfigStatus()
@@ -4743,13 +5227,13 @@ local function InitSettingsPage()
     end)
 
     -- Row 3 (Y = 186)
-    CreateGridButton("Set Autoload", UDim2.new(0, 12, 0, 186), function()
-        ConfigState.Autoload = ConfigState.Selected
+    CreateGridButton("Set Autoload", Icons.Zap, UDim2.new(0, 12, 0, 186), function()
+        ConfigState.SetAutoload(ConfigState.Selected)
         UpdateConfigStatus()
     end)
 
-    CreateGridButton("Clear Autoload", UDim2.new(0.5, 4, 0, 186), function()
-        ConfigState.Autoload = "none"
+    CreateGridButton("Clear Autoload", Icons.Close, UDim2.new(0.5, 4, 0, 186), function()
+        ConfigState.ClearAutoload()
         UpdateConfigStatus()
     end)
 
@@ -4806,26 +5290,39 @@ local function InitSettingsPage()
     refBtn.Position = UDim2.fromOffset(12, 246)
     refBtn.BackgroundColor3 = Color3.fromRGB(15, 25, 42)
     refBtn.AutoButtonColor = false
-    refBtn.Text = "Refresh Profiles"
-    refBtn.TextColor3 = Theme.White
-    refBtn.Font = Fonts.Bold
-    refBtn.TextSize = 12
+    refBtn.Text = ""
     refBtn.Parent = cfgCard
     Corner(refBtn, 6)
     local refStroke = Stroke(refBtn, Color3.fromRGB(30, 48, 75), 1)
 
+    local refIco = Instance.new("ImageLabel")
+    refIco.BackgroundTransparency = 1
+    refIco.Size = UDim2.fromOffset(12, 12)
+    refIco.Position = UDim2.new(0.5, -54, 0.5, -6)
+    refIco.Image = Icons.Refresh
+    refIco.ImageColor3 = Theme.SubText
+    refIco.Parent = refBtn
+
+    local refTxt = Label(refBtn, "Refresh Profiles", 12, UDim2.new(0.5, -36, 0, 0), Fonts.Bold, Theme.White)
+    refTxt.Size = UDim2.new(0.5, 36, 1, 0)
+
     refBtn.MouseEnter:Connect(function()
         Tween(refBtn, 0.15, { BackgroundColor3 = Theme.ActiveBg }):Play()
         Tween(refStroke, 0.15, { Color = Theme.Blue }):Play()
+        Tween(refIco, 0.15, { ImageColor3 = Theme.White }):Play()
+        Tween(refTxt, 0.15, { TextColor3 = Theme.White }):Play()
     end)
     refBtn.MouseLeave:Connect(function()
         Tween(refBtn, 0.15, { BackgroundColor3 = Theme.CardInner }):Play()
         Tween(refStroke, 0.15, { Color = Theme.BorderSoft }):Play()
+        Tween(refIco, 0.15, { ImageColor3 = Theme.SubText }):Play()
+        Tween(refTxt, 0.15, { TextColor3 = Theme.SubText }):Play()
     end)
     refBtn.MouseButton1Click:Connect(function()
         Tween(refBtn, 0.08, { Size = UDim2.new(0.97, -24, 0, 25) }):Play()
         task.wait(0.08)
         Tween(refBtn, 0.2, { Size = UDim2.new(1, -24, 0, 28) }, Enum.EasingStyle.Back):Play()
+        ConfigState.ScanProfiles()
         RefreshDropdownItems()
         UpdateConfigStatus()
         if updateConfigCountUI then updateConfigCountUI() end
@@ -4951,6 +5448,18 @@ activeThemeId = nil
 if UpdateThemeCardVisuals then
     pcall(UpdateThemeCardVisuals)
 end
+
+-- Scan profiles and trigger autoload if set
+task.defer(function()
+    pcall(function()
+        ConfigState.ScanProfiles()
+        if ConfigState.Autoload and ConfigState.Autoload ~= "none" then
+            ConfigState.LoadProfile(ConfigState.Autoload)
+        end
+        if UpdateConfigStatus then UpdateConfigStatus() end
+        if updateConfigCountUI then updateConfigCountUI() end
+    end)
+end)
 
 -- Show one-time welcome notice if not seen yet
 task.defer(function()
