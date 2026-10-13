@@ -6040,33 +6040,33 @@ do -- Combat
     AddToggle(cAimbot, "DrawFOVCircle", "Show FOV Circle", "Draw crosshair target boundary ring", 8)
 end
 
-do -- Visuals (All ESP / มองทั้งหมด)
+do -- Visuals (All ESP)
     local _, VisLeft, VisRight = RegisterGameTab("Visuals", Icons.Visuals, 2)
 
     -- Left: Player ESP & Extraction ESP
     local cPlayerESP = CreateCard(VisLeft, "Player ESP", Icons.Visuals, "Visuals")
-    AddToggle(cPlayerESP, "ESPEnabled", "Player ESP", "เปิดระบบมองผู้เล่นทุกคนในเกม", 1)
-    AddToggle(cPlayerESP, "ESPChams", "Player Chams", "ไฮไลท์ตัวผู้เล่นเรืองแสงทะลุกำแพง", 2)
-    AddToggle(cPlayerESP, "ESPBoxes", "2D Box ESP", "วาดกรอบสี่เหลี่ยมรอบตัวผู้เล่น", 3)
-    AddToggle(cPlayerESP, "ESPOverheadTags", "Overhead Info", "ชื่อ, หลอดเลือด และระยะทางบนหัว", 4)
-    AddToggle(cPlayerESP, "ESPNames", "2D Player Names", "แสดงชื่อตัวละคร", 5)
-    AddToggle(cPlayerESP, "ESPTracers", "Snaplines (Tracers)", "วาดเส้นชี้ทางไปยังตัวผู้เล่น", 6)
+    AddToggle(cPlayerESP, "ESPEnabled", "Player ESP", "Master visual highlight system for all players", 1)
+    AddToggle(cPlayerESP, "ESPChams", "Player Chams", "Wall-penetrating illuminated player chams", 2)
+    AddToggle(cPlayerESP, "ESPBoxes", "2D Box ESP", "2D bounding boxes around player models", 3)
+    AddToggle(cPlayerESP, "ESPOverheadTags", "Overhead Info", "Player name, health bar and distance tag", 4)
+    AddToggle(cPlayerESP, "ESPNames", "2D Player Names", "Render player character names on screen", 5)
+    AddToggle(cPlayerESP, "ESPTracers", "Snaplines (Tracers)", "Snaplines directed toward player positions", 6)
     AddDropdown(cPlayerESP, "TracerOrigin", "Tracer Origin", {"Player", "Center", "Bottom"}, Settings.TracerOrigin or "Player", 7)
     AddSlider(cPlayerESP, "ESPMaxDistance", "Render Distance", 200, 4000, 2000, " studs", 8)
 
     local cExtractESP = CreateCard(VisLeft, "Extraction ESP", Icons.Shield, "Visuals")
-    AddToggle(cExtractESP, "ExtractESPEnabled", "Extract 3D Markers", "ป้ายบอกตำแหน่งจุดออกและเงื่อนไขทั่วแมพ", 1)
-    AddToggle(cExtractESP, "ExtractChams", "Extract Zone Chams", "เรืองแสงกล่องโซน Extraction ทะลุกำแพง", 2)
+    AddToggle(cExtractESP, "ExtractESPEnabled", "Extract 3D Markers", "3D extraction points and requirements across map", 1)
+    AddToggle(cExtractESP, "ExtractChams", "Extract Zone Chams", "Wall-penetrating extraction zone highlight", 2)
 
     -- Right: Zombie ESP & Boss Tracker
     local cZombieESP = CreateCard(VisRight, "Zombie ESP", Icons.Shield, "Visuals")
-    AddToggle(cZombieESP, "ZombieESP", "Zombie 3D Tags", "แสดงป้ายบอกประเภทซอมบี้ (Runner, Brute, Ringer)", 1)
-    AddToggle(cZombieESP, "ZombieChams", "Zombie Chams", "ไฮไลท์ซอมบี้เรืองแสงทะลุกำแพงและหลังคา", 2)
-    AddToggle(cZombieESP, "ZombieDmgPopup", "Damage Numbers", "แสดงตัวเลขดาเมจตอนยิงโดนซอมบี้", 3)
+    AddToggle(cZombieESP, "ZombieESP", "Zombie 3D Tags", "Display zombie type markers (Runner, Brute, Ringer)", 1)
+    AddToggle(cZombieESP, "ZombieChams", "Zombie Chams", "Wall-penetrating zombie entity chams", 2)
+    AddToggle(cZombieESP, "ZombieDmgPopup", "Damage Numbers", "Floating damage indicator popups on hit", 3)
     AddSlider(cZombieESP, "ZombieMaxDistance", "Zombie Distance", 100, 2500, 1200, " studs", 4)
 
     local cBossESP = CreateCard(VisRight, "Boss ESP & Tracker", Icons.Crosshair, "Visuals")
-    AddToggle(cBossESP, "BossHuntEnabled", "Master Boss Tracker", "เปิดระบบตรวจจับและสแกนบอสทั่วทั้งแมพ", 1, function(val)
+    AddToggle(cBossESP, "BossHuntEnabled", "Master Boss Tracker", "Full-map raid boss locator and scanner", 1, function(val)
         if not val then
             if bossHuntGui then bossHuntGui.Enabled = false end
             if bossHuntFrame then bossHuntFrame.Visible = false end
@@ -6076,26 +6076,26 @@ do -- Visuals (All ESP / มองทั้งหมด)
             for _, hl in pairs(bossHighlights) do if hl then hl.Enabled = false end end
         end
     end)
-    AddToggle(cBossESP, "BossChams", "Golden Boss Chams", "ออร่าสีทองเรืองแสงทะลุกำแพงรอบตัวบอส", 2, function(val)
+    AddToggle(cBossESP, "BossChams", "Golden Boss Chams", "Golden glow aura through walls around bosses", 2, function(val)
         if not val then
             for _, hl in pairs(bossHighlights) do if hl then pcall(function() hl:Destroy() end) end end
             table.clear(bossHighlights)
         end
     end)
-    AddToggle(cBossESP, "BossOverheadBadge", "3D Overhead Badge", "ป้ายชื่อและหลอดเลือดบอสบนหัว", 3, function(val)
+    AddToggle(cBossESP, "BossOverheadBadge", "3D Overhead Badge", "Boss nameplate and health indicator", 3, function(val)
         if not val then
             for _, bg in pairs(bossBadges) do if bg.Root then bg.Root.Visible = false end end
         end
     end)
-    AddToggle(cBossESP, "BossHUD", "Boss Health Bar Banner", "แบนเนอร์เลือดบอสแบบ RPG ด้านบนจอ", 4, function(val)
+    AddToggle(cBossESP, "BossHUD", "Boss Health Bar Banner", "RPG-style top-screen boss health bar", 4, function(val)
         if not val and bossHuntFrame then bossHuntFrame.Visible = false end
     end)
-    AddToggle(cBossESP, "BossWaypoints", "Screen Compass Arrows", "ลูกศรขอบจอชี้ทิศทางตำแหน่งบอส", 5, function(val)
+    AddToggle(cBossESP, "BossWaypoints", "Screen Compass Arrows", "Offscreen pointer arrows toward boss location", 5, function(val)
         if not val then
             for _, wp in pairs(bossWaypoints) do if wp.Root then wp.Root.Visible = false end end
         end
     end)
-    AddToggle(cBossESP, "BossCorpseTracker", "Boss Corpse Tracker", "ติดตามศพบอสหลังตายเพื่อไปฟาร์มของ", 6)
+    AddToggle(cBossESP, "BossCorpseTracker", "Boss Corpse Tracker", "Track slain boss corpses for high-tier loot", 6)
     AddSlider(cBossESP, "BossMaxDistance", "Boss Scan Range", 500, 6000, 4000, " studs", 7)
 end
 
@@ -6235,12 +6235,12 @@ local function BuildItem3DViewport(id)
     return nil
 end
 
-do -- Player (บิน, ลอย, ทะลุ, เดินเร็ว, จุดออก, วิสัยทัศน์)
+do -- Player (Flight, Movement, Bypass, Vision)
     local _, PlayLeft, PlayRight = RegisterGameTab("Player", Icons.Player, 5)
 
     -- Left: Flight & Movement
     local cFly = CreateCard(PlayLeft, "Flight & Hover", Icons.Zap, "Player")
-    AddToggle(cFly, "FlyEnabled", "Hover / Float Lock", "ลอยค้างกลางอากาศ เดินแนวราบ บังคับง่าย ปลอดภัย", 1, function(val)
+    AddToggle(cFly, "FlyEnabled", "Hover / Float Lock", "Air hover lock for smooth horizontal movement", 1, function(val)
         if val then StartFly() else StopFly() end
     end)
     AddDropdown(cFly, "FlyKeybind", "Float Keybind", {"X", "F", "V", "B", "None"}, Settings.FlyKeybind or "X", 2)
@@ -6248,15 +6248,15 @@ do -- Player (บิน, ลอย, ทะลุ, เดินเร็ว, จ�
     AddSlider(cFly, "FlySpeed", "Flight Speed", 10, 24, Settings.FlySpeed or 20, " studs/s", 4)
 
     local cSpeed = CreateCard(PlayLeft, "Movement & Speed", Icons.Zap, "Player")
-    AddToggle(cSpeed, "InfiniteStamina", "Infinite Stamina", "วิ่งได้ตลอดเวลา ไม่หมดหลอด ไม่ติดสถานะเหนื่อยหอบ", 1, function(val)
+    AddToggle(cSpeed, "InfiniteStamina", "Infinite Stamina", "Never run out of stamina or get exhausted", 1, function(val)
         if val then
             local char = LocalPlayer.Character or Workspace:FindFirstChild(LocalPlayer.Name)
             if char then EnforceCharStamina(char) end
         end
     end)
-    AddToggle(cSpeed, "SpeedHack", "WalkSpeed Boost", "เพิ่มความเร็วเดิน/วิ่งตัวละครบนพื้น", 2)
+    AddToggle(cSpeed, "SpeedHack", "WalkSpeed Boost", "Custom ground movement speed multiplier", 2)
     AddSlider(cSpeed, "SpeedValue", "Speed Multiplier", 16, 35, 24, " studs/s", 3)
-    AddToggle(cSpeed, "NoClipEnabled", "NoClip (Ghost)", "เดินและบินทะลุกำแพง/สิ่งกีดขวางทุกชนิด", 4, function(val)
+    AddToggle(cSpeed, "NoClipEnabled", "NoClip (Ghost)", "Ghost collision bypass through all solid walls", 4, function(val)
         if not val and not isFlying and not isGliding then
             local char = LocalPlayer.Character or (Workspace and Workspace:FindFirstChild(LocalPlayer.Name))
             if char then RestoreCharacterCollision(char) end
@@ -6266,13 +6266,13 @@ do -- Player (บิน, ลอย, ทะลุ, เดินเร็ว, จ�
     local cEscape = CreateCard(PlayLeft, "Auto Extraction", Icons.Shield, "Player")
     AddDropdown(cEscape, "ExtractTarget", "Target Exit", {"Auto (Nearest Open)", "roadblock", "military_gate", "pickup", "helipad"}, Settings.ExtractTarget or "Auto (Nearest Open)", 1)
     AddSlider(cEscape, "GlideSpeed", "Glide Speed", 12, 24, 23, " studs/s", 2)
-    AddButton(cEscape, "Auto Glide to Exit", "บินร่อนไปลงจุดออกอัตโนมัติ (ไม่โดนดึงกลับ)", 3, function(btn)
+    AddButton(cEscape, "Auto Glide to Exit", "Automated safe glide towards extraction zone", 3, function(btn)
         StartSkyGlide(btn)
     end)
 
     -- Right: Vision & Bypass
     local cWorld = CreateCard(PlayRight, "Vision & Atmosphere", Icons.Visuals, "Player")
-    AddToggle(cWorld, "FullBright", "Night Vision / FullBright", "ปิดความมืดและเงากลางคืน มองเห็นสว่างชัดเจน", 1, function(val)
+    AddToggle(cWorld, "FullBright", "Night Vision / FullBright", "Remove night darkness and shadows completely", 1, function(val)
         if not val then
             Lighting.Ambient = defaultLighting.Ambient
             Lighting.Brightness = defaultLighting.Brightness
@@ -6280,8 +6280,8 @@ do -- Player (บิน, ลอย, ทะลุ, เดินเร็ว, จ�
             Lighting.FogEnd = defaultLighting.FogEnd
         end
     end)
-    AddToggle(cWorld, "RemoveFogOfWar", "Remove Fog of War", "ลบม่านหมอกดำบังระยะสายตาทั้งหมด", 2)
-    AddToggle(cWorld, "UnlockMaxZoom", "Unlock Extended Zoom", "ปลดล็อคระยะซูมกล้องมุมสูงให้ไกลขึ้น", 3)
+    AddToggle(cWorld, "RemoveFogOfWar", "Remove Fog of War", "Completely remove pitch-black fog of war", 2)
+    AddToggle(cWorld, "UnlockMaxZoom", "Unlock Extended Zoom", "Unlock maximum top-down camera zoom distance", 3)
 
     local function RepairInventoryIcons()
         pcall(function()
@@ -6460,8 +6460,8 @@ do -- Player (บิน, ลอย, ทะลุ, เดินเร็ว, จ�
     end)
 
     local cBypass = CreateCard(PlayRight, "Bypass & Exploits", Icons.Shield, "Player")
-    AddToggle(cBypass, "BypassLockedDoors", "Keycard Door Bypass", "เดินทะลุประตูสถานีตำรวจและร้านปืน (ไม่ต้องใช้การ์ด)", 1)
-    AddButton(cBypass, "Fix / Reload Inventory Icons", "กู้คืนไอคอนของในกระเป๋าที่ว่างเปล่าหรือบัคทันที", 2, function(btn)
+    AddToggle(cBypass, "BypassLockedDoors", "Keycard Door Bypass", "Walk through locked police & armory doors", 1)
+    AddButton(cBypass, "Fix / Reload Inventory Icons", "Instantly rebuild and repair blank inventory icons", 2, function(btn)
         RepairInventoryIcons()
     end)
 end
@@ -6483,13 +6483,13 @@ local function FormatShopMoney(amount)
 end
 
 local SHOP_CATEGORIES = {
-    { id = "all",         label = "All Items",      th = "ทั้งหมด",          color = Color3.fromRGB(40, 150, 255) },
-    { id = "weapons",     label = "Weapons",        th = "อาวุธ",           color = Color3.fromRGB(255, 75, 90) },
-    { id = "ammo",        label = "Ammo",           th = "กระสุน",          color = Color3.fromRGB(255, 195, 45) },
-    { id = "medical",     label = "Medical/Food",   th = "ยา & อาหาร",      color = Color3.fromRGB(45, 220, 130) },
-    { id = "gear",        label = "Armor & Gear",   th = "เกราะ & เป้",     color = Color3.fromRGB(55, 175, 255) },
-    { id = "attachments", label = "Attachments",    th = "ของแต่งปืน",      color = Color3.fromRGB(195, 95, 255) },
-    { id = "valuables",   label = "Materials",      th = "วัสดุ & ของมีค่า", color = Color3.fromRGB(175, 200, 230) },
+    { id = "all",         label = "All Items",      color = Color3.fromRGB(40, 150, 255) },
+    { id = "weapons",     label = "Weapons",        color = Color3.fromRGB(255, 75, 90) },
+    { id = "ammo",        label = "Ammo",           color = Color3.fromRGB(255, 195, 45) },
+    { id = "medical",     label = "Medical & Food", color = Color3.fromRGB(45, 220, 130) },
+    { id = "gear",        label = "Armor & Gear",   color = Color3.fromRGB(55, 175, 255) },
+    { id = "attachments", label = "Attachments",    color = Color3.fromRGB(195, 95, 255) },
+    { id = "valuables",   label = "Materials",      color = Color3.fromRGB(175, 200, 230) },
 }
 
 local SHOP_TRADERS = {
@@ -7671,7 +7671,7 @@ for i, cDef in ipairs(SHOP_CATEGORIES) do
     cTxt.Font = (cDef.id == selectedShopCategory) and Fonts.Bold or Fonts.Medium
     cTxt.TextSize = 11
     cTxt.TextColor3 = (cDef.id == selectedShopCategory) and Theme.Text or Theme.SubText
-    cTxt.Text = string.format("  %s (%s)  ", cDef.label, cDef.th)
+    cTxt.Text = string.format("  %s  ", cDef.label)
     cTxt.Parent = cBtn
 
     catButtons[cDef.id] = { Button = cBtn, Stroke = cStroke, Text = cTxt, Def = cDef }
