@@ -222,12 +222,6 @@ do
     if PageHolder then PageHolder.Active = true end
     if Sidebar then Sidebar.Active = true end
 
-    if _G.ToggleHPS and _G.HPS_IsVisible and not _G.HPS_IsVisible() then
-        pcall(_G.ToggleHPS)
-    elseif HPS_Main then
-        HPS_Main.Visible = true
-    end
-
     local lastToggleTime = 0
     local function ToggleMenu()
         local now = tick()
@@ -236,6 +230,9 @@ do
 
         if _G.ToggleHPS then
             pcall(_G.ToggleHPS)
+            if HPS_Main and _G.HPS_IsVisible then
+                HPS_Main.Visible = _G.HPS_IsVisible()
+            end
         elseif HPS_Main then
             HPS_Main.Visible = not HPS_Main.Visible
         end
@@ -260,6 +257,7 @@ local CONFIG_FILE = "HBS Script/Hush_Config.json"
 
 local Settings = {
     AutoSaveEnabled      = true,
+    AutoCloseUIOnRun     = false,
 
     ThreatPointersEnabled = false,
     ThreatColorMode       = "Native Green", -- "Native Green", "Danger Red", "Distance Dynamic"
@@ -400,6 +398,9 @@ local function LoadConfig()
 end
 
 LoadConfig()
+if Settings.AutoCloseUIOnRun and HPS_Main then
+    HPS_Main.Visible = false
+end
 
 -- // theme & icons
 local Icons = {
@@ -907,7 +908,7 @@ end
 
 local function DisableAllFeatures()
     for k, v in pairs(Settings) do
-        if type(v) == "boolean" and k ~= "AutoSaveEnabled" then
+        if type(v) == "boolean" and k ~= "AutoSaveEnabled" and k ~= "AutoCloseUIOnRun" then
             Settings[k] = false
             if registeredToggleSetters[k] then
                 pcall(registeredToggleSetters[k], false, true)
@@ -7873,16 +7874,54 @@ pcall(function()
     end
 
     if sCol then
+        -- 1. Remove duplicate CardHolder_Configuration if already present
+        for _, ch in ipairs(sCol:GetChildren()) do
+            if ch.Name:find("CardHolder_Configuration") then
+                pcall(function() ch:Destroy() end)
+            end
+        end
+
+        -- 2. Hide old generic profiles frame
+        for _, ch in ipairs(sCol:GetChildren()) do
+            if ch:IsA("Frame") and ch.Name ~= "StreamerCard" and not ch.Name:find("CardHolder_") then
+                ch.Visible = false
+            end
+        end
+
+        -- 3. Add UIListLayout to sCol so cards stack vertically without overlapping
+        local sLayout = sCol:FindFirstChildOfClass("UIListLayout")
+        if not sLayout then
+            sLayout = Instance.new("UIListLayout")
+            sLayout.Padding = UDim.new(0, 12)
+            sLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            sLayout.Parent = sCol
+        end
+
+        -- 4. Enable auto-sizing and scrolling
+        sCol.AutomaticSize = Enum.AutomaticSize.Y
+        if sContent then sContent.AutomaticSize = Enum.AutomaticSize.Y end
+        if pageSettings then
+            pageSettings.AutomaticCanvasSize = Enum.AutomaticSize.Y
+            pageSettings.ScrollBarThickness = 3
+        end
+
+        local streamerCard = sCol:FindFirstChild("StreamerCard")
+        if streamerCard then
+            streamerCard.LayoutOrder = 2
+        end
+
         local cConfig = CreateCard(sCol, "Configuration", Icons.Shield, "Settings")
-        cConfig.LayoutOrder = 1 -- At the very top
+        local cHolder = sCol:FindFirstChild("CardHolder_Configuration")
+        if cHolder then cHolder.LayoutOrder = 1 end
 
         AddToggle(cConfig, "AutoSaveEnabled", "Real-Time Auto-Save", "Automatically saves any toggle change to disk instantly", 1)
+        AddToggle(cConfig, "AutoCloseUIOnRun", "Auto Close UI on Run", "Automatically hides the UI when script auto-runs on launch", 2)
 
         local statusRow = Instance.new("Frame")
         statusRow.Size = UDim2.new(1, 0, 0, 48)
         statusRow.BackgroundColor3 = Theme.CardInner
         statusRow.BorderSizePixel = 0
-        statusRow.LayoutOrder = 2
+        statusRow.LayoutOrder = 3
         statusRow.Parent = cConfig
         Corner(statusRow, 6)
         Stroke(statusRow, Theme.BorderSoft, 1)
@@ -7913,7 +7952,7 @@ pcall(function()
             local activeCount = 0
             local totalCount = 0
             for k, v in pairs(Settings) do
-                if type(v) == "boolean" and k ~= "AutoSaveEnabled" then
+                if type(v) == "boolean" and k ~= "AutoSaveEnabled" and k ~= "AutoCloseUIOnRun" then
                     totalCount = totalCount + 1
                     if v == true then activeCount = activeCount + 1 end
                 end
@@ -7967,17 +8006,17 @@ pcall(function()
             return btn
         end
 
-        AddActionButton("Save Configuration", Icons.Save, Theme.BlueGlow, 3, function()
+        AddActionButton("Save Configuration", Icons.Save, Theme.BlueGlow, 4, function()
             SaveConfig()
         end)
 
-        AddActionButton("Reload Configuration", Icons.Folder, Theme.Text, 4, function()
+        AddActionButton("Reload Configuration", Icons.Folder, Theme.Text, 5, function()
             if LoadConfig() then
                 UpdateAllToggleVisuals()
             end
         end)
 
-        AddActionButton("Reset Defaults (All Off)", Icons.Reset, Color3.fromRGB(255, 95, 95), 5, function()
+        AddActionButton("Reset Defaults (All Off)", Icons.Reset, Color3.fromRGB(255, 95, 95), 6, function()
             DisableAllFeatures()
         end)
 
@@ -8028,7 +8067,21 @@ end))
 task.defer(function()
     task.wait(0.1)
     SwitchTab("Combat")
-    EnforceMouseUnlock()
+    if Settings.AutoCloseUIOnRun then
+        if _G.HPS_IsVisible and _G.HPS_IsVisible() and _G.ToggleHPS then
+            pcall(_G.ToggleHPS)
+        end
+        if HPS_Main then
+            HPS_Main.Visible = false
+        end
+    else
+        if _G.ToggleHPS and _G.HPS_IsVisible and not _G.HPS_IsVisible() then
+            pcall(_G.ToggleHPS)
+        elseif HPS_Main then
+            HPS_Main.Visible = true
+        end
+        EnforceMouseUnlock()
+    end
 end)
 
 -- // runtime
@@ -8168,4 +8221,3 @@ _G.HPS_Hush_Cleanup = MasterCleanup
 if getgenv then getgenv().HPS_Hush_Cleanup = MasterCleanup end
 
 print("[HUSH] HPS Loaded Successfully!")
-
