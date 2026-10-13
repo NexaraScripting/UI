@@ -8039,6 +8039,245 @@ pcall(function()
     end
 end)
 
+-- // home changelog
+local function InitHomeChangelog()
+    pcall(function()
+        local pageHome = PageHolder and PageHolder:FindFirstChild("Page_Home")
+        local changelogCard = pageHome and pageHome:FindFirstChild("ChangelogCard", true)
+        if not changelogCard then return end
+
+        if pageHome then
+            pageHome.AutomaticCanvasSize = Enum.AutomaticSize.Y
+            pageHome.ScrollBarThickness = 3
+            pageHome.ScrollBarImageColor3 = Color3.fromRGB(55, 85, 125)
+        end
+
+        local drawer = changelogCard:FindFirstChild("ChangelogDrawer")
+        local expandBtn = changelogCard:FindFirstChild("ChangelogExpandBtn")
+        local arrowIcon = expandBtn and expandBtn:FindFirstChildWhichIsA("ImageLabel")
+        local headerTitle = changelogCard:FindFirstChildWhichIsA("TextLabel")
+
+        if headerTitle then
+            headerTitle.RichText = true
+            headerTitle.Size = UDim2.new(1, -90, 0, 20)
+            headerTitle.Text = '<b>Change Log & Release History</b>  <font color="#2896ff"><font size="11">[v1.0.0-beta]</font></font>'
+        end
+
+        if not drawer then return end
+
+        for _, ch in ipairs(drawer:GetChildren()) do
+            if ch.Name ~= "TopDivider" and not ch:IsA("UIStroke") and not ch:IsA("UICorner") then
+                ch:Destroy()
+            end
+        end
+
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Name = "ChangelogScroll"
+        scroll.Size = UDim2.new(1, 0, 1, -8)
+        scroll.Position = UDim2.fromOffset(0, 8)
+        scroll.BackgroundTransparency = 1
+        scroll.BorderSizePixel = 0
+        scroll.ScrollBarThickness = 3
+        scroll.ScrollBarImageColor3 = Color3.fromRGB(40, 150, 255)
+        scroll.ScrollBarImageTransparency = 0.3
+        scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+        scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        scroll.ClipsDescendants = true
+        scroll.Parent = drawer
+
+        local sPad = Instance.new("UIPadding")
+        sPad.PaddingTop = UDim.new(0, 4)
+        sPad.PaddingBottom = UDim.new(0, 10)
+        sPad.PaddingLeft = UDim.new(0, 4)
+        sPad.PaddingRight = UDim.new(0, 8)
+        sPad.Parent = scroll
+
+        local sList = Instance.new("UIListLayout")
+        sList.Padding = UDim.new(0, 8)
+        sList.SortOrder = Enum.SortOrder.LayoutOrder
+        sList.Parent = scroll
+
+        local banner = Instance.new("Frame")
+        banner.Name = "ReleaseBanner"
+        banner.Size = UDim2.new(1, 0, 0, 0)
+        banner.AutomaticSize = Enum.AutomaticSize.Y
+        banner.BackgroundColor3 = Color3.fromRGB(13, 24, 45)
+        banner.BorderSizePixel = 0
+        banner.LayoutOrder = 1
+        banner.Parent = scroll
+        Corner(banner, 6)
+        Stroke(banner, Color3.fromRGB(35, 75, 130), 1)
+
+        local bPad = Instance.new("UIPadding")
+        bPad.PaddingTop = UDim.new(0, 8)
+        bPad.PaddingBottom = UDim.new(0, 8)
+        bPad.PaddingLeft = UDim.new(0, 10)
+        bPad.PaddingRight = UDim.new(0, 10)
+        bPad.Parent = banner
+
+        local bList = Instance.new("UIListLayout")
+        bList.Padding = UDim.new(0, 4)
+        bList.SortOrder = Enum.SortOrder.LayoutOrder
+        bList.Parent = banner
+
+        local bHeader = Instance.new("TextLabel")
+        bHeader.Size = UDim2.new(1, 0, 0, 18)
+        bHeader.BackgroundTransparency = 1
+        bHeader.Font = Fonts.Bold
+        bHeader.TextSize = 12
+        bHeader.TextColor3 = Theme.Text
+        bHeader.TextXAlignment = Enum.TextXAlignment.Left
+        bHeader.RichText = true
+        bHeader.Text = '<font color="#2896ff"><b>VERSION 1.0.0-BETA</b></font>  <font color="#00e5a3"><b>[OFFICIAL RELEASE]</b></font>  <font color="#8294ab">• Build 2026.10 • HUSH</font>'
+        bHeader.LayoutOrder = 1
+        bHeader.Parent = banner
+
+        local bDesc = Instance.new("TextLabel")
+        bDesc.Size = UDim2.new(1, 0, 0, 0)
+        bDesc.AutomaticSize = Enum.AutomaticSize.Y
+        bDesc.BackgroundTransparency = 1
+        bDesc.Font = Fonts.Regular
+        bDesc.TextSize = 10.5
+        bDesc.TextColor3 = Theme.SubText
+        bDesc.TextXAlignment = Enum.TextXAlignment.Left
+        bDesc.TextWrapped = true
+        bDesc.RichText = true
+        bDesc.Text = 'Major public release for <b>HUSH [Zombie Extraction]</b>. Featuring live trader economy sync, silent headshot aimbot suite, raid boss tracker radar, collision ghosting, and full.'
+        bDesc.LayoutOrder = 2
+        bDesc.Parent = banner
+
+        local function AddLogGroup(tag, tagColor, title, bullets, order)
+            local grp = Instance.new("Frame")
+            grp.Name = "Group_" .. tag:gsub("%W+", "")
+            grp.Size = UDim2.new(1, 0, 0, 0)
+            grp.AutomaticSize = Enum.AutomaticSize.Y
+            grp.BackgroundColor3 = Theme.CardInner
+            grp.BorderSizePixel = 0
+            grp.LayoutOrder = order
+            grp.Parent = scroll
+            Corner(grp, 6)
+            Stroke(grp, Theme.BorderSoft, 1)
+
+            local gPad = Instance.new("UIPadding")
+            gPad.PaddingTop = UDim.new(0, 8)
+            gPad.PaddingBottom = UDim.new(0, 8)
+            gPad.PaddingLeft = UDim.new(0, 10)
+            gPad.PaddingRight = UDim.new(0, 10)
+            gPad.Parent = grp
+
+            local gList = Instance.new("UIListLayout")
+            gList.Padding = UDim.new(0, 4)
+            gList.SortOrder = Enum.SortOrder.LayoutOrder
+            gList.Parent = grp
+
+            local gTitle = Instance.new("TextLabel")
+            gTitle.Size = UDim2.new(1, 0, 0, 16)
+            gTitle.BackgroundTransparency = 1
+            gTitle.Font = Fonts.Bold
+            gTitle.TextSize = 11.5
+            gTitle.TextColor3 = Theme.Text
+            gTitle.TextXAlignment = Enum.TextXAlignment.Left
+            gTitle.RichText = true
+            gTitle.Text = string.format('<font color="#%s"><b>[%s]</b></font>  %s', tagColor, tag, title)
+            gTitle.LayoutOrder = 1
+            gTitle.Parent = grp
+
+            local bulletText = {}
+            for _, b in ipairs(bullets) do
+                table.insert(bulletText, '<font color="#2896ff">•</font> ' .. b)
+            end
+
+            local gBody = Instance.new("TextLabel")
+            gBody.Size = UDim2.new(1, 0, 0, 0)
+            gBody.AutomaticSize = Enum.AutomaticSize.Y
+            gBody.BackgroundTransparency = 1
+            gBody.Font = Fonts.Regular
+            gBody.TextSize = 10.5
+            gBody.TextColor3 = Theme.SubText
+            gBody.TextXAlignment = Enum.TextXAlignment.Left
+            gBody.TextWrapped = true
+            gBody.RichText = true
+            gBody.LineHeight = 1.25
+            gBody.Text = table.concat(bulletText, "\n")
+            gBody.LayoutOrder = 2
+            gBody.Parent = grp
+        end
+
+        AddLogGroup("ECONOMY", "ffb428", "Trader Update", {
+            "<b>Live stock</b>: Trader stock and restock timers now sync from api.fetch(\"traders\").",
+            "<b>Level 5 offers</b>: Added 23 items (Military Rucksack, Armory Keys, AP/FMJ ammo). 143 total.",
+            "<b>Stock badges</b>: [ SOLD OUT ], [ 2/2 ], [ 5/5 ]. Buying is locked when empty.",
+            "<b>3D previews</b>: Weapon and gear models on item cards.",
+        }, 2)
+
+        AddLogGroup("COMBAT", "ff4b5a", "Aimbot", {
+            "<b>Lock-on</b>: Head/torso targeting with FOV ring and wall check.",
+            "<b>Silent aim</b>: Bullets redirect to the head bone on fire.",
+            "<b>Boss priority</b>: Bosses are targeted before normal zombies.",
+            "<b>Hit numbers</b>: Floating damage on zombie and boss hits.",
+        }, 3)
+
+        AddLogGroup("VISUALS", "2896ff", "ESP", {
+            "<b>Player ESP</b>: Chams, boxes, health, distance, snaplines.",
+            "<b>Boss tracker</b>: Gold chams, top health bar, overhead badge, compass pointer, corpse tracker.",
+            "<b>Zombie tags</b>: Type labels (Runner, Brute, Ringer, Tank, Screamer).",
+            "<b>Extraction ESP</b>: Zone markers with criteria status.",
+        }, 4)
+
+        AddLogGroup("PHYSICS", "bf5af2", "Movement", {
+            "<b>Air hover</b>: Lock in place and glide, no fall damage.",
+            "<b>NoClip</b>: Pass through walls and fences.",
+            "<b>Infinite stamina</b>: No sprint drain.",
+            "<b>Keycard bypass</b>: Open Police Station and Armory doors without keys.",
+            "<b>World</b>: FullBright, no fog, extended zoom.",
+        }, 5)
+
+        AddLogGroup("SYSTEM", "00e5a3", "Settings", {
+            "<b>Auto close UI</b>: Menu minimizes on game start / auto-execute.",
+            "<b>Auto-save</b>: Config saves to HBS Script/Hush_Config.json.",
+            "<b>English UI</b>: All cards, toggles and trader filters.",
+            "<b>Layout fix</b>: Cards no longer overlap.",
+        }, 6)
+
+        local isExpanded = true
+        local collapsedHeight = 52
+        local expandedHeight = 350
+
+        local function SetChangelogState(expanded)
+            isExpanded = expanded
+            if isExpanded then
+                changelogCard.Size = UDim2.new(1, 0, 0, expandedHeight)
+                drawer.Size = UDim2.new(1, -32, 0, expandedHeight - 64)
+                drawer.Visible = true
+                if arrowIcon then
+                    Tween(arrowIcon, 0.2, { Rotation = 180 }):Play()
+                end
+            else
+                changelogCard.Size = UDim2.new(1, 0, 0, collapsedHeight)
+                drawer.Size = UDim2.new(1, -32, 0, 0)
+                drawer.Visible = false
+                if arrowIcon then
+                    Tween(arrowIcon, 0.2, { Rotation = 0 }):Play()
+                end
+            end
+        end
+
+        if expandBtn then
+            pcall(function()
+                for _, c in ipairs(getconnections(expandBtn.MouseButton1Click)) do
+                    c:Disable()
+                end
+            end)
+            expandBtn.MouseButton1Click:Connect(function()
+                SetChangelogState(not isExpanded)
+            end)
+        end
+
+        SetChangelogState(true)
+    end)
+end
+task.spawn(InitHomeChangelog)
+
 -- // cursor unlock
 local function EnforceMouseUnlock()
     if HPS_Main and HPS_Main.Visible then
