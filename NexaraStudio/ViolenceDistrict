@@ -2502,8 +2502,8 @@ local function RenderESP()
         local camPos = Camera.CFrame.Position
         local myPos = myRoot and myRoot.Position or camPos
 
-        -- Top Screen Killer Skill (Rendered directly under in-game match timer, hidden in lobby or post-match)
-        if not inLobby and Config.ESP_KillerEnabled and Config.ESP_KillerSkills then
+        -- Top Screen Killer Skill (Rendered directly under in-game match timer, hidden in lobby, post-match, or when playing as Killer)
+        if not inLobby and not IsKiller(LocalPlayer) and Config.ESP_KillerEnabled and Config.ESP_KillerSkills then
             local killerPlr = nil
             for p, _ in pairs(ESP_Objects) do
                 local data = CachedPlayerData[p]
@@ -2512,11 +2512,8 @@ local function RenderESP()
                     break
                 end
             end
-            if not killerPlr and IsKiller(LocalPlayer) then
-                killerPlr = LocalPlayer
-            end
 
-            if killerPlr and killerPlr.Character then
+            if killerPlr and killerPlr.Character and killerPlr ~= LocalPlayer then
                 local kSkillStr = GetPlayerSkillInfo(killerPlr)
                 if kSkillStr and #kSkillStr > 0 then
                     local posX = math.floor(Camera.ViewportSize.X / 2)
@@ -2690,7 +2687,19 @@ local function RenderESP()
                             local boxX = math.floor(rootScreen.X - boxWidth * 0.5)
                             local boxY = math.floor(math.min(topScreen.Y, btmScreen.Y))
 
-                            local showBox = inLobby and (Config.ESP_LobbyBoxes ~= false) or Config.ESP_SurvivorBoxes
+                            -- Carrying detection: suppress box and all intrusive drawings if this survivor is carried by the Killer
+                            local isBeingCarriedByMe = false
+                            if not inLobby and IsKiller(LocalPlayer) then
+                                local myChar = GetCharacter()
+                                local myIsCarrying = (myChar and myChar:GetAttribute("IsCarrying") == true)
+                                local hasCarryTime = (char:GetAttribute("RemainingCarryTime") ~= nil)
+                                local isCarriedAttr = (char:GetAttribute("IsCarried") == true or char:GetAttribute("Carried") == true)
+                                if (myIsCarrying and dist <= 7) or (hasCarryTime and dist <= 7) or (isCarriedAttr and dist <= 7) or (dist <= 4.2) then
+                                    isBeingCarriedByMe = true
+                                end
+                            end
+
+                            local showBox = (not isBeingCarriedByMe) and (inLobby and (Config.ESP_LobbyBoxes ~= false) or Config.ESP_SurvivorBoxes)
                             if showBox then
                                 local boxPos = Vector2.new(boxX, boxY)
                                 local boxSize = Vector2.new(boxWidth, boxHeight)
@@ -2709,7 +2718,7 @@ local function RenderESP()
                             end
 
                             -- Top Text: [SURVIVOR] Name (or [LOBBY] Name)
-                            local showNames = inLobby and (Config.ESP_LobbyNames ~= false) or Config.ESP_SurvivorNames
+                            local showNames = (not isBeingCarriedByMe) and (inLobby and (Config.ESP_LobbyNames ~= false) or Config.ESP_SurvivorNames)
                             if showNames then
                                 local topStr = inLobby and "[LOBBY] " or "[SURVIVOR] "
                                 topStr = topStr .. (data and data.DisplayName or player.DisplayName)
@@ -2745,7 +2754,7 @@ local function RenderESP()
                                 sSkillStr = data.SkillInfo
                                 isItemReady = data.ItemReady
                             end
-                            if Config.ESP_SurvivorSkills and not inLobby and sSkillStr then
+                            if (not isBeingCarriedByMe) and Config.ESP_SurvivorSkills and not inLobby and sSkillStr then
                                 esp.SkillText.Text = sSkillStr
                                 esp.SkillText.Position = Vector2.new(rootScreen.X, currentY)
                                 if isItemReady == false then
@@ -2803,7 +2812,7 @@ local function RenderESP()
 
     -- 2. Generator ESP
     table.clear(seenGens)
-    if not inLobby and Config.ESP_Generators then
+    if not inLobby and Config.ESP_Generators and not IsKiller(LocalPlayer) then
         for _, item in ipairs(CachedGenerators) do
             local gen = item.Model
             local root = item.Part
@@ -2921,9 +2930,9 @@ local function RenderESP()
         if not seenPallets[pallet] then txt.Visible = false end
     end
 
-    -- 4. Window / Vault ESP & 3D Glowing Aura (Image 3: Vault Sill Ledge Only, NOT the wall!)
+    -- 4. Window / Vault ESP & 3D Glowing Aura (Only for Survivors, hidden for Killer)
     table.clear(seenWindows)
-    if not inLobby and Config.ESP_Windows then
+    if not inLobby and Config.ESP_Windows and not IsKiller(LocalPlayer) then
         for _, item in ipairs(CachedWindows) do
             local win = item.Model
             local root = item.Part
@@ -2938,21 +2947,26 @@ local function RenderESP()
                         ledge.Transparency = 0.98
                     end
 
-                    -- Layer 1: BoxHandleAdornment (Immune to Roblox 31-highlight limit, 100% visible through walls)
+                    -- Layer 1: BoxHandleAdornment (Only on genuine thin window sills, never on huge doorway/wall parts!)
+                    local isThinSill = ledge.Size.Y <= 2.2 and ledge.Size.X <= 8 and ledge.Size.Z <= 8
                     local bha = WindowAdornments[win]
-                    if not bha or not bha.Parent then
-                        bha = Instance.new("BoxHandleAdornment")
-                        bha.Name = "Nexara_WindowBox"
-                        bha.Size = ledge.Size + Vector3.new(0.06, 0.06, 0.06)
-                        bha.Color3 = Color3.fromRGB(0, 210, 255)
-                        bha.Transparency = 0.55
-                        bha.AlwaysOnTop = true
-                        bha.ZIndex = 5
-                        bha.Adornee = ledge
-                        bha.Parent = ledge
-                        WindowAdornments[win] = bha
+                    if isThinSill then
+                        if not bha or not bha.Parent then
+                            bha = Instance.new("BoxHandleAdornment")
+                            bha.Name = "Nexara_WindowBox"
+                            bha.Size = ledge.Size + Vector3.new(0.06, 0.06, 0.06)
+                            bha.Color3 = Color3.fromRGB(0, 210, 255)
+                            bha.Transparency = 0.55
+                            bha.AlwaysOnTop = true
+                            bha.ZIndex = 5
+                            bha.Adornee = ledge
+                            bha.Parent = ledge
+                            WindowAdornments[win] = bha
+                        end
+                        bha.Visible = true
+                    elseif bha then
+                        bha.Visible = false
                     end
-                    bha.Visible = true
 
                     -- Layer 2: Highlight (For rich outer neon glow)
                     local hl = WindowAuras[win]
@@ -3002,17 +3016,17 @@ local function RenderESP()
         end
     end
     for win, hl in pairs(WindowAuras) do
-        if not seenWindows[win] or inLobby or not Config.ESP_Windows or not Config.ESP_WindowAura then
+        if not seenWindows[win] or inLobby or not Config.ESP_Windows or not Config.ESP_WindowAura or IsKiller(LocalPlayer) then
             pcall(function() hl.Enabled = false end)
         end
     end
     for win, bha in pairs(WindowAdornments) do
-        if not seenWindows[win] or inLobby or not Config.ESP_Windows or not Config.ESP_WindowAura then
+        if not seenWindows[win] or inLobby or not Config.ESP_Windows or not Config.ESP_WindowAura or IsKiller(LocalPlayer) then
             pcall(function() bha.Visible = false end)
         end
     end
     for win, txt in pairs(WindowDrawings) do
-        if not seenWindows[win] then txt.Visible = false end
+        if not seenWindows[win] or IsKiller(LocalPlayer) then txt.Visible = false end
     end
 
     -- 5. Exit Gates ESP
