@@ -359,6 +359,66 @@ local function IsPlayerInLobby(player)
     return false
 end
 
+local function IsCutsceneActive()
+    -- 1. Camera mode check (Any cinematic, intro, mori, or round-end animation switches Camera to Scriptable)
+    local cam = Workspace.CurrentCamera or Camera
+    if cam and cam.CameraType == Enum.CameraType.Scriptable then
+        return true
+    end
+
+    -- 2. Local character mori / cutscene / dead attributes
+    local myChar = LocalPlayer.Character
+    if myChar then
+        if myChar:GetAttribute("Mori") == true or myChar:GetAttribute("IsMori") == true or
+           myChar:GetAttribute("Cutscene") == true or myChar:GetAttribute("InCutscene") == true or
+           LocalPlayer:GetAttribute("InCutscene") == true or LocalPlayer:GetAttribute("Cutscene") == true then
+            return true
+        end
+    end
+
+    -- 3. Check PlayerGui for cutscene / cinematic / black bars GUIs
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if pg then
+        for _, name in ipairs({"Cutscene", "Cutscenes", "Cinematic", "Cinematics", "Intro", "Ending", "Outro", "Mori", "BlackBars", "Letterbox", "Bars", "CinematicBars"}) do
+            local g = pg:FindFirstChild(name)
+            if g and ((g:IsA("ScreenGui") and g.Enabled) or (g:IsA("GuiObject") and g.Visible)) then
+                return true
+            end
+        end
+
+        for _, g in ipairs(pg:GetChildren()) do
+            if g:IsA("ScreenGui") and g.Enabled and g.Name ~= "NexaraStudio" and g.Name ~= "Nexara_ScreenGui" then
+                local gName = g.Name:lower()
+                if gName:find("cutscene") or gName:find("cinematic") or gName:find("intro") or gName:find("mori") then
+                    return true
+                end
+                local topBar = g:FindFirstChild("TopBar") or g:FindFirstChild("Top") or g:FindFirstChild("Bar1")
+                local btmBar = g:FindFirstChild("BottomBar") or g:FindFirstChild("Bottom") or g:FindFirstChild("Bar2")
+                if topBar and btmBar and topBar:IsA("GuiObject") and btmBar:IsA("GuiObject") and topBar.Visible and btmBar.Visible then
+                    if topBar.BackgroundColor3 == Color3.new(0, 0, 0) or topBar.BackgroundTransparency < 0.5 then
+                        return true
+                    end
+                end
+            end
+        end
+
+        -- 4. Match HUD check: if in match (Map folder populated) but all in-game HUDs are disabled, round is in cinematic
+        local map = Workspace:FindFirstChild("Map")
+        if map and #map:GetChildren() >= 10 then
+            local survivorGui = pg:FindFirstChild("Survivor")
+            local killerGui = pg:FindFirstChild("Killer")
+            local hudGui = pg:FindFirstChild("HUD") or pg:FindFirstChild("InGame")
+            local hasHud = (survivorGui or killerGui or hudGui)
+            local anyHudEnabled = (survivorGui and survivorGui.Enabled) or (killerGui and killerGui.Enabled) or (hudGui and hudGui.Enabled)
+            if hasHud and not anyHudEnabled then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 local function IsKiller(player)
     if not player then return false end
     if IsInLobby() or IsPlayerInLobby(player) or IsPlayerDead(player) then return false end
@@ -391,6 +451,16 @@ local VeilSpearCooldownEnd = 0
 local VeilVoidCooldownEnd = 0
 local LastVeilSpears = 2
 local LastVeilWasCharged = false
+local HiddenLeapCooldownEnd = 0
+local HiddenMarkCooldownEnd = 0
+local SlasherMistCooldownEnd = 0
+local SlasherPursuitCooldownEnd = 0
+local StalkerGraspCooldownEnd = 0
+local MaskedDashCooldownEnd = 0
+local MaskedSwapCooldownEnd = 0
+local AbyssBurstCooldownEnd = 0
+local AbyssSlashCooldownEnd = 0
+local KillerFrenzyCooldownEnd = 0
 
 local function ClearPlayerCooldowns(player)
     if not player then return end
@@ -870,6 +940,113 @@ task.spawn(function()
                 end
             end
         end
+
+        -- 0. The Cure (Plague Flask)
+        local cureRem = kRem:FindFirstChild("Cure")
+        if cureRem then
+            local tf = cureRem:FindFirstChild("ThrowFlask") or cureRem:FindFirstChild("VisualizeFlask")
+            if tf then
+                table.insert(ScriptConnections, tf.OnClientEvent:Connect(function()
+                    CureFlaskCooldownEnd = os.clock() + 15
+                end))
+            end
+        end
+
+        -- 1. The Hidden (Leap & M2 Mark)
+        local hiddenRem = kRem:FindFirstChild("Hidden")
+        if hiddenRem then
+            local leapRem = hiddenRem:FindFirstChild("Leap")
+            if leapRem then
+                table.insert(ScriptConnections, leapRem.OnClientEvent:Connect(function()
+                    HiddenLeapCooldownEnd = os.clock() + 25
+                end))
+            end
+            local m2Rem = hiddenRem:FindFirstChild("M2")
+            if m2Rem then
+                table.insert(ScriptConnections, m2Rem.OnClientEvent:Connect(function()
+                    HiddenMarkCooldownEnd = os.clock() + 17
+                end))
+            end
+            local hlRem = hiddenRem:FindFirstChild("highlight")
+            if hlRem then
+                table.insert(ScriptConnections, hlRem.OnClientEvent:Connect(function()
+                    HiddenMarkCooldownEnd = math.max(HiddenMarkCooldownEnd, os.clock() + 17)
+                end))
+            end
+        end
+
+        -- 2. The Slasher / Jason (LakeMist & Pursuit)
+        local jasonRem = kRem:FindFirstChild("Jason")
+        if jasonRem then
+            local mistRem = jasonRem:FindFirstChild("LakeMist")
+            if mistRem then
+                table.insert(ScriptConnections, mistRem.OnClientEvent:Connect(function()
+                    SlasherMistCooldownEnd = os.clock() + 80
+                end))
+            end
+            local pursuitRem = jasonRem:FindFirstChild("Pursuit")
+            if pursuitRem then
+                table.insert(ScriptConnections, pursuitRem.OnClientEvent:Connect(function()
+                    SlasherPursuitCooldownEnd = os.clock() + 80
+                end))
+            end
+        end
+
+        -- 3. The Stalker (Stalk & Grab)
+        local stalkerRem = kRem:FindFirstChild("Stalker")
+        if stalkerRem then
+            local grabRem = stalkerRem:FindFirstChild("grab") or stalkerRem:FindFirstChild("StartGrabHitbox")
+            if grabRem then
+                table.insert(ScriptConnections, grabRem.OnClientEvent:Connect(function()
+                    StalkerGraspCooldownEnd = os.clock() + 25
+                end))
+            end
+        end
+
+        -- 4. The Masked (Mask Up & Frenzy Dash)
+        local maskedRem = kRem:FindFirstChild("Masked")
+        if maskedRem then
+            local dashRem = maskedRem:FindFirstChild("alexattack") or maskedRem:FindFirstChild("StopDash")
+            if dashRem then
+                table.insert(ScriptConnections, dashRem.OnClientEvent:Connect(function()
+                    MaskedDashCooldownEnd = os.clock() + 20
+                end))
+            end
+            local maskRem = maskedRem:FindFirstChild("Activatepower")
+            if maskRem then
+                table.insert(ScriptConnections, maskRem.OnClientEvent:Connect(function()
+                    MaskedSwapCooldownEnd = os.clock() + 30
+                end))
+            end
+        end
+
+        -- 5. Abysswalker (Dark Severance & Abyssal Burst)
+        local abyssRem = kRem:FindFirstChild("Abysswalker")
+        if abyssRem then
+            local burstRem = abyssRem:FindFirstChild("corrupt")
+            if burstRem then
+                table.insert(ScriptConnections, burstRem.OnClientEvent:Connect(function()
+                    AbyssBurstCooldownEnd = os.clock() + 25
+                end))
+            end
+            local slashRem = abyssRem:FindFirstChild("visualize")
+            if slashRem then
+                table.insert(ScriptConnections, slashRem.OnClientEvent:Connect(function()
+                    AbyssSlashCooldownEnd = os.clock() + 15
+                end))
+            end
+        end
+
+        -- 6. The Killer (Classic Frenzy)
+        local killerRem = kRem:FindFirstChild("Killer")
+        if killerRem then
+            local pwrRem = killerRem:FindFirstChild("ActivatePower") or killerRem:FindFirstChild("CooldownEvent")
+            if pwrRem then
+                table.insert(ScriptConnections, pwrRem.OnClientEvent:Connect(function()
+                    KillerFrenzyCooldownEnd = os.clock() + 20
+                end))
+            end
+        end
     end)
 end)
 
@@ -969,6 +1146,80 @@ task.spawn(SyncGamePerksDatabase)
 local PersistentPerksCache = {}
 local PlayerPerkTiers = {}
 
+local StatusToPerkMap = {
+    ["winded"] = "Quick Recovery",
+    ["quickrecovery"] = "Quick Recovery",
+    ["timetogrowup"] = "Time To Grow Up",
+    ["flowstate"] = "Flowstate",
+    ["pacifist"] = "Pacifist",
+    ["nobodyleftbehind"] = "Nobody Left Behind",
+    ["greatcollapse"] = "Great Collapse",
+    ["strongertogether"] = "We're Stronger Together",
+    ["leftbehind"] = "Left Behind",
+    ["grabmyhand"] = "Grab My Hand",
+    ["onmyown"] = "On My Own",
+    ["highkarma"] = "High Karma",
+    ["snakestep"] = "Snake Step",
+    ["headsup"] = "Heads Up",
+    ["groupproject"] = "Group Project",
+    ["enhancedtouch"] = "Enhanced Touch",
+    ["intenseworkout"] = "Intense Workout",
+    ["callmeback"] = "Call Me Back",
+    ["expensivedecor"] = "Expensive Decor",
+    ["perfectlanding"] = "Perfect Landing",
+    ["irontranquility"] = "Iron Tranquility",
+    ["secondwind"] = "Second Wind",
+    ["desperate"] = "Desperate",
+    ["borninblood"] = "Born in Blood",
+    ["laststand"] = "Last Stand",
+    ["againstallodds"] = "Against All Odds",
+    ["absoluteconfidence"] = "Absolute confidence",
+    ["hearingaid"] = "Hearing Aid",
+    ["onscreenfear"] = "On Screen Fear",
+    ["eyesofheaven"] = "Eyes of Heaven",
+    ["builtdifferent"] = "Built different",
+    ["familiarsoul"] = "Familiar Soul",
+    ["perfectionistplanning"] = "Perfectionist Planning",
+    ["debutshowcase"] = "Debut Showcase",
+    ["ambitiousmedic"] = "Ambitious Medic",
+    ["nopainnogain"] = "No Pain No Gain",
+    ["flawlessexecution"] = "Flawless Execution",
+    ["partnersincrime"] = "Partners In Crime",
+    ["visuallearner"] = "Visual Learner",
+    -- Killer perks
+    ["kingscourge"] = "King's Scourge",
+    ["containment"] = "Containment",
+    ["piercingreverie"] = "Piercing Reverie",
+    ["bloodbetweenworlds"] = "Blood Between Worlds",
+    ["echoofthevoid"] = "Echo Of The Void",
+    ["corruptedpath"] = "Corrupted Path",
+    ["abyssalcovenant"] = "Abyssal Covenant",
+    ["shadowtrace"] = "Shadow Trace",
+    ["echolocation"] = "Echo Location",
+    ["enhancedsenses"] = "Enhanced Senses",
+    ["nextinline"] = "Next in Line",
+    ["predator"] = "Predator",
+    ["eternaltorment"] = "Eternal Torment",
+    ["playwithyourfood"] = "Play With Your Food",
+    ["terrorspread"] = "Terror Spread",
+    ["sloppymess"] = "Sloppy Mess",
+    ["resentmentclinger"] = "Resentment Clinger",
+    ["hardswing"] = "Hard Swing",
+    ["combostreak"] = "Combo Streak",
+    ["crackdown"] = "Crackdown",
+    ["sustenance"] = "Sustenance",
+    ["foundationstaff"] = "Foundation staff",
+    ["desirefortheliving"] = "Desire For The Living",
+    ["deepwound"] = "Deep Wound",
+    ["allseeingeye"] = "All Seeing Eye",
+    ["touchofdeath"] = "Touch Of Death",
+    ["murderousacrobatics"] = "Murderous Acrobatics",
+    ["exposuretherapy"] = "Exposure Therapy",
+    ["eyesofhell"] = "Eyes Of Hell",
+    ["stagefright"] = "Stage Fright",
+    ["tradeoff"] = "Trade Off",
+}
+
 -- EXACT PERKS RESOLUTION (RESPECTS EXACT SLOTS, NO FAKE FILLERS, LOBBY & IN-GAME VIEWABLE)
 local function GetPlayerPerks(player)
     local perks = {}
@@ -976,6 +1227,7 @@ local function GetPlayerPerks(player)
 
     local isK = IsKiller(player)
     local targetNorm = isK and KnownKillerPerksNormalized or KnownSurvivorPerksNormalized
+    local otherNorm = isK and KnownSurvivorPerksNormalized or KnownKillerPerksNormalized
 
     local function matchPerkName(rawName)
         if not rawName then return nil end
@@ -984,8 +1236,15 @@ local function GetPlayerPerks(player)
         str = str:gsub("[_%s]*tier[%s%d]*$", ""):gsub("[_%s]*t%d+$", ""):gsub("[_%s]*lvl[%s%d]*$", ""):gsub("[_%s]*active$", ""):gsub("[_%s]*cooldown$", ""):gsub("[_%s]*cd$", ""):gsub("[_%s]*proc$", ""):gsub("%d+$", "")
         local clean = str:gsub("%s+", ""):gsub("[^%a]", "")
         if #clean < 3 then return nil end
+        if StatusToPerkMap[clean] then return StatusToPerkMap[clean] end
         if targetNorm[clean] then return targetNorm[clean] end
+        if otherNorm[clean] then return otherNorm[clean] end
         for k, v in pairs(targetNorm) do
+            if clean == k or clean:find(k, 1, true) or (#clean >= 5 and k:find(clean, 1, true)) then
+                return v
+            end
+        end
+        for k, v in pairs(otherNorm) do
             if clean == k or clean:find(k, 1, true) or (#clean >= 5 and k:find(clean, 1, true)) then
                 return v
             end
@@ -1111,7 +1370,7 @@ local function GetPlayerPerks(player)
         end
     end
 
-    -- C. Direct attributes on character or player matching exact perk names
+    -- C. Direct attributes on character or player matching exact perk names or status effects
     local function scanDirectAttrs(inst)
         if not inst then return end
         local attrs = nil
@@ -1119,9 +1378,9 @@ local function GetPlayerPerks(player)
         if not attrs then return end
         for attrName, attrVal in pairs(attrs) do
             if #perks >= 3 then break end
-            local clean = attrName:lower():gsub("%s+", ""):gsub("[^%a]", "")
-            if targetNorm[clean] and (attrVal == true or (type(attrVal) == "number" and attrVal > 0)) then
-                addPerk(targetNorm[clean], type(attrVal) == "number" and attrVal or 3)
+            local mapped = matchPerkName(attrName)
+            if mapped and (attrVal == true or (type(attrVal) == "number" and attrVal > 0) or type(attrVal) == "string") then
+                addPerk(mapped, type(attrVal) == "number" and attrVal or 3)
             end
         end
     end
@@ -1140,11 +1399,15 @@ local function GetPlayerPerks(player)
         end
     end
 
-    -- E. Persist in cache
-    if #perks > 0 then
-        PersistentPerksCache[player] = perks
-        return perks
-    elseif PersistentPerksCache[player] and #PersistentPerksCache[player] > 0 then
+    -- E. Accumulate in PersistentPerksCache (never overwrite/drop perks detected during match)
+    PersistentPerksCache[player] = PersistentPerksCache[player] or {}
+    for _, p in ipairs(perks) do
+        if not table.find(PersistentPerksCache[player], p) and #PersistentPerksCache[player] < 3 then
+            table.insert(PersistentPerksCache[player], p)
+        end
+    end
+
+    if #PersistentPerksCache[player] > 0 then
         return PersistentPerksCache[player]
     end
 
@@ -1156,26 +1419,34 @@ local function GetPlayerSkillInfo(player)
     if not player or not player.Character then return nil end
     if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return nil end
     local char = player.Character
-    
     if IsKiller(player) then
-        local kName = player:GetAttribute("SelectedKiller") or "Killer"
-        local skills = {}
-        local details = {}
+        local kName = player:GetAttribute("SelectedKiller") or (char and char:GetAttribute("SelectedKiller")) or "Killer"
+        if char then
+            if char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") or char:GetAttribute("spearmode") then
+                kName = "Veil"
+            elseif char:FindFirstChild("Flask") or char:FindFirstChild("Curetool") or char:GetAttribute("corpsecharge") then
+                kName = "Cure"
+            elseif char:FindFirstChild("Knide") or char:FindFirstChild("Knife") or char:GetAttribute("preparem2") then
+                kName = "Hidden"
+            elseif char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
+                kName = "Stalker"
+            elseif char:FindFirstChild("Katana") or char:FindFirstChild("Sword") then
+                kName = "Slasher"
+            end
+        end
+        local skillEntries = {}
+        local extras = {}
 
         if kName == "Cure" or char:FindFirstChild("Flask") or char:FindFirstChild("Curetool") then
-            table.insert(skills, "Plague Flask")
+            -- Skill 1: Plague Flask (15s CD)
             local flaskCD = math.max(0, math.ceil(CureFlaskCooldownEnd - os.clock()))
-            if flaskCD > 0 then
-                table.insert(details, "Flask: CD " .. flaskCD .. "s")
-            else
-                table.insert(details, "Flask: Ready")
-            end
+            local flaskStatus = flaskCD > 0 and ("CD " .. flaskCD .. "s") or "Ready"
+            table.insert(skillEntries, "Plague Flask [" .. flaskStatus .. "]")
+
+            -- Skill 2: Corpse Syringe (0-3 zombies)
             local corpses = tonumber(char:GetAttribute("corpsecharge")) or 0
-            if corpses > 0 then
-                table.insert(details, corpses .. " Zombies Ready")
-            else
-                table.insert(details, "Zombies: 0/3")
-            end
+            table.insert(skillEntries, "Corpse Syringe [" .. tostring(corpses) .. "/3 Zombies]")
+
         elseif kName == "Veil" or char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") then
             local isAiming = char:GetAttribute("spearmode") == true
             local isHoldingThrow = false
@@ -1223,7 +1494,6 @@ local function GetPlayerSkillInfo(player)
                 end
             end
 
-            table.insert(skills, "Spear" .. (isAiming and " (Aiming)" or ""))
             local spears = tonumber(char:GetAttribute("Spears"))
             if spears == nil then spears = 2 end
 
@@ -1252,59 +1522,153 @@ local function GetPlayerSkillInfo(player)
                 LastVeilWasCharged = false
             end
 
-            table.insert(details, spears .. "/2 Spears")
-
-            -- Spear recharge countdown (15s per spear)
-            if spears < 2 then
-                if (VeilSpearCooldownEnd - os.clock()) <= 0 then
-                    VeilSpearCooldownEnd = os.clock() + 15
-                end
-                local spearCD = math.max(0, math.ceil(VeilSpearCooldownEnd - os.clock()))
-                table.insert(details, "Recharge: " .. spearCD .. "s")
+            -- Skill 1: Spear (2 max, 15s recharge per spear)
+            local spearCD = math.max(0, math.ceil(VeilSpearCooldownEnd - os.clock()))
+            local spearStatus = tostring(spears) .. "/2"
+            if spears < 2 and spearCD > 0 then
+                spearStatus = tostring(spears) .. "/2 (CD " .. spearCD .. "s)"
             else
-                VeilSpearCooldownEnd = 0
+                spearStatus = tostring(spears) .. "/2 Ready"
             end
+            if isAiming then spearStatus = spearStatus .. " [Aiming]" end
+            table.insert(skillEntries, "Spear [" .. spearStatus .. "]")
 
             -- Skill 2: Echo Void / Through the Veil (30s cooldown, requires holding throw >= 2s)
             local voidCD = math.max(0, math.ceil(VeilVoidCooldownEnd - os.clock()))
+            local voidStatus = "Ready"
             if voidCD > 0 then
-                table.insert(details, "Echo Void: CD " .. voidCD .. "s")
+                voidStatus = "CD " .. voidCD .. "s"
             elseif isFullyCharged then
-                table.insert(details, "Echo Void: [CHARGED!]")
+                voidStatus = "[CHARGED!]"
             elseif isHoldingThrow then
-                table.insert(details, "Echo Void: [Charging...]")
-            else
-                table.insert(details, "Echo Void: Ready")
+                voidStatus = "[Charging...]"
             end
+            table.insert(skillEntries, "Echo Void [" .. voidStatus .. "]")
+
         elseif kName == "Hidden" then
-            table.insert(skills, "Shadow Leap")
-            if char:GetAttribute("preparem2") or char:GetAttribute("M2") then
-                table.insert(details, "Aiming Leap")
+            -- Real-time animations and velocity triggers for The Hidden
+            local root = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local animator = hum and hum:FindFirstChildOfClass("Animator")
+            local tracks = {}
+            if animator then
+                pcall(function()
+                    for _, t in ipairs(animator:GetPlayingAnimationTracks()) do table.insert(tracks, t) end
+                end)
             end
-        elseif kName == "Stalker" then
-            table.insert(skills, "Evil Stalk")
-            local stage = char:GetAttribute("StalkStage") or char:GetAttribute("EvolveStage")
-            if stage then table.insert(details, "Stage " .. tostring(stage)) end
-            if char:GetAttribute("IsStalking") then table.insert(details, "Stalking") end
-        elseif kName == "Masked" then
-            table.insert(skills, "Frenzy Dash")
-            if char:GetAttribute("Dash") then table.insert(details, "Dashing") end
-        elseif kName == "Abysswalker" then
-            table.insert(skills, "Abyss Portal")
+            if hum and #tracks == 0 then
+                pcall(function()
+                    for _, t in ipairs(hum:GetPlayingAnimationTracks()) do table.insert(tracks, t) end
+                end)
+            end
+
+            local isLeapingAnim = false
+            local isM2Anim = false
+            for _, t in ipairs(tracks) do
+                local aId = (t.Animation and t.Animation.AnimationId or ""):lower()
+                local aNm = (t.Animation and t.Animation.Name or ""):lower()
+                if aId:find("109928123357793") or aId:find("82153811221085") or aNm:find("jump") then
+                    isLeapingAnim = true
+                elseif aId:find("98163597193511") or aId:find("114699370608778") or aNm:find("m2") then
+                    isM2Anim = true
+                end
+            end
+
+            if root and root.AssemblyLinearVelocity then
+                local vel = root.AssemblyLinearVelocity
+                local horizVel = Vector3.new(vel.X, 0, vel.Z).Magnitude
+                if (horizVel > 45 and vel.Y > 12) or isLeapingAnim then
+                    if (HiddenLeapCooldownEnd - os.clock()) <= 0 then
+                        HiddenLeapCooldownEnd = os.clock() + 25
+                    end
+                end
+                if horizVel > 110 or isM2Anim or char:FindFirstChild("TempHitbox") then
+                    if (HiddenMarkCooldownEnd - os.clock()) <= 0 then
+                        HiddenMarkCooldownEnd = os.clock() + 17
+                    end
+                end
+            end
+
+            -- Skill 1: Shadow Leap (25s CD)
+            local leapCD = math.max(0, math.ceil(HiddenLeapCooldownEnd - os.clock()))
+            local leapStatus = leapCD > 0 and ("CD " .. leapCD .. "s") or "Ready"
+            table.insert(skillEntries, "Shadow Leap [" .. leapStatus .. "]")
+
+            -- Skill 2: Mark (17s CD)
+            local markCD = math.max(0, math.ceil(HiddenMarkCooldownEnd - os.clock()))
+            local markStatus = "Ready"
+            if markCD > 0 then
+                markStatus = "CD " .. markCD .. "s"
+            elseif char:GetAttribute("preparem2") or char:GetAttribute("M2") then
+                markStatus = "[AIMING!]"
+            end
+            table.insert(skillEntries, "Mark [" .. markStatus .. "]")
+
+            if char:GetAttribute("invisible") or (char:FindFirstChild("Head") and char.Head.Transparency > 0.4) then
+                table.insert(extras, "[INVISIBLE]")
+            end
+
         elseif kName == "Slasher" then
-            table.insert(skills, "Slash & Dash")
+            -- Skill 1: Lake Mist (80s CD)
+            local mistCD = math.max(0, math.ceil(SlasherMistCooldownEnd - os.clock()))
+            table.insert(skillEntries, "Lake Mist [" .. (mistCD > 0 and ("CD " .. mistCD .. "s") or "Ready") .. "]")
+
+            -- Skill 2: Pursuit (80s CD)
+            local pursuitCD = math.max(0, math.ceil(SlasherPursuitCooldownEnd - os.clock()))
+            table.insert(skillEntries, "Pursuit [" .. (pursuitCD > 0 and ("CD " .. pursuitCD .. "s") or "Ready") .. "]")
+
+        elseif kName == "Stalker" then
+            -- Skill 1: Stalk Mode
+            local stage = char:GetAttribute("StalkStage") or char:GetAttribute("EvolveStage") or 1
+            local stalkStatus = char:GetAttribute("IsStalking") and "[STALKING]" or ("Stage " .. tostring(stage))
+            table.insert(skillEntries, "Stalk Mode [" .. stalkStatus .. "]")
+
+            -- Skill 2: Evil's Grasp (25s CD)
+            local graspCD = math.max(0, math.ceil(StalkerGraspCooldownEnd - os.clock()))
+            table.insert(skillEntries, "Evil's Grasp [" .. (graspCD > 0 and ("CD " .. graspCD .. "s") or "Ready") .. "]")
+
+        elseif kName == "Masked" then
+            -- Skill 1: Mask Up (30s CD)
+            local swapCD = math.max(0, math.ceil(MaskedSwapCooldownEnd - os.clock()))
+            table.insert(skillEntries, "Mask Up [" .. (swapCD > 0 and ("CD " .. swapCD .. "s") or "Ready") .. "]")
+
+            -- Skill 2: Frenzy Dash (20s CD)
+            local dashCD = math.max(0, math.ceil(MaskedDashCooldownEnd - os.clock()))
+            local dashStatus = dashCD > 0 and ("CD " .. dashCD .. "s") or (char:GetAttribute("Dash") and "[DASHING!]" or "Ready")
+            table.insert(skillEntries, "Frenzy Dash [" .. dashStatus .. "]")
+
+        elseif kName == "Abysswalker" then
+            -- Skill 1: Dark Severance (15s CD)
+            local slashCD = math.max(0, math.ceil(AbyssSlashCooldownEnd - os.clock()))
+            table.insert(skillEntries, "Dark Severance [" .. (slashCD > 0 and ("CD " .. slashCD .. "s") or "Ready") .. "]")
+
+            -- Skill 2: Abyssal Burst (25s CD)
+            local burstCD = math.max(0, math.ceil(AbyssBurstCooldownEnd - os.clock()))
+            table.insert(skillEntries, "Abyssal Burst [" .. (burstCD > 0 and ("CD " .. burstCD .. "s") or "Ready") .. "]")
+
+        elseif kName == "Killer" or kName == "The Killer" then
+            -- Skill 1: Frenzy Sprint (20s CD)
+            local frenzyCD = math.max(0, math.ceil(KillerFrenzyCooldownEnd - os.clock()))
+            table.insert(skillEntries, "Frenzy Sprint [" .. (frenzyCD > 0 and ("CD " .. frenzyCD .. "s") or "Ready") .. "]")
+
+            -- Skill 2: Bear Trap
+            table.insert(skillEntries, "Bear Trap [Ready]")
+
         else
-            table.insert(skills, kName .. " Power")
+            table.insert(skillEntries, kName .. " Skill 1 [Ready]")
+            table.insert(skillEntries, kName .. " Skill 2 [Ready]")
         end
 
         local bl = tonumber(char:GetAttribute("BloodLust")) or 0
-        if bl > 0 then table.insert(details, "Bloodlust T" .. bl) end
+        if bl > 0 then table.insert(extras, "Bloodlust T" .. bl) end
 
-        if char:GetAttribute("IsStunned") == true then table.insert(details, "STUNNED") end
-        if char:GetAttribute("IsCarrying") == true then table.insert(details, "CARRYING") end
+        if char:GetAttribute("IsStunned") == true then table.insert(extras, "[STUNNED]") end
+        if char:GetAttribute("IsCarrying") == true then table.insert(extras, "[CARRYING]") end
 
-        local str = "[SKILL] " .. table.concat(skills, ", ")
-        if #details > 0 then str = str .. " [" .. table.concat(details, " | ") .. "]" end
+        local str = "[SKILL] " .. table.concat(skillEntries, "  |  ")
+        if #extras > 0 then
+            str = str .. "  |  " .. table.concat(extras, " | ")
+        end
         return str
     else
         -- Survivor item, charges, cooldowns, status
@@ -1500,46 +1864,54 @@ local function UpdateBackgroundCache()
         local genSeen = {}
         local palletSeen = {}
 
-        -- 1. Universal Multi-Map Vault Detection: CollectionService 'VaultPoint'
-        -- (This is the official engine tag Violence District uses across all maps to trigger player vaults)
+        -- 1. Universal Multi-Map Vault Detection: CollectionService tags
         pcall(function()
             local CollectionService = game:GetService("CollectionService")
-            for _, vt in ipairs(CollectionService:GetTagged("VaultPoint")) do
-                local container = vt:FindFirstAncestorOfClass("Model") or vt.Parent
-                if container and not winSeen[container] then
-                    winSeen[container] = true
-                    local bottomPart = container:FindFirstChild("Bottom")
-                    local ledge = bottomPart
-                    if not ledge then
-                        for _, c in ipairs(container:GetChildren()) do
-                            if c:IsA("BasePart") and not c.Name:lower():find("invis") and not c.Name:lower():find("trigger") then
-                                ledge = c
-                                break
+            for _, tag in ipairs({"VaultPoint", "Vault", "Window", "VaultLedge", "VaultSpot", "WindowVault"}) do
+                for _, vt in ipairs(CollectionService:GetTagged(tag)) do
+                    local container = vt:IsA("Model") and vt or vt:FindFirstAncestorOfClass("Model") or vt.Parent
+                    if container and container:IsA("Model") and not winSeen[container] then
+                        winSeen[container] = true
+                        local bottomPart = container:FindFirstChild("Bottom") or container:FindFirstChild("Ledge") or container:FindFirstChild("Sill")
+                        local ledge = bottomPart
+                        if not ledge then
+                            for _, c in ipairs(container:GetChildren()) do
+                                if c:IsA("BasePart") and not c.Name:lower():find("invis") and not c.Name:lower():find("trigger") and not c.Name:lower():find("collision") then
+                                    ledge = c
+                                    break
+                                end
                             end
                         end
-                    end
-                    local part = ledge or (vt:IsA("BasePart") and vt) or container:FindFirstChildWhichIsA("BasePart")
-                    if part then
-                        ledge = ledge or part
-                        if ledge.Transparency >= 0.99 then ledge.Transparency = 0.98 end
-                        table.insert(windows, { Model = container, Part = part, VaultLedge = ledge })
+                        local part = ledge or (vt:IsA("BasePart") and vt) or container.PrimaryPart or container:FindFirstChildWhichIsA("BasePart")
+                        if part then
+                            ledge = ledge or part
+                            if ledge.Transparency >= 0.99 then ledge.Transparency = 0.98 end
+                            table.insert(windows, { Model = container, Part = part, VaultLedge = ledge })
+                        end
                     end
                 end
             end
 
-            -- Also scan CollectionService tags for Generators & Pallets
+            -- Universal Multi-Map Pallet Detection: CollectionService tags
+            for _, tag in ipairs({"Pallet", "Pallets", "DroppablePallet", "InteractablePallet"}) do
+                for _, p in ipairs(CollectionService:GetTagged(tag)) do
+                    local model = p:IsA("Model") and p or p:FindFirstAncestorOfClass("Model") or p.Parent
+                    if model and model:IsA("Model") and not palletSeen[model] then
+                        if model:GetAttribute("Destroyed") ~= true and model:GetAttribute("Broken") ~= true then
+                            palletSeen[model] = true
+                            local part = model:FindFirstChild("PrimaryPartPallet") or model:FindFirstChild("Wood") or model:FindFirstChild("PalletWood") or model:FindFirstChild("Hitbox") or model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+                            if part then table.insert(pallets, { Model = model, Part = part, PalletWood = model }) end
+                        end
+                    end
+                end
+            end
+
+            -- Generators CollectionService tag
             for _, g in ipairs(CollectionService:GetTagged("Generator")) do
                 if not genSeen[g] then
                     genSeen[g] = true
                     local part = g:FindFirstChild("RootPart") or g.PrimaryPart or g:FindFirstChildWhichIsA("BasePart")
                     if part then table.insert(gens, { Model = g, Part = part }) end
-                end
-            end
-            for _, p in ipairs(CollectionService:GetTagged("Pallet")) do
-                if not palletSeen[p] then
-                    palletSeen[p] = true
-                    local part = p:FindFirstChild("PrimaryPartPallet") or p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart")
-                    if part then table.insert(pallets, { Model = p, Part = part, PalletWood = p }) end
                 end
             end
         end)
@@ -1549,36 +1921,50 @@ local function UpdateBackgroundCache()
         table.insert(searchRoots, Workspace)
 
         for _, rootObj in ipairs(searchRoots) do
-            if #gens == 0 or rootObj == map then
-                for _, d in ipairs(rootObj:GetDescendants()) do
-                    if d:IsA("Model") and not genSeen[d] and (d.Name == "Generator" or d.Name:lower() == "generator" or d:GetAttribute("RepairProgress") ~= nil) then
-                        genSeen[d] = true
-                        local part = d:FindFirstChild("RootPart") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                        if part then table.insert(gens, { Model = d, Part = part }) end
-                    end
-                    -- Real pallets only (Filter out 35+ PalletCrate shipping containers!)
-                    local isPallet = (d.Parent and d.Parent.Name == "Pallets") or (d:FindFirstChild("PrimaryPartPallet") and not d.Name:lower():find("crate"))
-                    if d:IsA("Model") and not palletSeen[d] and isPallet then
-                        palletSeen[d] = true
-                        local part = d:FindFirstChild("PrimaryPartPallet") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                        if part then table.insert(pallets, { Model = d, Part = part, PalletWood = d }) end
-                    end
+            for _, d in ipairs(rootObj:GetDescendants()) do
+                -- Generator detection
+                if d:IsA("Model") and not genSeen[d] and (d.Name == "Generator" or d.Name:lower() == "generator" or d:GetAttribute("RepairProgress") ~= nil) then
+                    genSeen[d] = true
+                    local part = d:FindFirstChild("RootPart") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
+                    if part then table.insert(gens, { Model = d, Part = part }) end
+                end
 
-                    -- 2. Fallback Scan: Any Model or Folder with 'window' or 'vault' across various maps
+                -- Pallet detection across all maps (ignore crate containers, ignore destroyed pallets)
+                if d:IsA("Model") and not palletSeen[d] then
                     local dName = d.Name:lower()
-                    if (d:IsA("Model") or d:IsA("Folder")) and (dName:find("window") or dName == "vault" or dName:find("vault")) and not winSeen[d] then
+                    local pName = d.Parent and d.Parent.Name:lower() or ""
+                    local isCrate = dName:find("crate") or dName:find("container") or dName:find("stack")
+                    if not isCrate then
+                        local isPallet = (pName == "pallets" or pName == "pallet") or
+                                         (dName:find("pallet") ~= nil) or
+                                         (d:FindFirstChild("PrimaryPartPallet") ~= nil) or
+                                         (d:FindFirstChild("DropPrompt", true) ~= nil)
+                        if isPallet and d:GetAttribute("Destroyed") ~= true and d:GetAttribute("Broken") ~= true then
+                            palletSeen[d] = true
+                            local part = d:FindFirstChild("PrimaryPartPallet") or d:FindFirstChild("Wood") or d:FindFirstChild("PalletWood") or d:FindFirstChild("Hitbox") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
+                            if part then table.insert(pallets, { Model = d, Part = part, PalletWood = d }) end
+                        end
+                    end
+                end
+
+                -- Window / Vault detection across all maps (handle models inside folders named Windows or Vaults)
+                if d:IsA("Model") and not winSeen[d] then
+                    local dName = d.Name:lower()
+                    local pName = d.Parent and d.Parent.Name:lower() or ""
+                    local isWindow = dName:find("window") or dName:find("vault") or pName == "windows" or pName == "vaults" or pName == "vaultpoints"
+                    if isWindow then
                         winSeen[d] = true
-                        local bottomPart = d:FindFirstChild("Bottom")
+                        local bottomPart = d:FindFirstChild("Bottom") or d:FindFirstChild("Ledge") or d:FindFirstChild("Sill")
                         local ledge = bottomPart
                         if not ledge then
                             for _, c in ipairs(d:GetChildren()) do
-                                if c:IsA("BasePart") and not c.Name:lower():find("invis") and not c.Name:lower():find("trigger") then
+                                if c:IsA("BasePart") and not c.Name:lower():find("invis") and not c.Name:lower():find("trigger") and not c.Name:lower():find("collision") then
                                     ledge = c
                                     break
                                 end
                             end
                         end
-                        local part = ledge or (d:IsA("Model") and d.PrimaryPart) or d:FindFirstChildWhichIsA("BasePart")
+                        local part = ledge or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
                         if part then
                             ledge = ledge or part
                             if ledge.Transparency >= 0.99 then ledge.Transparency = 0.98 end
@@ -1587,13 +1973,13 @@ local function UpdateBackgroundCache()
                     end
                 end
             end
+
             for _, d in ipairs(rootObj:GetChildren()) do
                 if d:IsA("Model") and d.Name == "Gate" then
                     local part = d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
                     if part then table.insert(gates, { Model = d, Part = part }) end
                 end
             end
-            if #gens > 0 and #pallets > 0 then break end
         end
         CachedGenerators = gens
         CachedPallets = pallets
@@ -1779,6 +2165,30 @@ PruneDeadDrawings = function()
                 pcall(function() bha.Visible = false end)
             end
         end
+    end)
+end
+
+local function HideAllESP()
+    pcall(function()
+        TopKillerSkillText.Visible = false
+        for _, esp in pairs(ESP_Objects) do
+            esp.BoxOutline.Visible = false
+            esp.Box.Visible = false
+            esp.TopText.Visible = false
+            esp.BottomText.Visible = false
+            esp.PerkText.Visible = false
+            esp.SkillText.Visible = false
+            if esp.Skeleton then
+                for _, l in pairs(esp.Skeleton) do l.Visible = false end
+            end
+        end
+        for _, txt in pairs(GenDrawings) do txt.Visible = false end
+        for _, txt in pairs(PalletDrawings) do txt.Visible = false end
+        for _, hl in pairs(PalletAuras) do pcall(function() hl.Enabled = false end) end
+        for _, txt in pairs(WindowDrawings) do txt.Visible = false end
+        for _, hl in pairs(WindowAuras) do pcall(function() hl.Enabled = false end) end
+        for _, bha in pairs(WindowAdornments) do pcall(function() bha.Visible = false end) end
+        for _, txt in pairs(GateDrawings) do txt.Visible = false end
     end)
 end
 
@@ -2313,14 +2723,25 @@ end })
 -- ======== PLAYERLIST (DBD SCOREBOARD ROSTER) TAB ========
 -- In-game asset mapping (Perks, Items, Killers) pulled directly from game files
 local KillerPortraits = {
+    ["cure"] = "rbxassetid://116667641951505",
+    ["veil"] = "rbxassetid://107207953517546",
+    ["masked"] = "rbxassetid://110441838520158",
+    ["stalker"] = "rbxassetid://85894094209457",
+    ["killer"] = "rbxassetid://108114231850675",
+    ["thekiller"] = "rbxassetid://108114231850675",
+    ["hidden"] = "rbxassetid://129570234771869",
+    ["abysswalker"] = "rbxassetid://100395868673407",
+    ["slasher"] = "rbxassetid://134862031194933",
     ["Cure"] = "rbxassetid://116667641951505",
-    ["Veil"] = "", -- Dynamically pulled from game files / head texture to strictly prevent ability spear icon
+    ["Veil"] = "rbxassetid://107207953517546",
     ["Masked"] = "rbxassetid://110441838520158",
     ["Stalker"] = "rbxassetid://85894094209457",
     ["Killer"] = "rbxassetid://108114231850675",
-    ["Hidden"] = "http://www.roblox.com/asset/?id=129570234771869",
+    ["The Killer"] = "rbxassetid://108114231850675",
+    ["Hidden"] = "rbxassetid://129570234771869",
+    ["The Hidden"] = "rbxassetid://129570234771869",
     ["Abysswalker"] = "rbxassetid://100395868673407",
-    ["Slasher"] = "http://www.roblox.com/asset/?id=134862031194933",
+    ["Slasher"] = "rbxassetid://134862031194933",
 }
 
 local KillerPowerIcons = {
@@ -2440,212 +2861,212 @@ local function GetItemIcon(itemName)
     return nil
 end
 
+local function ResolveKillerType(player)
+    if not player then return "The Killer" end
+    local char = player.Character
+    if char then
+        if char:FindFirstChild("Flask") or char:FindFirstChild("Curetool") or char:GetAttribute("corpsecharge") then
+            return "Cure"
+        elseif char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") or char:GetAttribute("Spears") or char:GetAttribute("spearmode") then
+            return "Veil"
+        elseif char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
+            return "Stalker"
+        elseif char:FindFirstChild("Katana") or char:FindFirstChild("Sword") then
+            return "Slasher"
+        end
+    end
+    local kAttr = player:GetAttribute("SelectedKiller") or (char and char:GetAttribute("SelectedKiller"))
+    if kAttr and type(kAttr) == "string" and kAttr ~= "" then
+        local clean = kAttr:lower():gsub("%s+", ""):gsub("[^%a]", "")
+        if clean:sub(1, 3) == "the" and #clean > 3 then clean = clean:sub(4) end
+        local map = {
+            cure = "Cure", veil = "Veil", masked = "Masked", stalker = "Stalker",
+            killer = "Killer", hidden = "Hidden", abysswalker = "Abysswalker", slasher = "Slasher"
+        }
+        if map[clean] then return map[clean] end
+        return kAttr
+    end
+    return "The Killer"
+end
+
+local function GetKillerPortrait(kName)
+    if not kName then return KillerPortraits["killer"] end
+    local clean = tostring(kName):lower():gsub("%s+", ""):gsub("[^%a]", "")
+    if clean:sub(1, 3) == "the" and #clean > 3 then clean = clean:sub(4) end
+    if KillerPortraits[clean] then return KillerPortraits[clean] end
+
+    local rs = game:GetService("ReplicatedStorage")
+    if rs:FindFirstChild("Killers") then
+        for _, kf in ipairs(rs.Killers:GetChildren()) do
+            local kfClean = kf.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if kfClean == clean or kfClean:find(clean, 1, true) or clean:find(kfClean, 1, true) then
+                local frame = kf:FindFirstChild("Frame")
+                if frame then
+                    for _, d in ipairs(frame:GetDescendants()) do
+                        if (d:IsA("ImageLabel") or d:IsA("ImageButton")) and d.Image ~= "" and not d.Image:find("Placeholder") and not d.Image:find("8012052454") and not d.Image:find("13662414759") and not d.Image:find("106695569058121") then
+                            return d.Image
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return KillerPortraits["killer"]
+end
+
 local function SetupKillerAvatar(row, kName, plr)
     local avatarBox = row.AvatarBox
     local avatarImg = row.AvatarImg
+    local avatarText = row.AvatarText
 
-    local currentVpf = avatarBox:FindFirstChild("KillerViewport")
-    if currentVpf and currentVpf:GetAttribute("Killer") == tostring(kName) then
+    -- Fast-path: If this row is already rendering this exact killer model, keep it
+    if row._renderedKiller == kName and row._renderedVpf and row._renderedVpf.Parent == avatarBox then
         avatarImg.Visible = false
-        currentVpf.Visible = true
+        avatarText.Visible = false
+        row._renderedVpf.Visible = true
         return
     end
 
-    local clean = tostring(kName or ""):lower():gsub("%s+", ""):gsub("[^%a]", "")
+    if row._renderedVpf then
+        pcall(function() row._renderedVpf:Destroy() end)
+        row._renderedVpf = nil
+    end
+    local oldVpf = avatarBox:FindFirstChild("KillerViewport")
+    if oldVpf then pcall(function() oldVpf:Destroy() end) end
 
-    local function mountClonedViewport(sourceVpf)
-        if not sourceVpf or not sourceVpf:IsA("ViewportFrame") then return false end
-        local mounted = false
-        pcall(function()
-            if currentVpf then currentVpf:Destroy() end
-            local wasArch = sourceVpf.Archivable
-            sourceVpf.Archivable = true
-            local newVpf = sourceVpf:Clone()
-            sourceVpf.Archivable = wasArch
-            if not newVpf then return end
+    local clean = tostring(kName or "Veil"):lower():gsub("%s+", ""):gsub("[^%a]", "")
+    if clean:sub(1, 3) == "the" and #clean > 3 then clean = clean:sub(4) end
+
+    local rs = game:GetService("ReplicatedStorage")
+    local kFolder = nil
+    if rs:FindFirstChild("Killers") then
+        for _, kf in ipairs(rs.Killers:GetChildren()) do
+            local kfClean = kf.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if kfClean == clean or kfClean:find(clean, 1, true) or clean:find(kfClean, 1, true) then
+                kFolder = kf
+                break
+            end
+        end
+    end
+
+    -- Always prefer canonical ReplicatedStorage.Killers[k].Model (clean static pose, Archivable=true)
+    local sourceModel = kFolder and kFolder:FindFirstChild("Model")
+    if not sourceModel and plr and plr.Character and plr.Character:FindFirstChild("Head") then
+        pcall(function() plr.Character.Archivable = true end)
+        sourceModel = plr.Character
+    end
+
+    if sourceModel then
+        local ok, vpf = pcall(function()
+            if not sourceModel.Archivable then
+                pcall(function() sourceModel.Archivable = true end)
+            end
+            local clone = sourceModel:Clone()
+            if not clone and kFolder and kFolder:FindFirstChild("Model") then
+                kFolder.Model.Archivable = true
+                clone = kFolder.Model:Clone()
+            end
+            if not clone then return nil end
+
+            local head = clone:FindFirstChild("Head") or clone.PrimaryPart or clone:FindFirstChildWhichIsA("BasePart")
+            if not head then
+                clone:Destroy()
+                return nil
+            end
+
+            for _, d in ipairs(clone:GetDescendants()) do
+                if d:IsA("BasePart") then
+                    d.Anchored = true
+                    d.CanCollide = false
+                elseif d:IsA("Script") or d:IsA("LocalScript") or d:IsA("Sound") or d:IsA("ParticleEmitter") or d:IsA("BillboardGui") or d:IsA("Highlight") then
+                    d:Destroy()
+                end
+            end
+
+            local newVpf = Instance.new("ViewportFrame")
             newVpf.Name = "KillerViewport"
-            newVpf:SetAttribute("Killer", tostring(kName))
             newVpf.Size = UDim2.new(1, 0, 1, 0)
             newVpf.Position = UDim2.new(0, 0, 0, 0)
             newVpf.BackgroundTransparency = 1
             newVpf.BorderSizePixel = 0
-            newVpf.Parent = avatarBox
+            newVpf.LightColor = Color3.fromRGB(255, 245, 245)
+            newVpf.Ambient = Color3.fromRGB(175, 175, 185)
             Instance.new("UICorner", newVpf).CornerRadius = UDim.new(0, 6)
-            avatarImg.Visible = false
-            currentVpf = newVpf
-            mounted = true
-        end)
-        return mounted
-    end
 
-    local function mountModelViewport(sourceModel)
-        if not sourceModel or not sourceModel:IsA("Model") then return false end
-        local mounted = false
-        pcall(function()
-            local wasArch = sourceModel.Archivable
-            sourceModel.Archivable = true
-            local clone = sourceModel:Clone()
-            sourceModel.Archivable = wasArch
-            if not clone then return end
+            clone.Parent = newVpf
 
-            if currentVpf then currentVpf:Destroy() end
-            local vpf = Instance.new("ViewportFrame")
-            vpf.Name = "KillerViewport"
-            vpf:SetAttribute("Killer", tostring(kName))
-            vpf.Size = UDim2.new(1, 0, 1, 0)
-            vpf.Position = UDim2.new(0, 0, 0, 0)
-            vpf.BackgroundTransparency = 1
-            vpf.BorderSizePixel = 0
-            Instance.new("UICorner", vpf).CornerRadius = UDim.new(0, 6)
-
-            for _, obj in ipairs(clone:GetDescendants()) do
-                if obj:IsA("LuaSourceContainer") or obj:IsA("Sound") or (obj:IsA("BasePart") and (obj.Name:lower():find("hitbox") or obj.Name:lower():find("root") or obj.Transparency >= 0.95)) then
-                    obj:Destroy()
-                end
-            end
-            for _, part in ipairs(clone:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.Anchored = true
-                end
-            end
-            clone.Parent = vpf
-
-            local head = clone:FindFirstChild("Head") or clone.PrimaryPart
-            local cf, sz = clone:GetBoundingBox()
-            local targetPos = (head and head.Position) or (cf.Position + Vector3.new(0, sz.Y * 0.3, 0))
             local cam = Instance.new("Camera")
-            cam.CameraType = Enum.CameraType.Scriptable
-            local look = (head and head.CFrame.LookVector) or cf.LookVector
-            if math.abs(look.Magnitude) < 0.1 then look = Vector3.new(0, 0, -1) end
-            cam.CFrame = CFrame.new(targetPos + look * 2.2 + Vector3.new(0, 0.08, 0), targetPos)
-            cam.FieldOfView = 50
-            cam.Parent = vpf
-            vpf.CurrentCamera = cam
+            cam.FieldOfView = 40
+            local look = head.CFrame.LookVector
+            local horizLook = Vector3.new(look.X, 0, look.Z)
+            if horizLook.Magnitude > 0.05 then
+                horizLook = horizLook.Unit
+            else
+                horizLook = Vector3.new(0, 0, -1)
+            end
 
-            vpf.Parent = avatarBox
-            avatarImg.Visible = false
-            currentVpf = vpf
-            mounted = true
+            local targetPos = head.Position + Vector3.new(0, -0.1, 0)
+            local camPos = targetPos + (horizLook * 3.2) + Vector3.new(0, 0.2, 0)
+            cam.CFrame = CFrame.new(camPos, targetPos)
+            cam.Parent = newVpf
+
+            newVpf.CurrentCamera = cam
+            newVpf.LightDirection = (-horizLook + Vector3.new(0.2, 0.5, 0)).Unit
+            newVpf.Parent = avatarBox
+            return newVpf
         end)
-        return mounted
-    end
 
-    local knownPowerIcons = {
-        ["107207953517546"] = true, ["110881025348309"] = true, ["119792658841268"] = true,
-        ["136973921948245"] = true, ["130915693370693"] = true, ["110045688062234"] = true,
-        ["86213737463907"] = true, ["138348124971869"] = true, ["106695569058121"] = true,
-    }
-    local function isPowerIcon(assetId)
-        if not assetId or assetId == "" then return true end
-        local idStr = tostring(assetId)
-        for pId, _ in pairs(knownPowerIcons) do
-            if idStr:find(pId) then return true end
-        end
-        return false
-    end
-
-    -- 1. Check ReplicatedStorage.Killers (and kFolder.Frame from Image 4!)
-    local rs = game:GetService("ReplicatedStorage")
-    local kFolder = nil
-    if rs:FindFirstChild("Killers") then
-        kFolder = rs.Killers:FindFirstChild(kName) or rs.Killers:FindFirstChild("The " .. kName)
-        if not kFolder and clean ~= "" then
-            for _, kf in ipairs(rs.Killers:GetChildren()) do
-                local kfClean = kf.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
-                if kfClean == clean or kfClean:find(clean, 1, true) or clean:find(kfClean, 1, true) then
-                    kFolder = kf
-                    break
-                end
-            end
+        if ok and vpf then
+            row._renderedKiller = kName
+            row._renderedVpf = vpf
+            avatarImg.Visible = false
+            avatarText.Visible = false
+            return
         end
     end
 
-    if kFolder then
-        local vpf = kFolder:FindFirstChildWhichIsA("ViewportFrame", true)
-        if vpf and mountClonedViewport(vpf) then return end
-
-        local mdl = kFolder:FindFirstChildWhichIsA("Model", true)
-        if mdl and mountModelViewport(mdl) then return end
-
-        for _, c in ipairs(kFolder:GetDescendants()) do
-            if (c:IsA("ImageLabel") or c:IsA("ImageButton")) and c.Image ~= "" and not isPowerIcon(c.Image) and not c.Image:find("Placeholder") and not c.Image:find("8012052454") and not c.Image:find("13662414759") then
-                local cn = c.Name:lower()
-                if not cn:find("bg") and not cn:find("background") and not cn:find("stroke") and not cn:find("lock") and not cn:find("owned") and not cn:find("cost") and not cn:find("price") then
-                    if currentVpf then currentVpf:Destroy() end
-                    avatarImg.Image = c.Image
-                    avatarImg.Visible = true
-                    return
-                end
-            end
-        end
-    end
-
-    -- 2. Check PlayerGui for Killer Selection Cards (Image 4 in-game screen)
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if pg and clean ~= "" then
-        for _, desc in ipairs(pg:GetDescendants()) do
-            local dn = desc.Name:lower()
-            local pn = desc.Parent and desc.Parent.Name:lower() or ""
-            local gpn = desc.Parent and desc.Parent.Parent and desc.Parent.Parent.Name:lower() or ""
-            if dn:find(clean) or pn:find(clean) or gpn:find(clean) then
-                if desc:IsA("ViewportFrame") and mountClonedViewport(desc) then
-                    return
-                elseif (desc:IsA("ImageLabel") or desc:IsA("ImageButton")) and desc.Image ~= "" and not isPowerIcon(desc.Image) and not dn:find("bg") and not dn:find("background") and not dn:find("stroke") and not desc.Image:find("rbxthumb") then
-                    if currentVpf then currentVpf:Destroy() end
-                    avatarImg.Image = desc.Image
-                    avatarImg.Visible = true
-                    return
-                end
-            end
-        end
-    end
-
-    -- 3. Check entire ReplicatedStorage for any Model/Viewport matching killer name
-    if clean ~= "" then
-        for _, desc in ipairs(rs:GetDescendants()) do
-            if desc.Name:lower():find(clean) then
-                if desc:IsA("ViewportFrame") and mountClonedViewport(desc) then return end
-                if desc:IsA("Model") and mountModelViewport(desc) then return end
-            end
-        end
-    end
-
-    -- 4. Check KillerPortraits dictionary
-    if KillerPortraits[kName] and KillerPortraits[kName] ~= "" then
-        if currentVpf then currentVpf:Destroy() end
-        avatarImg.Image = KillerPortraits[kName]
+    -- Fallback if model could not be cloned or setup
+    local portrait = GetKillerPortrait(kName)
+    if portrait and portrait ~= "" then
+        avatarImg.Image = portrait
+        avatarImg.ScaleType = Enum.ScaleType.Fit
         avatarImg.Visible = true
-        return
-    end
-
-    -- 5. Check Workspace for Killer Model/Dummy
-    local ws = game:GetService("Workspace")
-    for _, obj in ipairs(ws:GetChildren()) do
-        if obj:IsA("Model") and not obj:IsA("Player") and (obj.Name:lower():find(clean) or obj.Name:lower():find("killer")) then
-            if mountModelViewport(obj) then return end
-        end
-    end
-
-    -- 6. In match, killer character model (if not player's default avatar)
-    if plr and plr.Character and plr ~= LocalPlayer then
-        if mountModelViewport(plr.Character) then return end
+        avatarText.Visible = false
+    elseif plr and plr.UserId then
+        avatarImg.Image = "rbxthumb://type=AvatarHeadShot&id=" .. plr.UserId .. "&w=150&h=150"
+        avatarImg.ScaleType = Enum.ScaleType.Fit
+        avatarImg.Visible = true
+        avatarText.Visible = false
     end
 end
 
 local KillerPowerIconCache = {}
 local function GetKillerPowerIcon(kName)
     if not kName then return nil end
+    local clean = tostring(kName):lower():gsub("%s+", ""):gsub("[^%a]", "")
+    if clean:sub(1, 3) == "the" and #clean > 3 then clean = clean:sub(4) end
     if KillerPowerIcons[kName] then return KillerPowerIcons[kName] end
-    if KillerPowerIconCache[kName] then return KillerPowerIconCache[kName] end
+    for k, v in pairs(KillerPowerIcons) do
+        if k:lower() == clean then return v end
+    end
+    if KillerPowerIconCache[clean] then return KillerPowerIconCache[clean] end
 
     local rs = game:GetService("ReplicatedStorage")
     if rs:FindFirstChild("Killers") then
-        local kFolder = rs.Killers:FindFirstChild(kName)
+        local kFolder = rs.Killers:FindFirstChild(kName) or rs.Killers:FindFirstChild("The " .. kName)
+        if not kFolder then
+            for _, kf in ipairs(rs.Killers:GetChildren()) do
+                if kf.Name:lower():gsub("%s+", ""):gsub("[^%a]", "") == clean then
+                    kFolder = kf
+                    break
+                end
+            end
+        end
         if kFolder and kFolder:FindFirstChild("Frame") then
             for _, c in ipairs(kFolder.Frame:GetDescendants()) do
                 if (c:IsA("ImageLabel") or c:IsA("ImageButton")) and c.Image ~= "" and not c.Image:find("Placeholder") and not c.Image:find("8012052454") and not c.Image:find("13662414759") then
                     if not (c.Name:lower():find("icon") or c.Name:lower():find("portrait") or c.Name:lower():find("head") or c.Name == "Background") then
-                        KillerPowerIconCache[kName] = c.Image
+                        KillerPowerIconCache[clean] = c.Image
                         return c.Image
                     end
                 end
@@ -2797,14 +3218,9 @@ local function GetRosterItemDisplay(plr, isK)
         local pwr = kType .. " Power"
         local det = "Ready"
         if rawInfo then
-            local pName, pDet = rawInfo:match("%[SKILL%]%s*(.-)%s*%[(.-)%]")
-            if pName then
-                pwr = pName
-                det = pDet or "Active"
-            else
-                pwr = rawInfo:gsub("%[SKILL%]%s*", "")
-                det = "Active"
-            end
+            local clean = rawInfo:gsub("^%[SKILL%]%s*", "")
+            pwr = clean
+            det = "Active"
         end
         return pwr, det, Color3.fromRGB(255, 100, 120)
     else
@@ -3172,22 +3588,7 @@ local function UpdateRoster(force)
         RosterSubText.Text = "In Lobby (" .. #allPlayers .. " Players Connected) • Auto-updating"
     else
         RosterTitle.Text = "Player Loadouts & Status"
-        local kType = killerPlr and killerPlr:GetAttribute("SelectedKiller")
-        if killerPlr and (not kType or kType == "" or kType == "The Killer") then
-            local kc = killerPlr.Character
-            if kc then
-                if kc:FindFirstChild("Flask") or kc:FindFirstChild("Curetool") or kc:GetAttribute("corpsecharge") then
-                    kType = "Cure"
-                elseif kc:FindFirstChild("spearmanager") or kc:FindFirstChild("Spear1") or kc:FindFirstChild("Spear2") then
-                    kType = "Veil"
-                elseif kc:FindFirstChild("Chainsaw") or kc:FindFirstChild("Stalker") then
-                    kType = "Stalker"
-                elseif kc:FindFirstChild("Katana") or kc:FindFirstChild("Sword") then
-                    kType = "Slasher"
-                end
-            end
-        end
-        kType = kType or (killerPlr and "The Killer" or "Unknown")
+        local kType = killerPlr and ResolveKillerType(killerPlr) or "Unknown"
         local kName = killerPlr and killerPlr.DisplayName or "None"
         RosterSubText.Text = "Killer: " .. kName .. " [" .. kType .. "]"
     end
@@ -3229,27 +3630,8 @@ local function UpdateRoster(force)
             row.AvatarStroke.Color = kCol
             row.AvatarBox.BackgroundColor3 = Color3.fromRGB(45, 15, 20)
 
-            kType = plr:GetAttribute("SelectedKiller")
-            if not kType and plr.Character then
-                kType = plr.Character:GetAttribute("SelectedKiller")
-            end
-            if not kType or kType == "" or kType == "Killer" or kType == "The Killer" then
-                local char = plr.Character
-                if char then
-                    if char:FindFirstChild("Flask") or char:FindFirstChild("Curetool") or char:GetAttribute("corpsecharge") then
-                        kType = "Cure"
-                    elseif char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") then
-                        kType = "Veil"
-                    elseif char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
-                        kType = "Stalker"
-                    elseif char:FindFirstChild("Katana") or char:FindFirstChild("Sword") then
-                        kType = "Slasher"
-                    end
-                end
-            end
-            kType = kType or "Killer"
+            kType = ResolveKillerType(plr)
 
-            -- In-game killer 3D model avatar (Image 4 character model)
             SetupKillerAvatar(row, kType, plr)
 
             row.RolePill.BackgroundColor3 = Color3.fromRGB(60, 15, 22)
@@ -3271,7 +3653,12 @@ local function UpdateRoster(force)
             row.AvatarStroke.Color = accentCol
             row.AvatarBox.BackgroundColor3 = Window.Theme.ElementBackground
             local oldVpf = row.AvatarBox:FindFirstChild("KillerViewport")
-            if oldVpf then oldVpf:Destroy() end
+            if oldVpf then pcall(function() oldVpf:Destroy() end) end
+            if row._renderedVpf then
+                pcall(function() row._renderedVpf:Destroy() end)
+                row._renderedVpf = nil
+            end
+            row._renderedKiller = nil
             row.AvatarImg.Image = "rbxthumb://type=AvatarHeadShot&id=" .. plr.UserId .. "&w=150&h=150"
             row.AvatarImg.Visible = true
             row.AvatarText.Visible = false
@@ -3741,13 +4128,15 @@ local function RenderESP()
     pcall(function()
         Camera = Workspace.CurrentCamera or Camera
         local inLobby = IsInLobby()
+        local inCutscene = IsCutsceneActive()
+
+        if inCutscene or (inLobby and not Config.ESP_LobbyEnabled) then
+            HideAllESP()
+            return
+        end
+
         if inLobby and not wasInLobby then
-            -- Immediate round-end purge: hide killer skill, clear highlights & adornments
-            TopKillerSkillText.Visible = false
-            for _, hl in pairs(PalletAuras) do pcall(function() hl.Enabled = false end) end
-            for _, hl in pairs(WindowAuras) do pcall(function() hl.Enabled = false end) end
-            for _, bha in pairs(WindowAdornments) do pcall(function() bha.Visible = false end) end
-            if PruneDeadDrawings then PruneDeadDrawings() end
+            HideAllESP()
             table.clear(KillerPortraitCache)
             table.clear(PlayerItemCooldowns)
             table.clear(PlayerItemCache)
@@ -4147,58 +4536,68 @@ local function RenderESP()
     -- 3. Pallet ESP & 3D Glowing Aura
     table.clear(seenPallets)
     if not inLobby and Config.ESP_Pallets then
+        local palletList = {}
         for _, item in ipairs(CachedPallets) do
             local pallet = item.Model
             local root = item.Part
             if pallet and pallet.Parent and root and root.Parent then
                 seenPallets[pallet] = true
                 local dist = (myPos - root.Position).Magnitude
+                table.insert(palletList, { Item = item, Dist = dist })
+            end
+        end
+        table.sort(palletList, function(a, b) return a.Dist < b.Dist end)
 
-                -- 3D Glowing Aura through walls (Wood pallet only)
-                if Config.ESP_PalletAura and dist <= Config.PalletMaxDist then
-                    local targetAdornee = item.PalletWood or pallet
-                    local hl = PalletAuras[pallet]
-                    if not hl or not hl.Parent then
-                        hl = Instance.new("Highlight")
-                        hl.Name = "Nexara_PalletAura"
-                        hl.FillColor = Color3.fromRGB(255, 170, 0)
-                        hl.OutlineColor = Color3.fromRGB(255, 230, 100)
-                        hl.FillTransparency = 0.65
-                        hl.OutlineTransparency = 0.1
-                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                        hl.Adornee = targetAdornee
-                        hl.Parent = targetAdornee
-                        PalletAuras[pallet] = hl
-                    end
-                    hl.Enabled = true
-                elseif PalletAuras[pallet] then
-                    pcall(function() PalletAuras[pallet].Enabled = false end)
+        for idx, entry in ipairs(palletList) do
+            local item = entry.Item
+            local pallet = item.Model
+            local root = item.Part
+            local dist = entry.Dist
+
+            -- 3D Glowing Aura through walls (Wood pallet only, capped at closest 14 to avoid Roblox 31 highlight limit)
+            if Config.ESP_PalletAura and idx <= 14 and dist <= Config.PalletMaxDist then
+                local targetAdornee = item.PalletWood or pallet
+                local hl = PalletAuras[pallet]
+                if not hl or not hl.Parent then
+                    hl = Instance.new("Highlight")
+                    hl.Name = "Nexara_PalletAura"
+                    hl.FillColor = Color3.fromRGB(255, 170, 0)
+                    hl.OutlineColor = Color3.fromRGB(255, 230, 100)
+                    hl.FillTransparency = 0.65
+                    hl.OutlineTransparency = 0.1
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Adornee = targetAdornee
+                    hl.Parent = targetAdornee
+                    PalletAuras[pallet] = hl
                 end
+                hl.Enabled = true
+            elseif PalletAuras[pallet] then
+                pcall(function() PalletAuras[pallet].Enabled = false end)
+            end
 
-                -- Distance Text
-                local txt = PalletDrawings[pallet]
-                if not txt then
-                    txt = Drawing.new("Text")
-                    txt.Size = 12
-                    txt.Center = true
-                    txt.Outline = true
-                    txt.OutlineColor = Color3.fromRGB(0, 0, 0)
-                    PalletDrawings[pallet] = txt
-                end
+            -- Distance Text
+            local txt = PalletDrawings[pallet]
+            if not txt then
+                txt = Drawing.new("Text")
+                txt.Size = 12
+                txt.Center = true
+                txt.Outline = true
+                txt.OutlineColor = Color3.fromRGB(0, 0, 0)
+                PalletDrawings[pallet] = txt
+            end
 
-                if dist <= Config.PalletMaxDist then
-                    local sPos, onScreen = Camera:WorldToViewportPoint(root.Position)
-                    if onScreen and not IsInMenu(sPos.X, sPos.Y) then
-                        txt.Text = "Pallet " .. math.floor(dist) .. "m"
-                        txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
-                        txt.Color = Color3.fromRGB(255, 180, 50)
-                        txt.Visible = true
-                    else
-                        txt.Visible = false
-                    end
+            if dist <= Config.PalletMaxDist then
+                local sPos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                if onScreen and not IsInMenu(sPos.X, sPos.Y) then
+                    txt.Text = "Pallet " .. math.floor(dist) .. "m"
+                    txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
+                    txt.Color = Color3.fromRGB(255, 180, 50)
+                    txt.Visible = true
                 else
                     txt.Visible = false
                 end
+            else
+                txt.Visible = false
             end
         end
     end
@@ -4214,6 +4613,7 @@ local function RenderESP()
     -- 4. Window / Vault ESP & 3D Glowing Aura
     table.clear(seenWindows)
     if not inLobby and Config.ESP_Windows then
+        local windowList = {}
         for _, item in ipairs(CachedWindows) do
             local win = item.Model
             local root = item.Part
@@ -4221,35 +4621,47 @@ local function RenderESP()
             if win and win.Parent and root and root.Parent then
                 seenWindows[win] = true
                 local dist = (myPos - root.Position).Magnitude
+                table.insert(windowList, { Item = item, Dist = dist })
+            end
+        end
+        table.sort(windowList, function(a, b) return a.Dist < b.Dist end)
 
-                -- 3D Glowing Aura on ONLY the vault sill ledge (Dual-Layer: BoxHandleAdornment + Highlight)
-                if Config.ESP_WindowAura and dist <= Config.WindowMaxDist and ledge and ledge.Parent then
-                    if ledge.Transparency >= 0.99 then
-                        ledge.Transparency = 0.98
+        for idx, entry in ipairs(windowList) do
+            local item = entry.Item
+            local win = item.Model
+            local root = item.Part
+            local ledge = item.VaultLedge
+            local dist = entry.Dist
+
+            -- 3D Glowing Aura on ONLY the vault sill ledge (Dual-Layer: BoxHandleAdornment + Highlight)
+            if Config.ESP_WindowAura and dist <= Config.WindowMaxDist and ledge and ledge.Parent then
+                if ledge.Transparency >= 0.99 then
+                    ledge.Transparency = 0.98
+                end
+
+                -- Layer 1: BoxHandleAdornment (Cyan 3D box outline, renders through walls, no highlight engine limit!)
+                local vol = ledge.Size.X * ledge.Size.Y * ledge.Size.Z
+                local bha = WindowAdornments[win]
+                if vol <= 600 then
+                    if not bha or not bha.Parent then
+                        bha = Instance.new("BoxHandleAdornment")
+                        bha.Name = "Nexara_WindowBox"
+                        bha.Size = ledge.Size + Vector3.new(0.08, 0.08, 0.08)
+                        bha.Color3 = Color3.fromRGB(0, 210, 255)
+                        bha.Transparency = 0.55
+                        bha.AlwaysOnTop = true
+                        bha.ZIndex = 5
+                        bha.Adornee = ledge
+                        bha.Parent = ledge
+                        WindowAdornments[win] = bha
                     end
+                    bha.Visible = true
+                elseif bha then
+                    bha.Visible = false
+                end
 
-                    -- Layer 1: BoxHandleAdornment (Only on genuine thin window sills, never on huge doorway/wall parts!)
-                    local isThinSill = ledge.Size.Y <= 2.2 and ledge.Size.X <= 8 and ledge.Size.Z <= 8
-                    local bha = WindowAdornments[win]
-                    if isThinSill then
-                        if not bha or not bha.Parent then
-                            bha = Instance.new("BoxHandleAdornment")
-                            bha.Name = "Nexara_WindowBox"
-                            bha.Size = ledge.Size + Vector3.new(0.06, 0.06, 0.06)
-                            bha.Color3 = Color3.fromRGB(0, 210, 255)
-                            bha.Transparency = 0.55
-                            bha.AlwaysOnTop = true
-                            bha.ZIndex = 5
-                            bha.Adornee = ledge
-                            bha.Parent = ledge
-                            WindowAdornments[win] = bha
-                        end
-                        bha.Visible = true
-                    elseif bha then
-                        bha.Visible = false
-                    end
-
-                    -- Layer 2: Highlight (For rich outer neon glow)
+                -- Layer 2: Highlight (Capped at closest 12 windows so 14 pallets + 12 windows = 26 <= 31 limit!)
+                if idx <= 12 then
                     local hl = WindowAuras[win]
                     if not hl or not hl.Parent then
                         hl = Instance.new("Highlight")
@@ -4264,35 +4676,37 @@ local function RenderESP()
                         WindowAuras[win] = hl
                     end
                     hl.Enabled = true
-                else
-                    if WindowAuras[win] then pcall(function() WindowAuras[win].Enabled = false end) end
-                    if WindowAdornments[win] then pcall(function() WindowAdornments[win].Visible = false end) end
+                elseif WindowAuras[win] then
+                    pcall(function() WindowAuras[win].Enabled = false end)
                 end
+            else
+                if WindowAuras[win] then pcall(function() WindowAuras[win].Enabled = false end) end
+                if WindowAdornments[win] then pcall(function() WindowAdornments[win].Visible = false end) end
+            end
 
-                -- Distance Text
-                local txt = WindowDrawings[win]
-                if not txt then
-                    txt = Drawing.new("Text")
-                    txt.Size = 12
-                    txt.Center = true
-                    txt.Outline = true
-                    txt.OutlineColor = Color3.fromRGB(0, 0, 0)
-                    WindowDrawings[win] = txt
-                end
+            -- Distance Text
+            local txt = WindowDrawings[win]
+            if not txt then
+                txt = Drawing.new("Text")
+                txt.Size = 12
+                txt.Center = true
+                txt.Outline = true
+                txt.OutlineColor = Color3.fromRGB(0, 0, 0)
+                WindowDrawings[win] = txt
+            end
 
-                if dist <= Config.WindowMaxDist then
-                    local sPos, onScreen = Camera:WorldToViewportPoint(root.Position)
-                    if onScreen and not IsInMenu(sPos.X, sPos.Y) then
-                        txt.Text = "Vault " .. math.floor(dist) .. "m"
-                        txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
-                        txt.Color = Color3.fromRGB(80, 210, 255)
-                        txt.Visible = true
-                    else
-                        txt.Visible = false
-                    end
+            if dist <= Config.WindowMaxDist then
+                local sPos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                if onScreen and not IsInMenu(sPos.X, sPos.Y) then
+                    txt.Text = "Vault " .. math.floor(dist) .. "m"
+                    txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
+                    txt.Color = Color3.fromRGB(80, 210, 255)
+                    txt.Visible = true
                 else
                     txt.Visible = false
                 end
+            else
+                txt.Visible = false
             end
         end
     end
