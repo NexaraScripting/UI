@@ -56,6 +56,7 @@ local Config = {
     ESP_KillerNames = false,
     ESP_KillerDistance = false,
     ESP_KillerSkills = false,
+    ESP_KillerPerks = false,
     TopKillerSkillSize = 16,
     TopKillerSkillYOffset = 58,
 
@@ -442,6 +443,9 @@ local function IsKiller(player)
 end
 
 -- Cooldown Trackers & Multi-Client Replicated Item Tracker
+local GetPlayerPerks
+local PersistentPerksCache = {}
+local PlayerPerkTiers = {}
 local KillerPerkCooldowns = {}
 local SurvivorPerkCooldowns = {}
 local PlayerItemCooldowns = {}
@@ -515,6 +519,13 @@ pcall(function()
                 else
                     SurvivorPerkCooldowns[tostring(slot)] = endT
                 end
+                pcall(function()
+                    if GetPlayerPerks then
+                        for _, p in ipairs(Players:GetPlayers()) do
+                            if IsKiller(p) then GetPlayerPerks(p) end
+                        end
+                    end
+                end)
             end
         end))
     end
@@ -526,9 +537,19 @@ local function SetupPlayerCooldownHooks(player)
         if not char then return end
         ClearPlayerCooldowns(player)
 
+        -- 0. Real-time Perk Detection: Server clones perk scripts directly into char during match
+        table.insert(ScriptConnections, char.ChildAdded:Connect(function(child)
+            pcall(function()
+                if GetPlayerPerks then GetPlayerPerks(player) end
+            end)
+        end))
+
         -- 1. Character Attribute: Parry (triggers on Parrying Dagger use) & Item Aiming/Overridelook
         table.insert(ScriptConnections, char.AttributeChanged:Connect(function(attrName)
             if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
+            pcall(function()
+                if GetPlayerPerks then GetPlayerPerks(player) end
+            end)
             if attrName == "Parry" and char:GetAttribute("Parry") == true then
                 SetItemCooldown(player, "Parrying Dagger", 60)
             elseif (attrName == "overridelookscript" or attrName == "Aiming") and char:GetAttribute(attrName) == true then
@@ -651,6 +672,11 @@ local function SetupPlayerCooldownHooks(player)
         task.spawn(onChar, player.Character)
     end
     table.insert(ScriptConnections, player.CharacterAdded:Connect(onChar))
+    table.insert(ScriptConnections, player.AttributeChanged:Connect(function(attrName)
+        pcall(function()
+            if GetPlayerPerks then GetPlayerPerks(player) end
+        end)
+    end))
 end
 
 for _, p in ipairs(Players:GetPlayers()) do
@@ -1143,10 +1169,8 @@ local function SyncGamePerksDatabase()
 end
 task.spawn(SyncGamePerksDatabase)
 
-local PersistentPerksCache = {}
-local PlayerPerkTiers = {}
-
 local StatusToPerkMap = {
+    -- Survivor perks & attributes
     ["winded"] = "Quick Recovery",
     ["quickrecovery"] = "Quick Recovery",
     ["timetogrowup"] = "Time To Grow Up",
@@ -1155,10 +1179,13 @@ local StatusToPerkMap = {
     ["nobodyleftbehind"] = "Nobody Left Behind",
     ["greatcollapse"] = "Great Collapse",
     ["strongertogether"] = "We're Stronger Together",
+    ["werestrongertogether"] = "We're Stronger Together",
     ["leftbehind"] = "Left Behind",
     ["grabmyhand"] = "Grab My Hand",
     ["onmyown"] = "On My Own",
+    ["karma"] = "High Karma",
     ["highkarma"] = "High Karma",
+    ["anticampcharge"] = "High Karma",
     ["snakestep"] = "Snake Step",
     ["headsup"] = "Heads Up",
     ["groupproject"] = "Group Project",
@@ -1169,6 +1196,7 @@ local StatusToPerkMap = {
     ["perfectlanding"] = "Perfect Landing",
     ["irontranquility"] = "Iron Tranquility",
     ["secondwind"] = "Second Wind",
+    ["endurance"] = "Second Wind",
     ["desperate"] = "Desperate",
     ["borninblood"] = "Born in Blood",
     ["laststand"] = "Last Stand",
@@ -1186,9 +1214,17 @@ local StatusToPerkMap = {
     ["flawlessexecution"] = "Flawless Execution",
     ["partnersincrime"] = "Partners In Crime",
     ["visuallearner"] = "Visual Learner",
-    -- Killer perks
+    ["visual_learner_bonus"] = "Visual Learner",
+    ["visuallearnerbonus"] = "Visual Learner",
+    -- Killer perks (including game developer typos e.g. excitment & kings_scourge)
+    ["excitment"] = "Excitement",
+    ["excitement"] = "Excitement",
+    ["kingsscourge"] = "King's Scourge",
+    ["kings_scourge"] = "King's Scourge",
     ["kingscourge"] = "King's Scourge",
     ["containment"] = "Containment",
+    ["brutalstrength"] = "Brutal Strength",
+    ["offscreenscare"] = "Offscreen Scare",
     ["piercingreverie"] = "Piercing Reverie",
     ["bloodbetweenworlds"] = "Blood Between Worlds",
     ["echoofthevoid"] = "Echo Of The Void",
@@ -1221,7 +1257,7 @@ local StatusToPerkMap = {
 }
 
 -- EXACT PERKS RESOLUTION (RESPECTS EXACT SLOTS, NO FAKE FILLERS, LOBBY & IN-GAME VIEWABLE)
-local function GetPlayerPerks(player)
+GetPlayerPerks = function(player)
     local perks = {}
     if not player then return perks end
 
@@ -1232,21 +1268,26 @@ local function GetPlayerPerks(player)
     local function matchPerkName(rawName)
         if not rawName then return nil end
         local str = tostring(rawName):lower()
+        str = str:gsub("^script:", ""):gsub("^localscript:", "")
         str = str:gsub("^perk%d*[_%s]*", ""):gsub("^slot%d*[_%s]*", ""):gsub("^p%d*[_%s]*", "")
         str = str:gsub("[_%s]*tier[%s%d]*$", ""):gsub("[_%s]*t%d+$", ""):gsub("[_%s]*lvl[%s%d]*$", ""):gsub("[_%s]*active$", ""):gsub("[_%s]*cooldown$", ""):gsub("[_%s]*cd$", ""):gsub("[_%s]*proc$", ""):gsub("%d+$", "")
         local clean = str:gsub("%s+", ""):gsub("[^%a]", "")
         if #clean < 3 then return nil end
         if StatusToPerkMap[clean] then return StatusToPerkMap[clean] end
-        if targetNorm[clean] then return targetNorm[clean] end
-        if otherNorm[clean] then return otherNorm[clean] end
-        for k, v in pairs(targetNorm) do
-            if clean == k or clean:find(k, 1, true) or (#clean >= 5 and k:find(clean, 1, true)) then
-                return v
+        if targetNorm and targetNorm[clean] then return targetNorm[clean] end
+        if otherNorm and otherNorm[clean] then return otherNorm[clean] end
+        if targetNorm then
+            for k, v in pairs(targetNorm) do
+                if clean == k or clean:find(k, 1, true) or (#clean >= 5 and k:find(clean, 1, true)) then
+                    return v
+                end
             end
         end
-        for k, v in pairs(otherNorm) do
-            if clean == k or clean:find(k, 1, true) or (#clean >= 5 and k:find(clean, 1, true)) then
-                return v
+        if otherNorm then
+            for k, v in pairs(otherNorm) do
+                if clean == k or clean:find(k, 1, true) or (#clean >= 5 and k:find(clean, 1, true)) then
+                    return v
+                end
             end
         end
         return nil
@@ -1263,7 +1304,8 @@ local function GetPlayerPerks(player)
             pName = rawPerk
         end
         if pName and type(pName) == "string" and pName ~= "" and pName ~= "---" and pName ~= "None" then
-            local mapped = matchPerkName(pName) or targetNorm[pName:lower():gsub("%s+", ""):gsub("[^%a]", "")]
+            local clean = pName:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            local mapped = matchPerkName(pName) or (targetNorm and targetNorm[clean]) or (otherNorm and otherNorm[clean])
             if mapped and mapped ~= "" and not table.find(perks, mapped) and #perks < 3 then
                 table.insert(perks, mapped)
                 PlayerPerkTiers[player] = PlayerPerkTiers[player] or {}
@@ -1327,19 +1369,43 @@ local function GetPlayerPerks(player)
             end
         end
 
-        -- If server returned authoritative loadout, DO NOT run arbitrary descendant scraping!
-        -- Respects players who equipped only 1 or 2 perks.
+        -- If server returned authoritative loadout, store and return
         if remoteDone or #perks > 0 then
             PersistentPerksCache[player] = perks
             return perks
         end
     end
 
-    -- 2. Other Players (or fallback if LocalPlayer remote failed): Look for explicit perks & loadouts
+    -- 2. Other Players (or fallback if LocalPlayer remote failed): Check ALL in-game vectors
+    -- Pre-seed from existing match cache, but sanitize against player's current role!
+    if PersistentPerksCache[player] then
+        local roleCleanCache = {}
+        for _, p in ipairs(PersistentPerksCache[player]) do
+            local pClean = p:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            local isKnownKiller = KnownKillerPerksNormalized and KnownKillerPerksNormalized[pClean] ~= nil
+            local isKnownSurvivor = KnownSurvivorPerksNormalized and KnownSurvivorPerksNormalized[pClean] ~= nil
+            local keep = true
+            if isK and isKnownSurvivor and not isKnownKiller then
+                keep = false
+            elseif not isK and isKnownKiller and not isKnownSurvivor then
+                keep = false
+            end
+            if keep then
+                table.insert(roleCleanCache, p)
+                addPerk(p, PlayerPerkTiers[player] and PlayerPerkTiers[player][p] or 3)
+            end
+        end
+        PersistentPerksCache[player] = roleCleanCache
+        if #perks >= 3 then
+            return perks
+        end
+    end
+
     local char = player.Character
 
-    -- A. Check explicit slot attributes (perk1, perk2, perk3, Slot1, Slot2, Slot3)
+    -- Vector A: Explicit slot attributes (perk1, perk2, perk3, Slot1, Slot2, Slot3, p1, p2, p3)
     for _, slotKey in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "Perk1", "Perk2", "Perk3", "p1", "p2", "p3"}) do
+        if #perks >= 3 then break end
         local val = player:GetAttribute(slotKey) or (char and char:GetAttribute(slotKey))
         if val and type(val) == "string" and val ~= "" and val ~= "None" then
             local mapped = matchPerkName(val)
@@ -1347,7 +1413,64 @@ local function GetPlayerPerks(player)
         end
     end
 
-    -- B. Check dedicated Perks / EquippedPerks container
+    -- Vector B: Character Direct Children & Scripts (Server clones perk scripts into char during match, e.g. "Foundation staff 3", "Piercing Reverie", etc.)
+    if char then
+        for _, c in ipairs(char:GetChildren()) do
+            if #perks >= 3 then break end
+            local t = tonumber(c.Name:match("(%d+)$")) or (c:IsA("ValueBase") and tonumber(c.Value)) or 3
+            local mapped = matchPerkName(c.Name)
+            if mapped then
+                addPerk(mapped, t)
+            elseif c:IsA("ValueBase") and c.Value then
+                local vMapped = matchPerkName(tostring(c.Value))
+                if vMapped then addPerk(vMapped, t) end
+            end
+        end
+    end
+
+    -- Vector C: Player Backpack (Tools/Scripts/Values)
+    local bp = player:FindFirstChild("Backpack")
+    if bp then
+        for _, c in ipairs(bp:GetChildren()) do
+            if #perks >= 3 then break end
+            local t = tonumber(c.Name:match("(%d+)$")) or (c:IsA("ValueBase") and tonumber(c.Value)) or 3
+            local mapped = matchPerkName(c.Name)
+            if mapped then
+                addPerk(mapped, t)
+            elseif c:IsA("ValueBase") and c.Value then
+                local vMapped = matchPerkName(tostring(c.Value))
+                if vMapped then addPerk(vMapped, t) end
+            end
+        end
+    end
+
+    -- Vector D: Direct Attributes on Character & Player (Both Attribute Name and Attribute String Value)
+    local function scanDirectAttrs(inst)
+        if not inst then return end
+        local attrs = nil
+        pcall(function() attrs = inst:GetAttributes() end)
+        if not attrs then return end
+        for attrName, attrVal in pairs(attrs) do
+            if #perks >= 3 then break end
+            local mappedKey = matchPerkName(attrName)
+            if mappedKey then
+                if attrVal == true or (type(attrVal) == "number" and attrVal >= 0) or (type(attrVal) == "string" and attrVal ~= "" and attrVal ~= "None") then
+                    local t = (type(attrVal) == "number" and attrVal >= 1 and attrVal <= 3) and attrVal or 3
+                    addPerk(mappedKey, t)
+                end
+            end
+            if type(attrVal) == "string" and attrVal ~= "" and attrVal ~= "None" then
+                local mappedVal = matchPerkName(attrVal)
+                if mappedVal then
+                    addPerk(mappedVal, 3)
+                end
+            end
+        end
+    end
+    scanDirectAttrs(char)
+    scanDirectAttrs(player)
+
+    -- Vector E: Dedicated Perks / EquippedPerks container
     local pFolders = {
         player:FindFirstChild("Perks"),
         player:FindFirstChild("EquippedPerks"),
@@ -1358,6 +1481,7 @@ local function GetPlayerPerks(player)
     for _, f in ipairs(pFolders) do
         if f then
             for _, c in ipairs(f:GetChildren()) do
+                if #perks >= 3 then break end
                 local mapped = matchPerkName(c.Name)
                 local t = c:IsA("ValueBase") and tonumber(c.Value) or 3
                 if mapped then
@@ -1370,36 +1494,20 @@ local function GetPlayerPerks(player)
         end
     end
 
-    -- C. Direct attributes on character or player matching exact perk names or status effects
-    local function scanDirectAttrs(inst)
-        if not inst then return end
-        local attrs = nil
-        pcall(function() attrs = inst:GetAttributes() end)
-        if not attrs then return end
-        for attrName, attrVal in pairs(attrs) do
-            if #perks >= 3 then break end
-            local mapped = matchPerkName(attrName)
-            if mapped and (attrVal == true or (type(attrVal) == "number" and attrVal > 0) or type(attrVal) == "string") then
-                addPerk(mapped, type(attrVal) == "number" and attrVal or 3)
-            end
-        end
-    end
-    scanDirectAttrs(char)
-    scanDirectAttrs(player)
-
-    -- D. Check ReplicatedStorage player data container
+    -- Vector F: ReplicatedStorage player data container (if exists)
     local pData = rs:FindFirstChild(player.Name) or (rs:FindFirstChild("PlayerData") and rs.PlayerData:FindFirstChild(player.Name)) or (rs:FindFirstChild("Players") and rs.Players:FindFirstChild(player.Name))
     if pData then
         local pf = pData:FindFirstChild("Perks") or pData:FindFirstChild("EquippedPerks")
         if pf then
             for _, c in ipairs(pf:GetChildren()) do
+                if #perks >= 3 then break end
                 local mapped = matchPerkName(c.Name) or (c:IsA("ValueBase") and matchPerkName(tostring(c.Value)))
                 if mapped then addPerk(mapped) end
             end
         end
     end
 
-    -- E. Accumulate in PersistentPerksCache (never overwrite/drop perks detected during match)
+    -- Accumulate in PersistentPerksCache (never overwrite/drop perks detected during match)
     PersistentPerksCache[player] = PersistentPerksCache[player] or {}
     for _, p in ipairs(perks) do
         if not table.find(PersistentPerksCache[player], p) and #PersistentPerksCache[player] < 3 then
@@ -1413,6 +1521,37 @@ local function GetPlayerPerks(player)
 
     return perks
 end
+
+-- Round / Match Lifecycle: clear cross-match cached perks when a brand new match begins
+pcall(function()
+    local rem = ReplicatedStorage:WaitForChild("Remotes", 5)
+    local roundEvent = rem and rem:WaitForChild("Round", 5)
+    if roundEvent and roundEvent:IsA("RemoteEvent") then
+        table.insert(ScriptConnections, roundEvent.OnClientEvent:Connect(function(isActive)
+            if isActive == true then
+                -- New match actively started: refresh non-local player caches for fresh detection
+                for p in pairs(PersistentPerksCache) do
+                    if p ~= LocalPlayer then
+                        PersistentPerksCache[p] = nil
+                        PlayerPerkTiers[p] = nil
+                    end
+                end
+            end
+        end))
+    end
+    local gameFolder = rem and rem:FindFirstChild("Game")
+    local startEvent = gameFolder and gameFolder:FindFirstChild("Start")
+    if startEvent then
+        table.insert(ScriptConnections, startEvent.Event:Connect(function()
+            for p in pairs(PersistentPerksCache) do
+                if p ~= LocalPlayer then
+                    PersistentPerksCache[p] = nil
+                    PlayerPerkTiers[p] = nil
+                end
+            end
+        end))
+    end
+end)
 
 -- SEPARATE SKILLS, CHARGES & COOLDOWNS
 local function GetPlayerSkillInfo(player)
@@ -1864,6 +2003,15 @@ local function UpdateBackgroundCache()
         local genSeen = {}
         local palletSeen = {}
 
+        local function isNearExistingVault(pos)
+            for _, w in ipairs(windows) do
+                if w.Part and (w.Part.Position - pos).Magnitude < 4.5 then
+                    return true
+                end
+            end
+            return false
+        end
+
         -- 1. Universal Multi-Map Vault Detection: CollectionService tags
         pcall(function()
             local CollectionService = game:GetService("CollectionService")
@@ -1876,14 +2024,14 @@ local function UpdateBackgroundCache()
                         local ledge = bottomPart
                         if not ledge then
                             for _, c in ipairs(container:GetChildren()) do
-                                if c:IsA("BasePart") and not c.Name:lower():find("invis") and not c.Name:lower():find("trigger") and not c.Name:lower():find("collision") then
+                                if c:IsA("BasePart") and not c.Name:lower():find("invis") and not c.Name:lower():find("trigger") and not c.Name:lower():find("collision") and not c.Name:lower():find("doorframe") then
                                     ledge = c
                                     break
                                 end
                             end
                         end
                         local part = ledge or (vt:IsA("BasePart") and vt) or container.PrimaryPart or container:FindFirstChildWhichIsA("BasePart")
-                        if part then
+                        if part and not isNearExistingVault(part.Position) then
                             ledge = ledge or part
                             if ledge.Transparency >= 0.99 then ledge.Transparency = 0.98 end
                             table.insert(windows, { Model = container, Part = part, VaultLedge = ledge })
@@ -1917,8 +2065,11 @@ local function UpdateBackgroundCache()
         end)
 
         local searchRoots = {}
-        if map then table.insert(searchRoots, map) end
-        table.insert(searchRoots, Workspace)
+        if map then
+            table.insert(searchRoots, map)
+        else
+            table.insert(searchRoots, Workspace)
+        end
 
         for _, rootObj in ipairs(searchRoots) do
             for _, d in ipairs(rootObj:GetDescendants()) do
@@ -1951,21 +2102,23 @@ local function UpdateBackgroundCache()
                 if d:IsA("Model") and not winSeen[d] then
                     local dName = d.Name:lower()
                     local pName = d.Parent and d.Parent.Name:lower() or ""
-                    local isWindow = dName:find("window") or dName:find("vault") or pName == "windows" or pName == "vaults" or pName == "vaultpoints"
-                    if isWindow then
+                    local hasTrigger = d:FindFirstChild("VaultTrigger", true) ~= nil
+                    local hasBottom = d:FindFirstChild("Bottom") ~= nil or d:FindFirstChild("Ledge") ~= nil
+                    local isWindow = hasTrigger or (hasBottom and (dName:find("window") or dName:find("vault") or pName == "windows" or pName == "vaults" or pName == "vaultpoints"))
+                    if isWindow and not d:FindFirstChild("DoorFrame") then
                         winSeen[d] = true
                         local bottomPart = d:FindFirstChild("Bottom") or d:FindFirstChild("Ledge") or d:FindFirstChild("Sill")
                         local ledge = bottomPart
                         if not ledge then
                             for _, c in ipairs(d:GetChildren()) do
-                                if c:IsA("BasePart") and not c.Name:lower():find("invis") and not c.Name:lower():find("trigger") and not c.Name:lower():find("collision") then
+                                if c:IsA("BasePart") and not c.Name:lower():find("invis") and not c.Name:lower():find("trigger") and not c.Name:lower():find("collision") and not c.Name:lower():find("doorframe") then
                                     ledge = c
                                     break
                                 end
                             end
                         end
                         local part = ledge or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                        if part then
+                        if part and not isNearExistingVault(part.Position) then
                             ledge = ledge or part
                             if ledge.Transparency >= 0.99 then ledge.Transparency = 0.98 end
                             table.insert(windows, { Model = d, Part = part, VaultLedge = ledge })
@@ -2607,6 +2760,14 @@ end })
 secKillerESP:AddSlider({ Name = "Top Killer Skill Y Offset", Min = 35, Max = 100, Default = 58, Float = 1, Callback = function(v)
     Config.TopKillerSkillYOffset = v
 end })
+secKillerESP:AddToggle({ Name = "Killer Perks ESP", Default = false, Callback = function(v)
+    Config.ESP_KillerPerks = v
+    if not v then
+        for p, esp in pairs(ESP_Objects) do
+            if IsKiller(p) then esp.PerkText.Visible = false end
+        end
+    end
+end })
 
 -- Column 2: Survivor ESP (2D Boxes)
 local secSurvESP = colV2:CreateSection("Survivor ESP (2D Boxes)")
@@ -2656,6 +2817,14 @@ secSurvESP:AddToggle({ Name = "Survivor Items & Cooldowns", Default = false, Cal
     if not v then
         for p, esp in pairs(ESP_Objects) do
             if not IsKiller(p) then esp.SkillText.Visible = false end
+        end
+    end
+end })
+secSurvESP:AddToggle({ Name = "Survivor Perks ESP", Default = false, Callback = function(v)
+    Config.ESP_SurvivorPerks = v
+    if not v then
+        for p, esp in pairs(ESP_Objects) do
+            if not IsKiller(p) then esp.PerkText.Visible = false end
         end
     end
 end })
@@ -4304,8 +4473,21 @@ local function RenderESP()
                             currentY = btmY + 14
                         end
 
-                        -- Perks Text (Disabled)
-                        esp.PerkText.Visible = false
+                        -- Perks Text
+                        if Config.ESP_KillerPerks then
+                            local perks = (data and data.Perks) or (GetPlayerPerks and GetPlayerPerks(player))
+                            if perks and #perks > 0 then
+                                esp.PerkText.Text = "Perks: " .. table.concat(perks, " | ")
+                                esp.PerkText.Position = Vector2.new(currentX, currentY)
+                                esp.PerkText.Color = Color3.fromRGB(255, 120, 140)
+                                esp.PerkText.Visible = true
+                                currentY = currentY + 14
+                            else
+                                esp.PerkText.Visible = false
+                            end
+                        else
+                            esp.PerkText.Visible = false
+                        end
 
                         -- Skills & Charges Text (Moved under top match timer)
                         esp.SkillText.Visible = false
@@ -4440,8 +4622,21 @@ local function RenderESP()
                                 esp.SkillText.Visible = false
                             end
 
-                            -- Survivor Perks (Disabled)
-                            esp.PerkText.Visible = false
+                            -- Survivor Perks
+                            if Config.ESP_SurvivorPerks then
+                                local perks = (data and data.Perks) or (GetPlayerPerks and GetPlayerPerks(player))
+                                if perks and #perks > 0 then
+                                    esp.PerkText.Text = table.concat(perks, " | ")
+                                    esp.PerkText.Position = Vector2.new(rootScreen.X, currentY)
+                                    esp.PerkText.Color = Color3.fromRGB(120, 220, 255)
+                                    esp.PerkText.Visible = true
+                                    currentY = currentY + 14
+                                else
+                                    esp.PerkText.Visible = false
+                                end
+                            else
+                                esp.PerkText.Visible = false
+                            end
                         else
                             esp.BoxOutline.Visible = false
                             esp.Box.Visible = false
@@ -4614,14 +4809,29 @@ local function RenderESP()
     table.clear(seenWindows)
     if not inLobby and Config.ESP_Windows then
         local windowList = {}
+        local renderedVaultPos = {}
         for _, item in ipairs(CachedWindows) do
             local win = item.Model
             local root = item.Part
             local ledge = item.VaultLedge
             if win and win.Parent and root and root.Parent then
-                seenWindows[win] = true
-                local dist = (myPos - root.Position).Magnitude
-                table.insert(windowList, { Item = item, Dist = dist })
+                local isDup = false
+                for _, rPos in ipairs(renderedVaultPos) do
+                    if (rPos - root.Position).Magnitude < 4.5 then
+                        isDup = true
+                        break
+                    end
+                end
+                if not isDup then
+                    table.insert(renderedVaultPos, root.Position)
+                    seenWindows[win] = true
+                    local dist = (myPos - root.Position).Magnitude
+                    table.insert(windowList, { Item = item, Dist = dist })
+                else
+                    if WindowDrawings[win] then WindowDrawings[win].Visible = false end
+                    if WindowAuras[win] then WindowAuras[win].Enabled = false end
+                    if WindowAdornments[win] then WindowAdornments[win].Visible = false end
+                end
             end
         end
         table.sort(windowList, function(a, b) return a.Dist < b.Dist end)
