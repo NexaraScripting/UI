@@ -38,6 +38,7 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TweenService = game:GetService("TweenService")
 local GuiService = game:GetService("GuiService")
+local CollectionService = game:GetService("CollectionService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
@@ -254,9 +255,6 @@ local function IsInLobby()
     -- 4. Check LocalPlayer's Team fallback
     local team = LocalPlayer.Team
     if team then
-        if team.Name == "Spectator" then
-            return true
-        end
         if team.Name == "Killer" or team.Name == "Survivors" then
             return false
         end
@@ -265,18 +263,118 @@ local function IsInLobby()
     return false
 end
 
+local function IsPlayerDead(player)
+    if not player or not player.Parent then return true end
+    local char = player.Character
+    if not char or not char.Parent then return true end
+
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum and (hum.Health <= 0 or hum:GetState() == Enum.HumanoidStateType.Dead) then
+        return true
+    end
+
+    if player:GetAttribute("IsDead") == true or char:GetAttribute("IsDead") == true or
+       player:GetAttribute("Dead") == true or char:GetAttribute("Dead") == true or
+       player:GetAttribute("Sacrificed") == true or char:GetAttribute("Sacrificed") == true or
+       player:GetAttribute("Died") == true or char:GetAttribute("Died") == true or
+       player:GetAttribute("Eliminated") == true or char:GetAttribute("Eliminated") == true or
+       player:GetAttribute("BledOut") == true or char:GetAttribute("BledOut") == true then
+        return true
+    end
+
+    if char:FindFirstChild("Died") or char:FindFirstChild("Ragdoll") then
+        return true
+    end
+
+    pcall(function()
+        local CollectionService = game:GetService("CollectionService")
+        if CollectionService and (CollectionService:HasTag(char, "Dead") or CollectionService:HasTag(char, "Sacrificed")) then
+            return true
+        end
+    end)
+
+    return false
+end
+
+local function IsPlayerInLobby(player)
+    if not player or not player.Parent then return false end
+    if player == LocalPlayer then return IsInLobby() end
+
+    -- 1. If LocalPlayer is in lobby, everyone is in lobby
+    if IsInLobby() then
+        return true
+    end
+
+    -- 2. Dead players are out of the active round (dead or sent back to lobby)
+    if IsPlayerDead(player) then
+        return true
+    end
+
+    -- 3. Check explicit lobby attributes
+    if player:GetAttribute("InLobby") == true or (player.Character and player.Character:GetAttribute("InLobby") == true) or
+       player:GetAttribute("Spectating") == true or (player.Character and player.Character:GetAttribute("Spectating") == true) or
+       player:GetAttribute("WaitingInLobby") == true then
+        return true
+    end
+
+    -- 4. Check Team (In an active match, match participants are in 'Survivors' or 'Killer')
+    if player.Team then
+        local tName = player.Team.Name
+        if tName == "Lobby" or tName == "Spectator" or tName == "Spectators" or tName == "Choosing" then
+            return true
+        end
+        if tName ~= "Killer" and tName ~= "Survivors" then
+            return true
+        end
+    end
+
+    local root = GetRoot(player)
+    if not root then return true end
+
+    -- 5. Check physical proximity to the Lobby structure
+    local lobbyPart = GetLobbyPart()
+    if lobbyPart then
+        local distToLobby = (root.Position - lobbyPart.Position).Magnitude
+        if distToLobby <= 350 then
+            return true
+        end
+    end
+
+    -- 6. Match distance check: in Violence District, the lobby island is >320 studs away from the match map
+    local myRoot = GetRoot(LocalPlayer)
+    if myRoot then
+        local distFromMe = (root.Position - myRoot.Position).Magnitude
+        if distFromMe >= 320 then
+            if lobbyPart then
+                local distToLobby = (root.Position - lobbyPart.Position).Magnitude
+                if distToLobby <= 450 then
+                    return true
+                end
+            else
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
 local function IsKiller(player)
     if not player then return false end
-    if IsInLobby() then return false end
-    if player.Team and player.Team.Name == "Killer" then
-        return true
+    if IsInLobby() or IsPlayerInLobby(player) or IsPlayerDead(player) then return false end
+    if player.Team then
+        if player.Team.Name == "Killer" then return true end
+        if player.Team.Name == "Survivors" then return false end
     end
     local char = player.Character
     if char then
-        if char:GetAttribute("TerrorRadius") or char:GetAttribute("Chasemusic") or char:GetAttribute("BloodLust") then
+        if char:FindFirstChild("spearmanager") or char:FindFirstChild("Curetool") or char:FindFirstChild("Flask") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") then
             return true
         end
-        if char:FindFirstChild("spearmanager") or char:FindFirstChild("Curetool") or char:FindFirstChild("Flask") then
+        if char:GetAttribute("corpsecharge") or char:GetAttribute("Spears") or char:GetAttribute("BloodLust") then
+            return true
+        end
+        if char:GetAttribute("SelectedKiller") then
             return true
         end
     end
@@ -287,38 +385,45 @@ end
 local KillerPerkCooldowns = {}
 local SurvivorPerkCooldowns = {}
 local PlayerItemCooldowns = {}
+local PlayerItemCache = {}
 local CureFlaskCooldownEnd = 0
 local VeilSpearCooldownEnd = 0
 local VeilVoidCooldownEnd = 0
 local LastVeilSpears = 2
 local LastVeilWasCharged = false
 
-local function SetItemCooldown(player, itemName, duration)
-    if not itemName or not duration then return end
-    local endTime = os.clock() + tonumber(duration)
-    if player then
-        local pName = typeof(player) == "Instance" and player.Name or tostring(player)
-        PlayerItemCooldowns[pName .. "_" .. itemName] = endTime
-        if not PlayerItemCooldowns[pName] then
-            PlayerItemCooldowns[pName] = {}
+local function ClearPlayerCooldowns(player)
+    if not player then return end
+    local pName = typeof(player) == "Instance" and player.Name or tostring(player)
+    PlayerItemCooldowns[pName] = nil
+    for k in pairs(PlayerItemCooldowns) do
+        if typeof(k) == "string" and k:sub(1, #pName + 1) == pName .. "_" then
+            PlayerItemCooldowns[k] = nil
         end
-        PlayerItemCooldowns[pName][itemName] = endTime
     end
-    PlayerItemCooldowns[itemName] = endTime
+    PlayerItemCache[player] = nil
+end
+
+local function SetItemCooldown(player, itemName, duration)
+    if not player or not itemName or not duration then return end
+    if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
+    local endTime = os.clock() + tonumber(duration)
+    local pName = typeof(player) == "Instance" and player.Name or tostring(player)
+    PlayerItemCooldowns[pName .. "_" .. itemName] = endTime
+    if not PlayerItemCooldowns[pName] then
+        PlayerItemCooldowns[pName] = {}
+    end
+    PlayerItemCooldowns[pName][itemName] = endTime
 end
 
 local function GetItemCooldown(player, itemName)
+    if not player or not itemName then return 0 end
+    if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return 0 end
     local now = os.clock()
-    local t = nil
-    if player then
-        local pName = typeof(player) == "Instance" and player.Name or tostring(player)
-        t = PlayerItemCooldowns[pName .. "_" .. itemName]
-        if not t and PlayerItemCooldowns[pName] then
-            t = PlayerItemCooldowns[pName][itemName]
-        end
-    end
-    if not t and itemName then
-        t = PlayerItemCooldowns[itemName]
+    local pName = typeof(player) == "Instance" and player.Name or tostring(player)
+    local t = PlayerItemCooldowns[pName .. "_" .. itemName]
+    if not t and PlayerItemCooldowns[pName] then
+        t = PlayerItemCooldowns[pName][itemName]
     end
     if t and t > now then
         return math.ceil(t - now)
@@ -349,9 +454,11 @@ end)
 local function SetupPlayerCooldownHooks(player)
     local function onChar(char)
         if not char then return end
+        ClearPlayerCooldowns(player)
 
         -- 1. Character Attribute: Parry (triggers on Parrying Dagger use) & Item Aiming/Overridelook
         table.insert(ScriptConnections, char.AttributeChanged:Connect(function(attrName)
+            if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
             if attrName == "Parry" and char:GetAttribute("Parry") == true then
                 SetItemCooldown(player, "Parrying Dagger", 60)
             elseif (attrName == "overridelookscript" or attrName == "Aiming") and char:GetAttribute(attrName) == true then
@@ -374,6 +481,7 @@ local function SetupPlayerCooldownHooks(player)
             local animator = hum and hum:WaitForChild("Animator", 10)
             if animator then
                 table.insert(ScriptConnections, animator.AnimationPlayed:Connect(function(track)
+                    if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
                     local anim = track.Animation
                     local id = anim and tostring(anim.AnimationId) or ""
 
@@ -403,6 +511,10 @@ local function SetupPlayerCooldownHooks(player)
 
                 -- Gate & Shadow Clone interrupt detection: if hit within 2s of channel start, cooldown drops to 5s
                 table.insert(ScriptConnections, hum:GetPropertyChangedSignal("Health"):Connect(function()
+                    if IsPlayerDead(player) then
+                        ClearPlayerCooldowns(player)
+                        return
+                    end
                     local cd = GetItemCooldown(player, "Gate")
                     if cd >= 58 then
                         SetItemCooldown(player, "Gate", 5)
@@ -412,6 +524,10 @@ local function SetupPlayerCooldownHooks(player)
                         SetItemCooldown(player, "Shadow Clone", 5)
                     end
                 end))
+
+                table.insert(ScriptConnections, hum.Died:Connect(function()
+                    ClearPlayerCooldowns(player)
+                end))
             end
         end)
 
@@ -420,6 +536,7 @@ local function SetupPlayerCooldownHooks(player)
             local hrp = char:WaitForChild("HumanoidRootPart", 10)
             if hrp then
                 table.insert(ScriptConnections, hrp.ChildAdded:Connect(function(child)
+                    if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
                     if child.Name == "RushVelocity" or child.Name == "RushAttachment" then
                         SetItemCooldown(player, "Riot Shield", 50)
                     end
@@ -429,7 +546,7 @@ local function SetupPlayerCooldownHooks(player)
 
         -- 4. Consumable Item Removal (Adrenaline Shot consumed on use)
         table.insert(ScriptConnections, char.ChildRemoved:Connect(function(child)
-            if child.Name == "Adrenaline Shot" and player:GetAttribute("IsDead") ~= true then
+            if child.Name == "Adrenaline Shot" and not IsPlayerDead(player) and not IsPlayerInLobby(player) then
                 SetItemCooldown(player, "Adrenaline Shot", 60)
             end
         end))
@@ -440,6 +557,7 @@ local function SetupPlayerCooldownHooks(player)
                 if not c or not (c:IsA("Model") or c:IsA("Tool")) then return end
                 local lastUses = tonumber(c:GetAttribute("uses") or c:GetAttribute("Uses"))
                 table.insert(ScriptConnections, c.AttributeChanged:Connect(function(attr)
+                    if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
                     if attr == "uses" or attr == "Uses" then
                         local cur = tonumber(c:GetAttribute(attr))
                         if lastUses and cur and cur < lastUses then
@@ -473,7 +591,7 @@ table.insert(ScriptConnections, Players.PlayerAdded:Connect(SetupPlayerCooldownH
 -- Successful Parry Stun Upgrade: if killer is stunned within 1.5s of parry, upgrade CD to 90s
 local function CheckKillerStunned()
     for _, p in ipairs(Players:GetPlayers()) do
-        if not IsKiller(p) and p.Character then
+        if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and p.Character then
             local cd = GetItemCooldown(p, "Parrying Dagger")
             if cd >= 57 then
                 SetItemCooldown(p, "Parrying Dagger", 90)
@@ -510,7 +628,7 @@ pcall(function()
                 local closest = nil
                 local minD = 999
                 for _, p in ipairs(Players:GetPlayers()) do
-                    if not IsKiller(p) and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                    if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
                         local d = (p.Character.HumanoidRootPart.Position - origin).Magnitude
                         if d < minD then minD = d closest = p end
                     end
@@ -518,8 +636,6 @@ pcall(function()
                 if closest and minD < 25 then
                     SetItemCooldown(closest, "Holy Water", 60)
                 end
-            else
-                SetItemCooldown(nil, "Holy Water", 60)
             end
         end))
     end
@@ -534,7 +650,7 @@ pcall(function()
             if child:IsA("RemoteEvent") then
                 table.insert(ScriptConnections, child.OnClientEvent:Connect(function(...)
                     for _, p in ipairs(Players:GetPlayers()) do
-                        if not IsKiller(p) and (p:GetAttribute("EquippedItem") == "Shadow Clone" or (p.Character and p.Character:FindFirstChild("Shadow Clone"))) then
+                        if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and (p:GetAttribute("EquippedItem") == "Shadow Clone" or (p.Character and p.Character:FindFirstChild("Shadow Clone"))) then
                             SetItemCooldown(p, "Shadow Clone", 60)
                         end
                     end
@@ -553,7 +669,7 @@ pcall(function()
             local bestP = nil
             local bestD = 999
             for _, p in ipairs(Players:GetPlayers()) do
-                if not IsKiller(p) and (p:GetAttribute("EquippedItem") == "Shadow Clone" or (p.Character and p.Character:FindFirstChild("Shadow Clone"))) then
+                if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and (p:GetAttribute("EquippedItem") == "Shadow Clone" or (p.Character and p.Character:FindFirstChild("Shadow Clone"))) then
                     if clonePos and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
                         local d = (p.Character.HumanoidRootPart.Position - clonePos).Magnitude
                         if d < bestD then
@@ -580,7 +696,7 @@ pcall(function()
     if fire then
         table.insert(ScriptConnections, fire.OnClientEvent:Connect(function(...)
             for _, p in ipairs(Players:GetPlayers()) do
-                if not IsKiller(p) and (p:GetAttribute("EquippedItem") == "WaxBound Candle" or (p.Character and p.Character:FindFirstChild("WaxBound Candle"))) then
+                if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and (p:GetAttribute("EquippedItem") == "WaxBound Candle" or (p.Character and p.Character:FindFirstChild("WaxBound Candle"))) then
                     SetItemCooldown(p, "WaxBound Candle", 35)
                 end
             end
@@ -597,7 +713,7 @@ pcall(function()
         if gGate then
             table.insert(ScriptConnections, gGate.OnClientEvent:Connect(function(...)
                 for _, p in ipairs(Players:GetPlayers()) do
-                    if not IsKiller(p) and (p:GetAttribute("EquippedItem") == "Gate" or (p.Character and p.Character:FindFirstChild("Gate"))) then
+                    if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and (p:GetAttribute("EquippedItem") == "Gate" or (p.Character and p.Character:FindFirstChild("Gate"))) then
                         SetItemCooldown(p, "Gate", 60)
                     end
                 end
@@ -607,7 +723,7 @@ pcall(function()
         if audio then
             table.insert(ScriptConnections, audio.OnClientEvent:Connect(function(...)
                 for _, p in ipairs(Players:GetPlayers()) do
-                    if not IsKiller(p) and (p:GetAttribute("EquippedItem") == "Gate" or (p.Character and p.Character:FindFirstChild("Gate"))) then
+                    if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and (p:GetAttribute("EquippedItem") == "Gate" or (p.Character and p.Character:FindFirstChild("Gate"))) then
                         SetItemCooldown(p, "Gate", 60)
                     end
                 end
@@ -640,7 +756,7 @@ pcall(function()
             table.insert(ScriptConnections, rr.OnClientEvent:Connect(function(success, dur)
                 local cd = tonumber(dur) or 50
                 for _, p in ipairs(Players:GetPlayers()) do
-                    if not IsKiller(p) and (p:GetAttribute("EquippedItem") == "Riot Shield" or (p.Character and p.Character:FindFirstChild("Riot Shield"))) then
+                    if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and (p:GetAttribute("EquippedItem") == "Riot Shield" or (p.Character and p.Character:FindFirstChild("Riot Shield"))) then
                         SetItemCooldown(p, "Riot Shield", cd)
                     end
                 end
@@ -652,7 +768,7 @@ pcall(function()
             table.insert(ScriptConnections, rstop.OnClientEvent:Connect(function(dur)
                 local cd = tonumber(dur) or 50
                 for _, p in ipairs(Players:GetPlayers()) do
-                    if not IsKiller(p) and (p:GetAttribute("EquippedItem") == "Riot Shield" or (p.Character and p.Character:FindFirstChild("Riot Shield"))) then
+                    if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and (p:GetAttribute("EquippedItem") == "Riot Shield" or (p.Character and p.Character:FindFirstChild("Riot Shield"))) then
                         SetItemCooldown(p, "Riot Shield", cd)
                     end
                 end
@@ -815,66 +931,221 @@ for k, v in pairs(KnownSurvivorPerks) do
     KnownSurvivorPerksNormalized[clean] = v
 end
 
--- EXACT 3 PERKS (NO DUPLICATES, ACCURATE ATTRIBUTES & SCRIPT DETECTION)
+local KnownKillerPerksNormalized = {}
+for k, v in pairs(KnownKillerPerks) do
+    local clean = k:lower():gsub("%s+", ""):gsub("[^%a]", "")
+    KnownKillerPerksNormalized[clean] = v
+end
+
+-- Dynamically ingest all in-game perks from ReplicatedStorage so newly added perks are 100% covered
+local function SyncGamePerksDatabase()
+    pcall(function()
+        local rs = game:GetService("ReplicatedStorage")
+        if rs:FindFirstChild("Perks") then
+            for _, c in ipairs(rs.Perks:GetChildren()) do
+                local name = c.Name
+                local clean = name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                KnownSurvivorPerks[name:lower()] = name
+                KnownSurvivorPerksNormalized[clean] = name
+            end
+        end
+        if rs:FindFirstChild("Killers") then
+            for _, k in ipairs(rs.Killers:GetChildren()) do
+                local kp = k:FindFirstChild("Perks")
+                if kp then
+                    for _, p in ipairs(kp:GetChildren()) do
+                        local name = p.Name
+                        local clean = name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                        KnownKillerPerks[name:lower()] = name
+                        KnownKillerPerksNormalized[clean] = name
+                    end
+                end
+            end
+        end
+    end)
+end
+task.spawn(SyncGamePerksDatabase)
+
+local PersistentPerksCache = {}
+local PlayerPerkTiers = {}
+
+-- EXACT PERKS RESOLUTION (RESPECTS EXACT SLOTS, NO FAKE FILLERS, LOBBY & IN-GAME VIEWABLE)
 local function GetPlayerPerks(player)
     local perks = {}
     if not player then return perks end
-    
-    -- Local Player Survivor Perks from GUI
+
+    local isK = IsKiller(player)
+    local targetNorm = isK and KnownKillerPerksNormalized or KnownSurvivorPerksNormalized
+
+    local function matchPerkName(rawName)
+        if not rawName then return nil end
+        local str = tostring(rawName):lower()
+        str = str:gsub("^perk%d*[_%s]*", ""):gsub("^slot%d*[_%s]*", ""):gsub("^p%d*[_%s]*", "")
+        str = str:gsub("[_%s]*tier[%s%d]*$", ""):gsub("[_%s]*t%d+$", ""):gsub("[_%s]*lvl[%s%d]*$", ""):gsub("[_%s]*active$", ""):gsub("[_%s]*cooldown$", ""):gsub("[_%s]*cd$", ""):gsub("[_%s]*proc$", ""):gsub("%d+$", "")
+        local clean = str:gsub("%s+", ""):gsub("[^%a]", "")
+        if #clean < 3 then return nil end
+        if targetNorm[clean] then return targetNorm[clean] end
+        for k, v in pairs(targetNorm) do
+            if clean == k or clean:find(k, 1, true) or (#clean >= 5 and k:find(clean, 1, true)) then
+                return v
+            end
+        end
+        return nil
+    end
+
+    local function addPerk(rawPerk, defaultTier)
+        if not rawPerk or #perks >= 3 then return end
+        local pName = nil
+        local pTier = defaultTier or 3
+        if type(rawPerk) == "table" then
+            pName = rawPerk.name or rawPerk.Name or rawPerk.perk or rawPerk.Perk or rawPerk.perkName or rawPerk.PerkName or rawPerk.id or rawPerk.ID or rawPerk[1]
+            pTier = rawPerk.tier or rawPerk.Tier or rawPerk.level or rawPerk.Level or rawPerk.lvl or rawPerk.Lvl or rawPerk[2] or pTier
+        elseif type(rawPerk) == "string" then
+            pName = rawPerk
+        end
+        if pName and type(pName) == "string" and pName ~= "" and pName ~= "---" and pName ~= "None" then
+            local mapped = matchPerkName(pName) or targetNorm[pName:lower():gsub("%s+", ""):gsub("[^%a]", "")]
+            if mapped and mapped ~= "" and not table.find(perks, mapped) and #perks < 3 then
+                table.insert(perks, mapped)
+                PlayerPerkTiers[player] = PlayerPerkTiers[player] or {}
+                PlayerPerkTiers[player][mapped] = tonumber(pTier) or 3
+            end
+        end
+    end
+
+    local rs = game:GetService("ReplicatedStorage")
+    local rem = rs:FindFirstChild("Remotes")
+
+    -- 1. Local Player: query authoritative server remotes for exact equipped slots
     if player == LocalPlayer then
-        local sp = player.PlayerGui:FindFirstChild("SurvivorPerks")
-        local pFolder = sp and (sp:FindFirstChild("Perks") or sp:FindFirstChild("Perkspc"))
-        if pFolder then
-            for _, c in ipairs(pFolder:GetChildren()) do
-                if c:IsA("ImageLabel") and c.Name ~= "cdviz" and c.Name ~= "bg" and not c.Name:find("UI") then
-                    local cleanName = KnownSurvivorPerks[c.Name:lower()] or c.Name
-                    if not table.find(perks, cleanName) and #perks < 3 then
-                        table.insert(perks, cleanName)
+        local remoteDone = false
+        if isK then
+            local sk = rem and rem:FindFirstChild("ShopKillers")
+            local getKiller = sk and sk:FindFirstChild("GetEquippedKillerPerks")
+            local kType = player:GetAttribute("SelectedKiller") or "Veil"
+            if getKiller then
+                pcall(function()
+                    local res = getKiller:InvokeServer(kType)
+                    if type(res) == "table" then
+                        remoteDone = true
+                        for _, slot in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "Perk1", "Perk2", "Perk3", 1, 2, 3}) do
+                            if res[slot] then addPerk(res[slot]) end
+                        end
+                        for _, val in pairs(res) do
+                            addPerk(val)
+                        end
+                    end
+                end)
+            end
+        else
+            local shop = rem and rem:FindFirstChild("Shop")
+            local getSurv = shop and shop:FindFirstChild("GetEquippedPerks")
+            if getSurv then
+                pcall(function()
+                    local res = getSurv:InvokeServer()
+                    if type(res) == "table" then
+                        remoteDone = true
+                        for _, slot in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "Perk1", "Perk2", "Perk3", 1, 2, 3}) do
+                            if res[slot] then addPerk(res[slot]) end
+                        end
+                        for _, p in pairs(res) do
+                            addPerk(p)
+                        end
+                    end
+                end)
+            end
+            if not remoteDone and player:FindFirstChild("PlayerGui") then
+                local sp = player.PlayerGui:FindFirstChild("SurvivorPerks")
+                local pFolder = sp and (sp:FindFirstChild("Perks") or sp:FindFirstChild("Perkspc"))
+                if pFolder then
+                    for _, c in ipairs(pFolder:GetChildren()) do
+                        if c:IsA("ImageLabel") and c.Name ~= "cdviz" and c.Name ~= "bg" and not c.Name:find("UI") then
+                            local mapped = matchPerkName(c.Name)
+                            if mapped then addPerk(mapped) end
+                        end
                     end
                 end
             end
         end
-        return perks
+
+        -- If server returned authoritative loadout, DO NOT run arbitrary descendant scraping!
+        -- Respects players who equipped only 1 or 2 perks.
+        if remoteDone or #perks > 0 then
+            PersistentPerksCache[player] = perks
+            return perks
+        end
     end
 
+    -- 2. Other Players (or fallback if LocalPlayer remote failed): Look for explicit perks & loadouts
     local char = player.Character
-    if not char then return perks end
 
-    -- Killer Perks: Always cloned as Scripts inside Character named "<PerkName> <Level>"
-    if IsKiller(player) then
-        for _, c in ipairs(char:GetChildren()) do
-            if c:IsA("LuaSourceContainer") and #perks < 3 then
-                local rawName = c.Name:match("^(.-)%s+%d+$")
-                if rawName then
-                    local mapped = KnownKillerPerks[rawName:lower()]
-                    if mapped and not table.find(perks, mapped) then
-                        table.insert(perks, mapped)
-                    end
+    -- A. Check explicit slot attributes (perk1, perk2, perk3, Slot1, Slot2, Slot3)
+    for _, slotKey in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "Perk1", "Perk2", "Perk3", "p1", "p2", "p3"}) do
+        local val = player:GetAttribute(slotKey) or (char and char:GetAttribute(slotKey))
+        if val and type(val) == "string" and val ~= "" and val ~= "None" then
+            local mapped = matchPerkName(val)
+            if mapped then addPerk(mapped) end
+        end
+    end
+
+    -- B. Check dedicated Perks / EquippedPerks container
+    local pFolders = {
+        player:FindFirstChild("Perks"),
+        player:FindFirstChild("EquippedPerks"),
+        player:FindFirstChild("SelectedPerks"),
+        char and char:FindFirstChild("Perks"),
+        char and char:FindFirstChild("EquippedPerks"),
+    }
+    for _, f in ipairs(pFolders) do
+        if f then
+            for _, c in ipairs(f:GetChildren()) do
+                local mapped = matchPerkName(c.Name)
+                local t = c:IsA("ValueBase") and tonumber(c.Value) or 3
+                if mapped then
+                    addPerk(mapped, t)
+                elseif c:IsA("ValueBase") and c.Value then
+                    local vMapped = matchPerkName(tostring(c.Value))
+                    if vMapped then addPerk(vMapped, 3) end
                 end
             end
         end
-        return perks
     end
 
-    -- Other Survivor Perks (from Character attributes like nopainnogain=true, builtdifferent=true, and scripts)
-    for attrName, attrVal in pairs(char:GetAttributes()) do
-        if attrVal == true and #perks < 3 then
+    -- C. Direct attributes on character or player matching exact perk names
+    local function scanDirectAttrs(inst)
+        if not inst then return end
+        local attrs = nil
+        pcall(function() attrs = inst:GetAttributes() end)
+        if not attrs then return end
+        for attrName, attrVal in pairs(attrs) do
+            if #perks >= 3 then break end
             local clean = attrName:lower():gsub("%s+", ""):gsub("[^%a]", "")
-            local mapped = KnownSurvivorPerksNormalized[clean]
-            if mapped and not table.find(perks, mapped) then
-                table.insert(perks, mapped)
+            if targetNorm[clean] and (attrVal == true or (type(attrVal) == "number" and attrVal > 0)) then
+                addPerk(targetNorm[clean], type(attrVal) == "number" and attrVal or 3)
             end
         end
     end
-    for _, c in ipairs(char:GetChildren()) do
-        if #perks < 3 then
-            local rawName = c.Name:match("^(.-)%s+%d+$") or c.Name
-            local clean = rawName:lower():gsub("%s+", ""):gsub("[^%a]", "")
-            local mapped = KnownSurvivorPerksNormalized[clean]
-            if mapped and not table.find(perks, mapped) then
-                table.insert(perks, mapped)
+    scanDirectAttrs(char)
+    scanDirectAttrs(player)
+
+    -- D. Check ReplicatedStorage player data container
+    local pData = rs:FindFirstChild(player.Name) or (rs:FindFirstChild("PlayerData") and rs.PlayerData:FindFirstChild(player.Name)) or (rs:FindFirstChild("Players") and rs.Players:FindFirstChild(player.Name))
+    if pData then
+        local pf = pData:FindFirstChild("Perks") or pData:FindFirstChild("EquippedPerks")
+        if pf then
+            for _, c in ipairs(pf:GetChildren()) do
+                local mapped = matchPerkName(c.Name) or (c:IsA("ValueBase") and matchPerkName(tostring(c.Value)))
+                if mapped then addPerk(mapped) end
             end
         end
+    end
+
+    -- E. Persist in cache
+    if #perks > 0 then
+        PersistentPerksCache[player] = perks
+        return perks
+    elseif PersistentPerksCache[player] and #PersistentPerksCache[player] > 0 then
+        return PersistentPerksCache[player]
     end
 
     return perks
@@ -883,6 +1154,7 @@ end
 -- SEPARATE SKILLS, CHARGES & COOLDOWNS
 local function GetPlayerSkillInfo(player)
     if not player or not player.Character then return nil end
+    if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return nil end
     local char = player.Character
     
     if IsKiller(player) then
@@ -1038,25 +1310,59 @@ local function GetPlayerSkillInfo(player)
         -- Survivor item, charges, cooldowns, status
         local details = {}
         
-        -- 1. Determine Item Name (Check attribute, then character children)
-        local item = player:GetAttribute("EquippedItem")
-        if not item or item == "None" or item == "" then
-            for _, c in ipairs(char:GetChildren()) do
+        -- 1. Determine Item Name (Check attributes, character children, backpack, and persistent cache)
+        local item = player:GetAttribute("EquippedItem") or (char and char:GetAttribute("EquippedItem"))
+            or player:GetAttribute("SelectedItem") or (char and char:GetAttribute("SelectedItem"))
+            or player:GetAttribute("Item") or (char and char:GetAttribute("Item"))
+        local bp = player:FindFirstChild("Backpack")
+
+        local function scanContainer(container)
+            if not container then return nil end
+            for _, c in ipairs(container:GetChildren()) do
                 if c:IsA("Model") or c:IsA("Tool") then
                     local nm = c.Name
-                    if nm == "Parrying Dagger" or nm == "Adrenaline Shot" or nm == "Flashlight" or nm == "Holy Water" or nm == "Riot Shield" or nm == "Gate" or nm == "WaxBound Candle" or nm == "Shadow Clone" or nm == "Twist of Fate" or nm:find("Syringe") or nm:find("Medkit") or nm == "Bandage" or nm == "Motion Tracker" then
-                        item = nm
-                        break
+                    if ItemIcons[nm] or nm == "Parrying Dagger" or nm == "Adrenaline Shot" or nm == "Flashlight" or nm == "Holy Water" or nm == "Riot Shield" or nm == "Gate" or nm == "WaxBound Candle" or nm == "Shadow Clone" or nm == "Twist of Fate" or nm:find("Syringe") or nm:find("Medkit") or nm == "Bandage" or nm == "Motion Tracker" then
+                        return nm
                     end
                 end
             end
+            for _, c in ipairs(container:GetChildren()) do
+                if c:IsA("Tool") and not c.Name:lower():find("fist") and not c.Name:lower():find("camera") and not c.Name:lower():find("phone") then
+                    return c.Name
+                end
+            end
+            return nil
+        end
+
+        if not item or item == "None" or item == "" then
+            item = scanContainer(char) or scanContainer(bp)
+        end
+        if not item or item == "None" or item == "" then
+            local ev = player:FindFirstChild("EquippedItem") or (char and char:FindFirstChild("EquippedItem"))
+                or player:FindFirstChild("Item") or (char and char:FindFirstChild("Item"))
+            if ev and (ev:IsA("StringValue") or ev:IsA("ObjectValue")) and ev.Value then
+                item = typeof(ev.Value) == "Instance" and ev.Value.Name or tostring(ev.Value)
+            end
+        end
+        if item and item ~= "None" and item ~= "" then
+            PlayerItemCache[player] = item
+        elseif not IsInLobby() and PlayerItemCache[player] then
+            item = PlayerItemCache[player]
         end
 
         local isItemReady = true
         if item and item ~= "None" and item ~= "" then
-            local itemInst = char:FindFirstChild(item)
+            local itemInst = char:FindFirstChild(item) or (bp and bp:FindFirstChild(item))
             if not itemInst then
                 for _, c in ipairs(char:GetChildren()) do
+                    if (c:IsA("Model") or c:IsA("Tool")) and (c.Name == item or c.Name:find(item) or (item:find(c.Name) and #c.Name > 3)) then
+                        itemInst = c
+                        break
+                    end
+                end
+            end
+            if not itemInst and bp then
+                for _, c in ipairs(bp:GetChildren()) do
                     if (c:IsA("Model") or c:IsA("Tool")) and (c.Name == item or c.Name:find(item) or (item:find(c.Name) and #c.Name > 3)) then
                         itemInst = c
                         break
@@ -1148,22 +1454,27 @@ local function UpdateBackgroundCache()
         -- Cache player perks and skills every 0.3s (fast iteration over players only)
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer and p.Character then
-                local isK = IsKiller(p)
-                local perks = GetPlayerPerks(p)
-                local skill, isReady = GetPlayerSkillInfo(p)
-                CachedPlayerData[p] = {
-                    IsKiller = isK,
-                    Perks = perks,
-                    SkillInfo = skill,
-                    ItemReady = isReady,
-                    DisplayName = p.DisplayName,
-                }
+                if not inLobby and (IsPlayerDead(p) or IsPlayerInLobby(p)) then
+                    CachedPlayerData[p] = nil
+                    ClearPlayerCooldowns(p)
+                else
+                    local isK = IsKiller(p)
+                    local perks = GetPlayerPerks(p)
+                    local skill, isReady = GetPlayerSkillInfo(p)
+                    CachedPlayerData[p] = {
+                        IsKiller = isK,
+                        Perks = perks,
+                        SkillInfo = skill,
+                        ItemReady = isReady,
+                        DisplayName = p.DisplayName,
+                    }
+                end
             end
         end
 
-        -- Clean up disconnected / dead players from cache
+        -- Clean up disconnected / dead / lobby players from cache
         for p in pairs(CachedPlayerData) do
-            if not p or not p.Parent then
+            if not p or not p.Parent or (not inLobby and (IsPlayerDead(p) or IsPlayerInLobby(p))) then
                 CachedPlayerData[p] = nil
             end
         end
@@ -1183,9 +1494,11 @@ local function UpdateBackgroundCache()
         end
         lastMapScan = now
 
-        local map = Workspace:FindFirstChild("Map")
+        local map = Workspace:FindFirstChild("Map") or Workspace:FindFirstChild("map")
         local gens, pallets, windows, gates = {}, {}, {}, {}
         local winSeen = {}
+        local genSeen = {}
+        local palletSeen = {}
 
         -- 1. Universal Multi-Map Vault Detection: CollectionService 'VaultPoint'
         -- (This is the official engine tag Violence District uses across all maps to trigger player vaults)
@@ -1213,49 +1526,74 @@ local function UpdateBackgroundCache()
                     end
                 end
             end
+
+            -- Also scan CollectionService tags for Generators & Pallets
+            for _, g in ipairs(CollectionService:GetTagged("Generator")) do
+                if not genSeen[g] then
+                    genSeen[g] = true
+                    local part = g:FindFirstChild("RootPart") or g.PrimaryPart or g:FindFirstChildWhichIsA("BasePart")
+                    if part then table.insert(gens, { Model = g, Part = part }) end
+                end
+            end
+            for _, p in ipairs(CollectionService:GetTagged("Pallet")) do
+                if not palletSeen[p] then
+                    palletSeen[p] = true
+                    local part = p:FindFirstChild("PrimaryPartPallet") or p.PrimaryPart or p:FindFirstChildWhichIsA("BasePart")
+                    if part then table.insert(pallets, { Model = p, Part = part, PalletWood = p }) end
+                end
+            end
         end)
 
-        if map then
-            for _, d in ipairs(map:GetDescendants()) do
-                if d:IsA("Model") and (d.Name == "Generator" or d:GetAttribute("RepairProgress") ~= nil) then
-                    local part = d:FindFirstChild("RootPart") or d:FindFirstChildWhichIsA("BasePart")
-                    if part then table.insert(gens, { Model = d, Part = part }) end
-                end
-                -- Real pallets only (Filter out 35+ PalletCrate shipping containers!)
-                local isPallet = (d.Parent and d.Parent.Name == "Pallets") or (d:FindFirstChild("PrimaryPartPallet") and not d.Name:lower():find("crate"))
-                if d:IsA("Model") and isPallet then
-                    local part = d:FindFirstChild("PrimaryPartPallet") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                    if part then table.insert(pallets, { Model = d, Part = part, PalletWood = d }) end
-                end
+        local searchRoots = {}
+        if map then table.insert(searchRoots, map) end
+        table.insert(searchRoots, Workspace)
 
-                -- 2. Fallback Scan: Any Model or Folder with 'window' or 'vault' across various maps
-                local dName = d.Name:lower()
-                if (d:IsA("Model") or d:IsA("Folder")) and (dName:find("window") or dName == "vault" or dName:find("vault")) and not winSeen[d] then
-                    winSeen[d] = true
-                    local bottomPart = d:FindFirstChild("Bottom")
-                    local ledge = bottomPart
-                    if not ledge then
-                        for _, c in ipairs(d:GetChildren()) do
-                            if c:IsA("BasePart") and not c.Name:lower():find("invis") and not c.Name:lower():find("trigger") then
-                                ledge = c
-                                break
+        for _, rootObj in ipairs(searchRoots) do
+            if #gens == 0 or rootObj == map then
+                for _, d in ipairs(rootObj:GetDescendants()) do
+                    if d:IsA("Model") and not genSeen[d] and (d.Name == "Generator" or d.Name:lower() == "generator" or d:GetAttribute("RepairProgress") ~= nil) then
+                        genSeen[d] = true
+                        local part = d:FindFirstChild("RootPart") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
+                        if part then table.insert(gens, { Model = d, Part = part }) end
+                    end
+                    -- Real pallets only (Filter out 35+ PalletCrate shipping containers!)
+                    local isPallet = (d.Parent and d.Parent.Name == "Pallets") or (d:FindFirstChild("PrimaryPartPallet") and not d.Name:lower():find("crate"))
+                    if d:IsA("Model") and not palletSeen[d] and isPallet then
+                        palletSeen[d] = true
+                        local part = d:FindFirstChild("PrimaryPartPallet") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
+                        if part then table.insert(pallets, { Model = d, Part = part, PalletWood = d }) end
+                    end
+
+                    -- 2. Fallback Scan: Any Model or Folder with 'window' or 'vault' across various maps
+                    local dName = d.Name:lower()
+                    if (d:IsA("Model") or d:IsA("Folder")) and (dName:find("window") or dName == "vault" or dName:find("vault")) and not winSeen[d] then
+                        winSeen[d] = true
+                        local bottomPart = d:FindFirstChild("Bottom")
+                        local ledge = bottomPart
+                        if not ledge then
+                            for _, c in ipairs(d:GetChildren()) do
+                                if c:IsA("BasePart") and not c.Name:lower():find("invis") and not c.Name:lower():find("trigger") then
+                                    ledge = c
+                                    break
+                                end
                             end
                         end
-                    end
-                    local part = ledge or (d:IsA("Model") and d.PrimaryPart) or d:FindFirstChildWhichIsA("BasePart")
-                    if part then
-                        ledge = ledge or part
-                        if ledge.Transparency >= 0.99 then ledge.Transparency = 0.98 end
-                        table.insert(windows, { Model = d, Part = part, VaultLedge = ledge })
+                        local part = ledge or (d:IsA("Model") and d.PrimaryPart) or d:FindFirstChildWhichIsA("BasePart")
+                        if part then
+                            ledge = ledge or part
+                            if ledge.Transparency >= 0.99 then ledge.Transparency = 0.98 end
+                            table.insert(windows, { Model = d, Part = part, VaultLedge = ledge })
+                        end
                     end
                 end
             end
-            for _, d in ipairs(map:GetChildren()) do
+            for _, d in ipairs(rootObj:GetChildren()) do
                 if d:IsA("Model") and d.Name == "Gate" then
                     local part = d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
                     if part then table.insert(gates, { Model = d, Part = part }) end
                 end
             end
+            if #gens > 0 and #pallets > 0 then break end
         end
         CachedGenerators = gens
         CachedPallets = pallets
@@ -1349,7 +1687,12 @@ end
 table.insert(ScriptConnections, Players.PlayerAdded:Connect(function(p)
     if p ~= LocalPlayer then CreatePlayerESP(p) end
 end))
-table.insert(ScriptConnections, Players.PlayerRemoving:Connect(RemovePlayerESP))
+table.insert(ScriptConnections, Players.PlayerRemoving:Connect(function(p)
+    RemovePlayerESP(p)
+    PersistentPerksCache[p] = nil
+    PlayerPerkTiers[p] = nil
+    ClearPlayerCooldowns(p)
+end))
 
 -- Objective Drawings mapped directly by Instance (PREVENTS SWAPPING & SHAKING)
 local GenDrawings = {}
@@ -1967,6 +2310,1077 @@ secObjESP:AddToggle({ Name = "Exit Gates ESP", Default = false, Callback = funct
     end
 end })
 
+-- ======== PLAYERLIST (DBD SCOREBOARD ROSTER) TAB ========
+-- In-game asset mapping (Perks, Items, Killers) pulled directly from game files
+local KillerPortraits = {
+    ["Cure"] = "rbxassetid://116667641951505",
+    ["Veil"] = "", -- Dynamically pulled from game files / head texture to strictly prevent ability spear icon
+    ["Masked"] = "rbxassetid://110441838520158",
+    ["Stalker"] = "rbxassetid://85894094209457",
+    ["Killer"] = "rbxassetid://108114231850675",
+    ["Hidden"] = "http://www.roblox.com/asset/?id=129570234771869",
+    ["Abysswalker"] = "rbxassetid://100395868673407",
+    ["Slasher"] = "http://www.roblox.com/asset/?id=134862031194933",
+}
+
+local KillerPowerIcons = {
+    ["Cure"] = "rbxassetid://119792658841268",
+    ["Veil"] = "rbxassetid://110881025348309",
+    ["Slasher"] = "rbxassetid://136973921948245",
+    ["Hidden"] = "http://www.roblox.com/asset/?id=130915693370693",
+    ["Stalker"] = "rbxassetid://110045688062234",
+    ["Abysswalker"] = "rbxassetid://86213737463907",
+    ["Masked"] = "rbxassetid://138348124971869",
+    ["Killer"] = "rbxassetid://106695569058121",
+}
+
+local ItemIcons = {
+    ["Twist of Fate"] = "rbxassetid://132056840388397",
+    ["Motion Tracker"] = "rbxassetid://132463384683157",
+    ["Gate"] = "rbxassetid://125030248803938",
+    ["Flashlight"] = "rbxassetid://74098471049890",
+    ["Bandage"] = "rbxassetid://82212412764648",
+    ["Medkit"] = "rbxassetid://82212412764648",
+    ["Parrying Dagger"] = "rbxassetid://73125857028072",
+    ["Adrenaline Shot"] = "rbxassetid://18720210000",
+    ["Shadow Clone"] = "rbxassetid://134088840518889",
+    ["WaxBound Candle"] = "rbxassetid://106285555718658",
+    ["Holy Water"] = "rbxassetid://87891828424217",
+    ["Riot Shield"] = "rbxassetid://74132675904402",
+}
+
+local PerkIconCache = {}
+local function GetPerkIcon(perkName, desiredTier)
+    if not perkName or perkName == "" or perkName == "---" then return nil end
+    local tierStr = tostring(desiredTier or 3)
+    local cacheKey = perkName .. "_" .. tierStr
+    if PerkIconCache[cacheKey] then return PerkIconCache[cacheKey] end
+
+    local clean = perkName:lower():gsub("%s+", ""):gsub("[^%a]", "")
+    local rs = game:GetService("ReplicatedStorage")
+    local tiersToCheck = { tierStr }
+    for _, t in ipairs({"3", "2", "1"}) do
+        if t ~= tierStr then table.insert(tiersToCheck, t) end
+    end
+
+    -- 1. Search ReplicatedStorage.Perks (Survivor Perks)
+    if rs:FindFirstChild("Perks") then
+        for _, pFolder in ipairs(rs.Perks:GetChildren()) do
+            local pClean = pFolder.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if pClean == clean then
+                for _, tier in ipairs(tiersToCheck) do
+                    local tObj = pFolder:FindFirstChild(tier)
+                    if tObj and (tObj:IsA("ImageLabel") or tObj:IsA("ImageButton")) and tObj.Image ~= "" then
+                        PerkIconCache[cacheKey] = tObj.Image
+                        return tObj.Image
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. Search ReplicatedStorage.Killers (Killer Perks)
+    if rs:FindFirstChild("Killers") then
+        for _, kFolder in ipairs(rs.Killers:GetChildren()) do
+            local kPerks = kFolder:FindFirstChild("Perks")
+            if kPerks then
+                for _, pFolder in ipairs(kPerks:GetChildren()) do
+                    local pClean = pFolder.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                    if pClean == clean then
+                        for _, tier in ipairs(tiersToCheck) do
+                            local tObj = pFolder:FindFirstChild(tier)
+                            if tObj and (tObj:IsA("ImageLabel") or tObj:IsA("ImageButton")) and tObj.Image ~= "" then
+                                PerkIconCache[cacheKey] = tObj.Image
+                                return tObj.Image
+                            end
+                        end
+                        for _, c in ipairs(pFolder:GetChildren()) do
+                            if (c:IsA("ImageLabel") or c:IsA("ImageButton")) and c.Image ~= "" then
+                                PerkIconCache[cacheKey] = c.Image
+                                return c.Image
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local ItemIconCache = {}
+local function GetItemIcon(itemName)
+    if not itemName or itemName == "" or itemName == "No Item" or itemName == "None" then return nil end
+    if ItemIconCache[itemName] then return ItemIconCache[itemName] end
+    if ItemIcons[itemName] then
+        ItemIconCache[itemName] = ItemIcons[itemName]
+        return ItemIcons[itemName]
+    end
+
+    local rs = game:GetService("ReplicatedStorage")
+    if rs:FindFirstChild("Items") then
+        local itLower = itemName:lower()
+        for _, it in ipairs(rs.Items:GetChildren()) do
+            local nLower = it.Name:lower()
+            if nLower == itLower or itLower:find(nLower) or nLower:find(itLower) then
+                for _, c in ipairs(it:GetDescendants()) do
+                    if (c:IsA("ImageLabel") or c:IsA("ImageButton")) and c.Image ~= "" and not c.Image:find("Placeholder") then
+                        ItemIconCache[itemName] = c.Image
+                        return c.Image
+                    elseif c:IsA("Decal") and c.Texture ~= "" then
+                        ItemIconCache[itemName] = c.Texture
+                        return c.Texture
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function SetupKillerAvatar(row, kName, plr)
+    local avatarBox = row.AvatarBox
+    local avatarImg = row.AvatarImg
+
+    local currentVpf = avatarBox:FindFirstChild("KillerViewport")
+    if currentVpf and currentVpf:GetAttribute("Killer") == tostring(kName) then
+        avatarImg.Visible = false
+        currentVpf.Visible = true
+        return
+    end
+
+    local clean = tostring(kName or ""):lower():gsub("%s+", ""):gsub("[^%a]", "")
+
+    local function mountClonedViewport(sourceVpf)
+        if not sourceVpf or not sourceVpf:IsA("ViewportFrame") then return false end
+        local mounted = false
+        pcall(function()
+            if currentVpf then currentVpf:Destroy() end
+            local wasArch = sourceVpf.Archivable
+            sourceVpf.Archivable = true
+            local newVpf = sourceVpf:Clone()
+            sourceVpf.Archivable = wasArch
+            if not newVpf then return end
+            newVpf.Name = "KillerViewport"
+            newVpf:SetAttribute("Killer", tostring(kName))
+            newVpf.Size = UDim2.new(1, 0, 1, 0)
+            newVpf.Position = UDim2.new(0, 0, 0, 0)
+            newVpf.BackgroundTransparency = 1
+            newVpf.BorderSizePixel = 0
+            newVpf.Parent = avatarBox
+            Instance.new("UICorner", newVpf).CornerRadius = UDim.new(0, 6)
+            avatarImg.Visible = false
+            currentVpf = newVpf
+            mounted = true
+        end)
+        return mounted
+    end
+
+    local function mountModelViewport(sourceModel)
+        if not sourceModel or not sourceModel:IsA("Model") then return false end
+        local mounted = false
+        pcall(function()
+            local wasArch = sourceModel.Archivable
+            sourceModel.Archivable = true
+            local clone = sourceModel:Clone()
+            sourceModel.Archivable = wasArch
+            if not clone then return end
+
+            if currentVpf then currentVpf:Destroy() end
+            local vpf = Instance.new("ViewportFrame")
+            vpf.Name = "KillerViewport"
+            vpf:SetAttribute("Killer", tostring(kName))
+            vpf.Size = UDim2.new(1, 0, 1, 0)
+            vpf.Position = UDim2.new(0, 0, 0, 0)
+            vpf.BackgroundTransparency = 1
+            vpf.BorderSizePixel = 0
+            Instance.new("UICorner", vpf).CornerRadius = UDim.new(0, 6)
+
+            for _, obj in ipairs(clone:GetDescendants()) do
+                if obj:IsA("LuaSourceContainer") or obj:IsA("Sound") or (obj:IsA("BasePart") and (obj.Name:lower():find("hitbox") or obj.Name:lower():find("root") or obj.Transparency >= 0.95)) then
+                    obj:Destroy()
+                end
+            end
+            for _, part in ipairs(clone:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.Anchored = true
+                end
+            end
+            clone.Parent = vpf
+
+            local head = clone:FindFirstChild("Head") or clone.PrimaryPart
+            local cf, sz = clone:GetBoundingBox()
+            local targetPos = (head and head.Position) or (cf.Position + Vector3.new(0, sz.Y * 0.3, 0))
+            local cam = Instance.new("Camera")
+            cam.CameraType = Enum.CameraType.Scriptable
+            local look = (head and head.CFrame.LookVector) or cf.LookVector
+            if math.abs(look.Magnitude) < 0.1 then look = Vector3.new(0, 0, -1) end
+            cam.CFrame = CFrame.new(targetPos + look * 2.2 + Vector3.new(0, 0.08, 0), targetPos)
+            cam.FieldOfView = 50
+            cam.Parent = vpf
+            vpf.CurrentCamera = cam
+
+            vpf.Parent = avatarBox
+            avatarImg.Visible = false
+            currentVpf = vpf
+            mounted = true
+        end)
+        return mounted
+    end
+
+    local knownPowerIcons = {
+        ["107207953517546"] = true, ["110881025348309"] = true, ["119792658841268"] = true,
+        ["136973921948245"] = true, ["130915693370693"] = true, ["110045688062234"] = true,
+        ["86213737463907"] = true, ["138348124971869"] = true, ["106695569058121"] = true,
+    }
+    local function isPowerIcon(assetId)
+        if not assetId or assetId == "" then return true end
+        local idStr = tostring(assetId)
+        for pId, _ in pairs(knownPowerIcons) do
+            if idStr:find(pId) then return true end
+        end
+        return false
+    end
+
+    -- 1. Check ReplicatedStorage.Killers (and kFolder.Frame from Image 4!)
+    local rs = game:GetService("ReplicatedStorage")
+    local kFolder = nil
+    if rs:FindFirstChild("Killers") then
+        kFolder = rs.Killers:FindFirstChild(kName) or rs.Killers:FindFirstChild("The " .. kName)
+        if not kFolder and clean ~= "" then
+            for _, kf in ipairs(rs.Killers:GetChildren()) do
+                local kfClean = kf.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                if kfClean == clean or kfClean:find(clean, 1, true) or clean:find(kfClean, 1, true) then
+                    kFolder = kf
+                    break
+                end
+            end
+        end
+    end
+
+    if kFolder then
+        local vpf = kFolder:FindFirstChildWhichIsA("ViewportFrame", true)
+        if vpf and mountClonedViewport(vpf) then return end
+
+        local mdl = kFolder:FindFirstChildWhichIsA("Model", true)
+        if mdl and mountModelViewport(mdl) then return end
+
+        for _, c in ipairs(kFolder:GetDescendants()) do
+            if (c:IsA("ImageLabel") or c:IsA("ImageButton")) and c.Image ~= "" and not isPowerIcon(c.Image) and not c.Image:find("Placeholder") and not c.Image:find("8012052454") and not c.Image:find("13662414759") then
+                local cn = c.Name:lower()
+                if not cn:find("bg") and not cn:find("background") and not cn:find("stroke") and not cn:find("lock") and not cn:find("owned") and not cn:find("cost") and not cn:find("price") then
+                    if currentVpf then currentVpf:Destroy() end
+                    avatarImg.Image = c.Image
+                    avatarImg.Visible = true
+                    return
+                end
+            end
+        end
+    end
+
+    -- 2. Check PlayerGui for Killer Selection Cards (Image 4 in-game screen)
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if pg and clean ~= "" then
+        for _, desc in ipairs(pg:GetDescendants()) do
+            local dn = desc.Name:lower()
+            local pn = desc.Parent and desc.Parent.Name:lower() or ""
+            local gpn = desc.Parent and desc.Parent.Parent and desc.Parent.Parent.Name:lower() or ""
+            if dn:find(clean) or pn:find(clean) or gpn:find(clean) then
+                if desc:IsA("ViewportFrame") and mountClonedViewport(desc) then
+                    return
+                elseif (desc:IsA("ImageLabel") or desc:IsA("ImageButton")) and desc.Image ~= "" and not isPowerIcon(desc.Image) and not dn:find("bg") and not dn:find("background") and not dn:find("stroke") and not desc.Image:find("rbxthumb") then
+                    if currentVpf then currentVpf:Destroy() end
+                    avatarImg.Image = desc.Image
+                    avatarImg.Visible = true
+                    return
+                end
+            end
+        end
+    end
+
+    -- 3. Check entire ReplicatedStorage for any Model/Viewport matching killer name
+    if clean ~= "" then
+        for _, desc in ipairs(rs:GetDescendants()) do
+            if desc.Name:lower():find(clean) then
+                if desc:IsA("ViewportFrame") and mountClonedViewport(desc) then return end
+                if desc:IsA("Model") and mountModelViewport(desc) then return end
+            end
+        end
+    end
+
+    -- 4. Check KillerPortraits dictionary
+    if KillerPortraits[kName] and KillerPortraits[kName] ~= "" then
+        if currentVpf then currentVpf:Destroy() end
+        avatarImg.Image = KillerPortraits[kName]
+        avatarImg.Visible = true
+        return
+    end
+
+    -- 5. Check Workspace for Killer Model/Dummy
+    local ws = game:GetService("Workspace")
+    for _, obj in ipairs(ws:GetChildren()) do
+        if obj:IsA("Model") and not obj:IsA("Player") and (obj.Name:lower():find(clean) or obj.Name:lower():find("killer")) then
+            if mountModelViewport(obj) then return end
+        end
+    end
+
+    -- 6. In match, killer character model (if not player's default avatar)
+    if plr and plr.Character and plr ~= LocalPlayer then
+        if mountModelViewport(plr.Character) then return end
+    end
+end
+
+local KillerPowerIconCache = {}
+local function GetKillerPowerIcon(kName)
+    if not kName then return nil end
+    if KillerPowerIcons[kName] then return KillerPowerIcons[kName] end
+    if KillerPowerIconCache[kName] then return KillerPowerIconCache[kName] end
+
+    local rs = game:GetService("ReplicatedStorage")
+    if rs:FindFirstChild("Killers") then
+        local kFolder = rs.Killers:FindFirstChild(kName)
+        if kFolder and kFolder:FindFirstChild("Frame") then
+            for _, c in ipairs(kFolder.Frame:GetDescendants()) do
+                if (c:IsA("ImageLabel") or c:IsA("ImageButton")) and c.Image ~= "" and not c.Image:find("Placeholder") and not c.Image:find("8012052454") and not c.Image:find("13662414759") then
+                    if not (c.Name:lower():find("icon") or c.Name:lower():find("portrait") or c.Name:lower():find("head") or c.Name == "Background") then
+                        KillerPowerIconCache[kName] = c.Image
+                        return c.Image
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local TabPlayerlist = Window:CreateTab("Playerlist", "rbxassetid://10723415766")
+local colRoster = TabPlayerlist:CreateColumn()
+colRoster.Frame.Size = UDim2.new(1, 0, 1, 0)
+
+-- Header Status Card
+local RosterHeaderCard, RosterHeaderAccent = colRoster:CreateCustomCard(44)
+Window:RegisterAccent(RosterHeaderAccent, "BackgroundColor3")
+
+local RosterHeaderIcon = Instance.new("ImageLabel")
+RosterHeaderIcon.Size = UDim2.fromOffset(20, 20)
+RosterHeaderIcon.Position = UDim2.fromOffset(10, 12)
+RosterHeaderIcon.BackgroundTransparency = 1
+RosterHeaderIcon.Image = "rbxassetid://10723415766"
+RosterHeaderIcon.ImageColor3 = Window.Theme.Accent
+RosterHeaderIcon.Parent = RosterHeaderCard
+Window:RegisterAccent(RosterHeaderIcon, "ImageColor3")
+
+local RosterTitle = Instance.new("TextLabel")
+RosterTitle.Size = UDim2.new(1, -120, 0, 16)
+RosterTitle.Position = UDim2.fromOffset(36, 6)
+RosterTitle.BackgroundTransparency = 1
+RosterTitle.Text = "Match Roster & Loadouts"
+RosterTitle.TextColor3 = Window.Theme.Text
+RosterTitle.TextSize = 12
+RosterTitle.TextXAlignment = Enum.TextXAlignment.Left
+RosterTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+RosterTitle.Parent = RosterHeaderCard
+
+local RosterSubText = Instance.new("TextLabel")
+RosterSubText.Size = UDim2.new(1, -120, 0, 14)
+RosterSubText.Position = UDim2.fromOffset(36, 22)
+RosterSubText.BackgroundTransparency = 1
+RosterSubText.Text = "Loading players..."
+RosterSubText.TextColor3 = Window.Theme.SubText
+RosterSubText.TextSize = 9
+RosterSubText.TextXAlignment = Enum.TextXAlignment.Left
+RosterSubText.FontFace = GetPreferredFont()
+RosterSubText.Parent = RosterHeaderCard
+
+local RefreshRosterBtn = Instance.new("TextButton")
+RefreshRosterBtn.Size = UDim2.fromOffset(80, 24)
+RefreshRosterBtn.Position = UDim2.new(1, -90, 0.5, -12)
+RefreshRosterBtn.BackgroundColor3 = Window.Theme.ElementBackground
+RefreshRosterBtn.BorderSizePixel = 0
+RefreshRosterBtn.Text = "↻ Refresh"
+RefreshRosterBtn.TextColor3 = Window.Theme.Text
+RefreshRosterBtn.TextSize = 10
+RefreshRosterBtn.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+RefreshRosterBtn.Parent = RosterHeaderCard
+Instance.new("UICorner", RefreshRosterBtn).CornerRadius = UDim.new(0, 5)
+local refStroke = Instance.new("UIStroke", RefreshRosterBtn)
+refStroke.Color = Window.Theme.Accent
+refStroke.Thickness = 1
+Window:RegisterAccent(refStroke, "Color")
+
+local RosterListContainer = Instance.new("Frame")
+RosterListContainer.Name = "RosterListContainer"
+RosterListContainer.Size = UDim2.new(1, 0, 0, 0)
+RosterListContainer.AutomaticSize = Enum.AutomaticSize.Y
+RosterListContainer.BackgroundTransparency = 1
+RosterListContainer.BorderSizePixel = 0
+RosterListContainer.Parent = colRoster.Frame
+
+local RosterListLayout = Instance.new("UIListLayout")
+RosterListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+RosterListLayout.Padding = UDim.new(0, 6)
+RosterListLayout.Parent = RosterListContainer
+
+local cachedRosterRows = {}
+
+local function GetRosterSurvivorState(plr)
+    if IsInLobby() or IsPlayerInLobby(plr) then
+        return "Lobby", Color3.fromRGB(0, 210, 255), Color3.fromRGB(10, 40, 55)
+    end
+    if IsPlayerDead(plr) then
+        return "[DEAD]", Color3.fromRGB(150, 150, 150), Color3.fromRGB(35, 35, 35)
+    end
+    local char = plr.Character
+    if not char or not char.Parent then
+        return "[DEAD]", Color3.fromRGB(150, 150, 150), Color3.fromRGB(35, 35, 35)
+    end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health <= 0 then
+        return "[DEAD]", Color3.fromRGB(150, 150, 150), Color3.fromRGB(35, 35, 35)
+    end
+
+    local CollectionService = game:GetService("CollectionService")
+
+    -- 1. Hooked on Meat Hook
+    local isHooked = (char:GetAttribute("IsHooked") == true) or CollectionService:HasTag(char, "Hooked")
+    if isHooked then
+        return "[HOOKED]", Color3.fromRGB(255, 70, 90), Color3.fromRGB(70, 15, 25)
+    end
+
+    -- 2. Carried by Killer
+    local isCarried = (char:GetAttribute("IsCarried") == true) or (char:GetAttribute("Carried") == true)
+    if isCarried then
+        return "[CARRIED]", Color3.fromRGB(210, 120, 255), Color3.fromRGB(55, 20, 75)
+    end
+
+    -- 3. Knocked Down (Down state on ground)
+    local isDown = (char:GetAttribute("Knocked") == true) or CollectionService:HasTag(char, "Knocked")
+    if isDown then
+        return "[DOWN]", Color3.fromRGB(255, 150, 40), Color3.fromRGB(65, 35, 10)
+    end
+
+    -- 4. Injured (Hit 1 time - Health < 100 or <= 50)
+    if hum and hum.Health < 99 then
+        return "Injured (" .. math.floor(hum.Health) .. "%)", Color3.fromRGB(255, 200, 60), Color3.fromRGB(60, 50, 10)
+    end
+
+    -- 5. Healthy (Full Health)
+    return "Healthy", Color3.fromRGB(60, 230, 120), Color3.fromRGB(15, 55, 30)
+end
+
+local function GetRosterKillerState(plr)
+    if IsInLobby() then
+        return "Lobby", Color3.fromRGB(255, 100, 120), Color3.fromRGB(55, 15, 20)
+    end
+    local char = plr.Character
+    if char then
+        if char:GetAttribute("IsStunned") == true then
+            return "[STUNNED]", Color3.fromRGB(255, 200, 50), Color3.fromRGB(65, 50, 10)
+        end
+        if char:GetAttribute("IsCarrying") == true then
+            return "[CARRYING]", Color3.fromRGB(210, 120, 255), Color3.fromRGB(55, 20, 75)
+        end
+    end
+    return "Hunting", Color3.fromRGB(255, 70, 90), Color3.fromRGB(70, 15, 25)
+end
+
+local function GetRosterItemDisplay(plr, isK)
+    local rawInfo, isReady = nil, nil
+    pcall(function()
+        rawInfo, isReady = GetPlayerSkillInfo(plr)
+    end)
+    if isK then
+        local kType = plr:GetAttribute("SelectedKiller") or "The Killer"
+        local pwr = kType .. " Power"
+        local det = "Ready"
+        if rawInfo then
+            local pName, pDet = rawInfo:match("%[SKILL%]%s*(.-)%s*%[(.-)%]")
+            if pName then
+                pwr = pName
+                det = pDet or "Active"
+            else
+                pwr = rawInfo:gsub("%[SKILL%]%s*", "")
+                det = "Active"
+            end
+        end
+        return pwr, det, Color3.fromRGB(255, 100, 120)
+    else
+        local char = plr.Character
+        local bp = plr:FindFirstChild("Backpack")
+        local item = plr:GetAttribute("EquippedItem") or (char and char:GetAttribute("EquippedItem"))
+            or plr:GetAttribute("SelectedItem") or (char and char:GetAttribute("SelectedItem"))
+            or plr:GetAttribute("Item") or (char and char:GetAttribute("Item"))
+
+        local function scanContainer(container)
+            if not container then return nil end
+            for _, c in ipairs(container:GetChildren()) do
+                if c:IsA("Model") or c:IsA("Tool") then
+                    local nm = c.Name
+                    if ItemIcons[nm] or nm == "Parrying Dagger" or nm == "Adrenaline Shot" or nm == "Flashlight" or nm == "Holy Water" or nm == "Riot Shield" or nm == "Gate" or nm == "WaxBound Candle" or nm == "Shadow Clone" or nm == "Twist of Fate" or nm:find("Syringe") or nm:find("Medkit") or nm == "Bandage" or nm == "Motion Tracker" then
+                        return nm
+                    end
+                end
+            end
+            for _, c in ipairs(container:GetChildren()) do
+                if c:IsA("Tool") and not c.Name:lower():find("fist") and not c.Name:lower():find("camera") and not c.Name:lower():find("phone") then
+                    return c.Name
+                end
+            end
+            return nil
+        end
+
+        if not item or item == "" or item == "None" then
+            item = scanContainer(char) or scanContainer(bp)
+        end
+
+        if not item or item == "" or item == "None" then
+            local ev = plr:FindFirstChild("EquippedItem") or (char and char:FindFirstChild("EquippedItem"))
+                or plr:FindFirstChild("Item") or (char and char:FindFirstChild("Item"))
+            if ev and (ev:IsA("StringValue") or ev:IsA("ObjectValue")) and ev.Value then
+                item = typeof(ev.Value) == "Instance" and ev.Value.Name or tostring(ev.Value)
+            end
+        end
+
+        if item and item ~= "" and item ~= "None" then
+            PlayerItemCache[plr] = item
+        elseif not IsInLobby() and PlayerItemCache[plr] then
+            item = PlayerItemCache[plr]
+        end
+
+        if not item or item == "" or item == "None" then
+            return "No Item", "---", Window.Theme.SubText
+        end
+
+        local det = "Ready"
+        local col = Color3.fromRGB(80, 255, 120)
+        if rawInfo then
+            local clean = rawInfo:gsub("^%[ITEM%]%s*", "")
+            det = clean
+            if isReady == false then
+                col = Color3.fromRGB(255, 80, 80)
+            elseif isReady == true then
+                col = Color3.fromRGB(80, 255, 120)
+            else
+                col = Color3.fromRGB(255, 195, 60)
+            end
+        end
+        return item, det, col
+    end
+end
+
+local function CreatePlayerRow(plr)
+    local card = Instance.new("Frame")
+    card.Name = "PlayerCard_" .. plr.Name
+    card.Size = UDim2.new(1, -2, 0, 72)
+    card.BackgroundColor3 = Window.Theme.Section
+    card.BackgroundTransparency = Window.TransparentEnabled and 0.25 or 0
+    card.BorderSizePixel = 0
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+    local cardStroke = Instance.new("UIStroke", card)
+    cardStroke.Color = Window.Theme.SectionBorder
+    cardStroke.Thickness = 1
+    card.Parent = RosterListContainer
+
+    -- Accent Bar (Left side)
+    local accentBar = Instance.new("Frame")
+    accentBar.Size = UDim2.new(0, 4, 1, -12)
+    accentBar.Position = UDim2.new(0, 0, 0, 6)
+    accentBar.BorderSizePixel = 0
+    accentBar.Parent = card
+    Instance.new("UICorner", accentBar).CornerRadius = UDim.new(0, 2)
+
+    -- Avatar / Face Portrait Box
+    local avatarBox = Instance.new("Frame")
+    avatarBox.Size = UDim2.fromOffset(50, 50)
+    avatarBox.Position = UDim2.fromOffset(12, 11)
+    avatarBox.BackgroundColor3 = Window.Theme.ElementBackground
+    avatarBox.BorderSizePixel = 0
+    avatarBox.ClipsDescendants = true
+    avatarBox.Parent = card
+    Instance.new("UICorner", avatarBox).CornerRadius = UDim.new(0, 6)
+
+    local avatarStroke = Instance.new("UIStroke", avatarBox)
+    avatarStroke.Thickness = 1.3
+
+    local avatarImg = Instance.new("ImageLabel")
+    avatarImg.Size = UDim2.new(1, 0, 1, 0)
+    avatarImg.BackgroundTransparency = 1
+    avatarImg.ScaleType = Enum.ScaleType.Fit
+    avatarImg.Image = "rbxthumb://type=AvatarHeadShot&id=" .. plr.UserId .. "&w=150&h=150"
+    avatarImg.Parent = avatarBox
+    Instance.new("UICorner", avatarImg).CornerRadius = UDim.new(0, 6)
+
+    local avatarText = Instance.new("TextLabel")
+    avatarText.Size = UDim2.new(1, 0, 1, 0)
+    avatarText.BackgroundTransparency = 1
+    avatarText.Text = ""
+    avatarText.TextColor3 = Window.Theme.Text
+    avatarText.TextSize = 10
+    avatarText.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    avatarText.Visible = false
+    avatarText.Parent = avatarBox
+
+    -- Names Column
+    local infoCol = Instance.new("Frame")
+    infoCol.Size = UDim2.new(0, 160, 0, 52)
+    infoCol.Position = UDim2.fromOffset(70, 10)
+    infoCol.BackgroundTransparency = 1
+    infoCol.Parent = card
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 0, 16)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = (plr == LocalPlayer and "★ " or "") .. plr.DisplayName
+    nameLabel.TextColor3 = Window.Theme.Text
+    nameLabel.TextSize = 12
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    nameLabel.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    nameLabel.Parent = infoCol
+
+    local userLabel = Instance.new("TextLabel")
+    userLabel.Size = UDim2.new(1, 0, 0, 12)
+    userLabel.Position = UDim2.fromOffset(0, 16)
+    userLabel.BackgroundTransparency = 1
+    userLabel.Text = "@" .. plr.Name
+    userLabel.TextColor3 = Window.Theme.SubText
+    userLabel.TextSize = 9
+    userLabel.TextXAlignment = Enum.TextXAlignment.Left
+    userLabel.FontFace = GetPreferredFont()
+    userLabel.Parent = infoCol
+
+    local tagRow = Instance.new("Frame")
+    tagRow.Size = UDim2.new(1, 0, 0, 16)
+    tagRow.Position = UDim2.fromOffset(0, 32)
+    tagRow.BackgroundTransparency = 1
+    tagRow.Parent = infoCol
+
+    local tagLayout = Instance.new("UIListLayout")
+    tagLayout.FillDirection = Enum.FillDirection.Horizontal
+    tagLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    tagLayout.Padding = UDim.new(0, 4)
+    tagLayout.Parent = tagRow
+
+    -- Role Pill
+    local rolePill = Instance.new("Frame")
+    rolePill.Size = UDim2.new(0, 0, 1, 0)
+    rolePill.AutomaticSize = Enum.AutomaticSize.X
+    rolePill.BorderSizePixel = 0
+    rolePill.Parent = tagRow
+    Instance.new("UICorner", rolePill).CornerRadius = UDim.new(0, 3)
+
+    local roleText = Instance.new("TextLabel")
+    roleText.Size = UDim2.new(0, 0, 1, 0)
+    roleText.AutomaticSize = Enum.AutomaticSize.X
+    roleText.BackgroundTransparency = 1
+    roleText.TextSize = 8.5
+    roleText.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    roleText.Parent = rolePill
+
+    local rolePadding = Instance.new("UIPadding")
+    rolePadding.PaddingLeft = UDim.new(0, 4)
+    rolePadding.PaddingRight = UDim.new(0, 4)
+    rolePadding.Parent = rolePill
+
+    -- Status Pill
+    local statusPill = Instance.new("Frame")
+    statusPill.Size = UDim2.new(0, 0, 1, 0)
+    statusPill.AutomaticSize = Enum.AutomaticSize.X
+    statusPill.BorderSizePixel = 0
+    statusPill.Parent = tagRow
+    Instance.new("UICorner", statusPill).CornerRadius = UDim.new(0, 3)
+
+    local statusText = Instance.new("TextLabel")
+    statusText.Size = UDim2.new(0, 0, 1, 0)
+    statusText.AutomaticSize = Enum.AutomaticSize.X
+    statusText.BackgroundTransparency = 1
+    statusText.TextSize = 8.5
+    statusText.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    statusText.Parent = statusPill
+
+    local statusPadding = Instance.new("UIPadding")
+    statusPadding.PaddingLeft = UDim.new(0, 4)
+    statusPadding.PaddingRight = UDim.new(0, 4)
+    statusPadding.Parent = statusPill
+
+    -- Perks Container (Middle with real in-game perk icons)
+    local perksSection = Instance.new("Frame")
+    perksSection.Size = UDim2.new(0, 285, 0, 60)
+    perksSection.Position = UDim2.fromOffset(238, 6)
+    perksSection.BackgroundTransparency = 1
+    perksSection.Parent = card
+
+    local perksHeader = Instance.new("TextLabel")
+    perksHeader.Size = UDim2.new(1, 0, 0, 12)
+    perksHeader.BackgroundTransparency = 1
+    perksHeader.Text = "PERKS (3 SLOTS)"
+    perksHeader.TextColor3 = Window.Theme.SubText
+    perksHeader.TextSize = 8
+    perksHeader.TextXAlignment = Enum.TextXAlignment.Left
+    perksHeader.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    perksHeader.Parent = perksSection
+
+    local perkBoxes = {}
+    local perkImgs = {}
+    local perkLabels = {}
+    for i = 1, 3 do
+        local pb = Instance.new("Frame")
+        pb.Size = UDim2.fromOffset(90, 42)
+        pb.Position = UDim2.fromOffset((i - 1) * 95, 16)
+        pb.BackgroundColor3 = Window.Theme.ElementBackground
+        pb.BorderSizePixel = 0
+        pb.ClipsDescendants = true
+        pb.Parent = perksSection
+        Instance.new("UICorner", pb).CornerRadius = UDim.new(0, 6)
+        local pbs = Instance.new("UIStroke", pb)
+        pbs.Color = Window.Theme.ElementBorder
+        pbs.Thickness = 1
+
+        local pImg = Instance.new("ImageLabel")
+        pImg.Size = UDim2.fromOffset(34, 34)
+        pImg.Position = UDim2.fromOffset(4, 4)
+        pImg.BackgroundTransparency = 1
+        pImg.ScaleType = Enum.ScaleType.Fit
+        pImg.Visible = false
+        pImg.Parent = pb
+        Instance.new("UICorner", pImg).CornerRadius = UDim.new(0, 4)
+
+        local pl = Instance.new("TextLabel")
+        pl.Size = UDim2.new(1, -42, 1, -4)
+        pl.Position = UDim2.fromOffset(40, 2)
+        pl.BackgroundTransparency = 1
+        pl.Text = "---"
+        pl.TextColor3 = Window.Theme.SubText
+        pl.TextSize = 8
+        pl.TextWrapped = true
+        pl.TextXAlignment = Enum.TextXAlignment.Left
+        pl.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+        pl.Parent = pb
+
+        table.insert(perkBoxes, pb)
+        table.insert(perkImgs, pImg)
+        table.insert(perkLabels, pl)
+    end
+
+    -- Power / Item Section (Right with real in-game item decal)
+    local itemSection = Instance.new("Frame")
+    itemSection.Size = UDim2.new(0, 150, 0, 60)
+    itemSection.Position = UDim2.fromOffset(530, 6)
+    itemSection.BackgroundTransparency = 1
+    itemSection.Parent = card
+
+    local itemHeader = Instance.new("TextLabel")
+    itemHeader.Size = UDim2.new(1, 0, 0, 12)
+    itemHeader.BackgroundTransparency = 1
+    itemHeader.Text = "POWER / ITEM"
+    itemHeader.TextColor3 = Window.Theme.SubText
+    itemHeader.TextSize = 8
+    itemHeader.TextXAlignment = Enum.TextXAlignment.Left
+    itemHeader.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    itemHeader.Parent = itemSection
+
+    local itemBox = Instance.new("Frame")
+    itemBox.Size = UDim2.fromOffset(150, 42)
+    itemBox.Position = UDim2.fromOffset(0, 16)
+    itemBox.BackgroundColor3 = Window.Theme.ElementBackground
+    itemBox.BorderSizePixel = 0
+    itemBox.ClipsDescendants = true
+    itemBox.Parent = itemSection
+    Instance.new("UICorner", itemBox).CornerRadius = UDim.new(0, 6)
+    local itemStroke = Instance.new("UIStroke", itemBox)
+    itemStroke.Thickness = 1
+
+    local itImg = Instance.new("ImageLabel")
+    itImg.Size = UDim2.fromOffset(34, 34)
+    itImg.Position = UDim2.fromOffset(4, 4)
+    itImg.BackgroundTransparency = 1
+    itImg.ScaleType = Enum.ScaleType.Fit
+    itImg.Visible = false
+    itImg.Parent = itemBox
+    Instance.new("UICorner", itImg).CornerRadius = UDim.new(0, 4)
+
+    local itemNameLabel = Instance.new("TextLabel")
+    itemNameLabel.Size = UDim2.new(1, -42, 0, 16)
+    itemNameLabel.Position = UDim2.fromOffset(42, 4)
+    itemNameLabel.BackgroundTransparency = 1
+    itemNameLabel.Text = "None"
+    itemNameLabel.TextColor3 = Window.Theme.Text
+    itemNameLabel.TextSize = 9
+    itemNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    itemNameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    itemNameLabel.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    itemNameLabel.Parent = itemBox
+
+    local itemDetLabel = Instance.new("TextLabel")
+    itemDetLabel.Size = UDim2.new(1, -42, 0, 15)
+    itemDetLabel.Position = UDim2.fromOffset(42, 21)
+    itemDetLabel.BackgroundTransparency = 1
+    itemDetLabel.Text = "---"
+    itemDetLabel.TextColor3 = Window.Theme.SubText
+    itemDetLabel.TextSize = 8.5
+    itemDetLabel.TextXAlignment = Enum.TextXAlignment.Left
+    itemDetLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    itemDetLabel.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    itemDetLabel.Parent = itemBox
+
+    local rowObj = {
+        Card = card,
+        AccentBar = accentBar,
+        AvatarBox = avatarBox,
+        AvatarImg = avatarImg,
+        AvatarText = avatarText,
+        AvatarStroke = avatarStroke,
+        RolePill = rolePill,
+        RoleText = roleText,
+        StatusPill = statusPill,
+        StatusText = statusText,
+        PerksHeader = perksHeader,
+        ItemHeader = itemHeader,
+        ItemBox = itemBox,
+        ItemStroke = itemStroke,
+        ItemImg = itImg,
+        ItemNameLabel = itemNameLabel,
+        ItemDetLabel = itemDetLabel,
+        PerkImgs = perkImgs,
+        PerkLabels = perkLabels,
+    }
+
+    cachedRosterRows[plr] = rowObj
+    return rowObj
+end
+
+local function UpdateRoster(force)
+    local allPlayers = Players:GetPlayers()
+    local killerPlr = nil
+    local survivors = {}
+
+    for _, p in ipairs(allPlayers) do
+        if not killerPlr and IsKiller(p) then
+            killerPlr = p
+        else
+            table.insert(survivors, p)
+        end
+    end
+
+    -- Header summary & Killer info as clean text
+    local inLobby = IsInLobby()
+    if inLobby then
+        RosterTitle.Text = "Player Loadouts & Roster"
+        RosterSubText.Text = "In Lobby (" .. #allPlayers .. " Players Connected) • Auto-updating"
+    else
+        RosterTitle.Text = "Player Loadouts & Status"
+        local kType = killerPlr and killerPlr:GetAttribute("SelectedKiller")
+        if killerPlr and (not kType or kType == "" or kType == "The Killer") then
+            local kc = killerPlr.Character
+            if kc then
+                if kc:FindFirstChild("Flask") or kc:FindFirstChild("Curetool") or kc:GetAttribute("corpsecharge") then
+                    kType = "Cure"
+                elseif kc:FindFirstChild("spearmanager") or kc:FindFirstChild("Spear1") or kc:FindFirstChild("Spear2") then
+                    kType = "Veil"
+                elseif kc:FindFirstChild("Chainsaw") or kc:FindFirstChild("Stalker") then
+                    kType = "Stalker"
+                elseif kc:FindFirstChild("Katana") or kc:FindFirstChild("Sword") then
+                    kType = "Slasher"
+                end
+            end
+        end
+        kType = kType or (killerPlr and "The Killer" or "Unknown")
+        local kName = killerPlr and killerPlr.DisplayName or "None"
+        RosterSubText.Text = "Killer: " .. kName .. " [" .. kType .. "]"
+    end
+
+    -- Remove left players
+    for p, row in pairs(cachedRosterRows) do
+        if not table.find(allPlayers, p) then
+            pcall(function() row.Card:Destroy() end)
+            cachedRosterRows[p] = nil
+        end
+    end
+
+    -- Order: Killer at top, then LocalPlayer (if survivor), then other survivors alphabetically
+    local ordered = {}
+    if killerPlr then
+        table.insert(ordered, killerPlr)
+    end
+    if table.find(survivors, LocalPlayer) then
+        table.insert(ordered, LocalPlayer)
+    end
+    table.sort(survivors, function(a, b) return a.DisplayName:lower() < b.DisplayName:lower() end)
+    for _, s in ipairs(survivors) do
+        if s ~= LocalPlayer and not table.find(ordered, s) then
+            table.insert(ordered, s)
+        end
+    end
+
+    -- Update each player row
+    for rank, plr in ipairs(ordered) do
+        local ok, err = pcall(function()
+            local row = cachedRosterRows[plr] or CreatePlayerRow(plr)
+            row.Card.LayoutOrder = rank
+            local isK = (plr == killerPlr)
+            local kType = nil
+
+        if isK then
+            local kCol = Color3.fromRGB(255, 60, 80)
+            row.AccentBar.BackgroundColor3 = kCol
+            row.AvatarStroke.Color = kCol
+            row.AvatarBox.BackgroundColor3 = Color3.fromRGB(45, 15, 20)
+
+            kType = plr:GetAttribute("SelectedKiller")
+            if not kType and plr.Character then
+                kType = plr.Character:GetAttribute("SelectedKiller")
+            end
+            if not kType or kType == "" or kType == "Killer" or kType == "The Killer" then
+                local char = plr.Character
+                if char then
+                    if char:FindFirstChild("Flask") or char:FindFirstChild("Curetool") or char:GetAttribute("corpsecharge") then
+                        kType = "Cure"
+                    elseif char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") then
+                        kType = "Veil"
+                    elseif char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
+                        kType = "Stalker"
+                    elseif char:FindFirstChild("Katana") or char:FindFirstChild("Sword") then
+                        kType = "Slasher"
+                    end
+                end
+            end
+            kType = kType or "Killer"
+
+            -- In-game killer 3D model avatar (Image 4 character model)
+            SetupKillerAvatar(row, kType, plr)
+
+            row.RolePill.BackgroundColor3 = Color3.fromRGB(60, 15, 22)
+            row.RoleText.Text = "[KILLER]"
+            row.RoleText.TextColor3 = Color3.fromRGB(255, 80, 100)
+
+            local kState = inLobby and "Lobby" or GetRosterKillerState(plr)
+            row.StatusPill.BackgroundColor3 = Color3.fromRGB(50, 15, 20)
+            row.StatusText.Text = kState
+            row.StatusText.TextColor3 = Color3.fromRGB(255, 120, 140)
+
+            row.PerksHeader.Text = "KILLER PERKS"
+            -- Killer Power Box (Hidden completely as requested: perks only)
+            row.ItemHeader.Visible = false
+            row.ItemBox.Visible = false
+        else
+            local accentCol = Color3.fromRGB(0, 205, 255)
+            row.AccentBar.BackgroundColor3 = accentCol
+            row.AvatarStroke.Color = accentCol
+            row.AvatarBox.BackgroundColor3 = Window.Theme.ElementBackground
+            local oldVpf = row.AvatarBox:FindFirstChild("KillerViewport")
+            if oldVpf then oldVpf:Destroy() end
+            row.AvatarImg.Image = "rbxthumb://type=AvatarHeadShot&id=" .. plr.UserId .. "&w=150&h=150"
+            row.AvatarImg.Visible = true
+            row.AvatarText.Visible = false
+
+            local isLobby = inLobby or IsPlayerInLobby(plr)
+            row.RolePill.BackgroundColor3 = isLobby and Color3.fromRGB(15, 40, 55) or Color3.fromRGB(15, 45, 60)
+            row.RoleText.Text = isLobby and "[LOBBY]" or "[SURVIVOR]"
+            row.RoleText.TextColor3 = Color3.fromRGB(80, 220, 255)
+
+            local stText, stCol, stBg = GetRosterSurvivorState(plr)
+            row.StatusPill.BackgroundColor3 = stBg
+            row.StatusText.Text = stText
+            row.StatusText.TextColor3 = stCol
+
+            row.PerksHeader.Text = "PERKS (3 SLOTS)"
+            row.ItemHeader.Visible = true
+            row.ItemBox.Visible = true
+            row.ItemHeader.Text = "EQUIPPED ITEM"
+            row.ItemStroke.Color = Color3.fromRGB(255, 180, 50)
+        end
+
+        -- Perks (Icons + Names pulled from game)
+        local perks = GetPlayerPerks(plr) or {}
+        for i = 1, 3 do
+            local pName = perks[i]
+            local pImg = row.PerkImgs[i]
+            local pLbl = row.PerkLabels[i]
+            if pName and pName ~= "" then
+                local pTier = (PlayerPerkTiers[plr] and PlayerPerkTiers[plr][pName]) or 3
+                local pIcon = GetPerkIcon(pName, pTier)
+                if pIcon and pIcon ~= "" then
+                    pImg.Image = pIcon
+                    pImg.Visible = true
+                    pLbl.Position = UDim2.fromOffset(40, 2)
+                    pLbl.Size = UDim2.new(1, -42, 1, -4)
+                else
+                    pImg.Visible = false
+                    pLbl.Position = UDim2.fromOffset(4, 2)
+                    pLbl.Size = UDim2.new(1, -8, 1, -4)
+                end
+                pLbl.Text = pName
+                pLbl.TextColor3 = Color3.fromRGB(240, 245, 250)
+            else
+                pImg.Visible = false
+                pLbl.Position = UDim2.fromOffset(4, 2)
+                pLbl.Size = UDim2.new(1, -8, 1, -4)
+                pLbl.Text = "---"
+                pLbl.TextColor3 = Window.Theme.SubText
+            end
+        end
+
+        -- Item / Power (Icon + Details)
+        local itemName, itemDet, itemCol = GetRosterItemDisplay(plr, isK)
+        row.ItemNameLabel.Text = itemName or "No Item"
+        row.ItemDetLabel.Text = itemDet or "---"
+        row.ItemDetLabel.TextColor3 = itemCol or Window.Theme.SubText
+
+        if isK then
+            row.ItemHeader.Visible = false
+            row.ItemBox.Visible = false
+        else
+            row.ItemHeader.Visible = true
+            row.ItemBox.Visible = true
+            local itIcon = GetItemIcon(itemName)
+            if itIcon and itIcon ~= "" and itemName ~= "No Item" and itemName ~= "None" then
+                row.ItemImg.Image = itIcon
+                row.ItemImg.Visible = true
+                row.ItemNameLabel.Position = UDim2.fromOffset(42, 4)
+                row.ItemNameLabel.Size = UDim2.new(1, -44, 0, 16)
+                row.ItemDetLabel.Position = UDim2.fromOffset(42, 21)
+                row.ItemDetLabel.Size = UDim2.new(1, -44, 0, 15)
+            else
+                row.ItemImg.Visible = false
+                row.ItemNameLabel.Position = UDim2.fromOffset(8, 4)
+                row.ItemNameLabel.Size = UDim2.new(1, -12, 0, 16)
+                row.ItemDetLabel.Position = UDim2.fromOffset(8, 21)
+                row.ItemDetLabel.Size = UDim2.new(1, -12, 0, 15)
+            end
+        end
+    end)
+    if not ok then
+        warn("Nexara: Roster render error for player " .. tostring(plr) .. ": " .. tostring(err))
+    end
+end
+
+    colRoster.Frame.CanvasSize = UDim2.new(0, 0, 0, 50 + (#ordered * 78))
+end
+
+RefreshRosterBtn.MouseButton1Click:Connect(function()
+    UpdateRoster(true)
+end)
+
+TabPlayerlist.Button.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        task.wait(0.05)
+        UpdateRoster(true)
+    end)
+end)
+
+-- Lightweight auto-refresh loop (only ticks while TabPlayerlist is active and menu is open)
+task.spawn(function()
+    while ScriptRunning do
+        task.wait(1.5)
+        if Window.Visible and Window.ActiveTab == TabPlayerlist then
+            pcall(function() UpdateRoster() end)
+        end
+    end
+end)
+
 -- ======== SURVIVOR & MPlayer TAB ========
 local TabMech = Window:CreateTab("Player", "rbxassetid://10747373176")
 local colM1 = TabMech:CreateColumn()
@@ -2168,34 +3582,79 @@ table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
 end))
 
 -- Mouse Cursor Management & Steady FOV & Darkness Enforcer
-table.insert(ScriptConnections, UserInputService.InputBegan:Connect(function(input, gpe)
-    if input.KeyCode == Enum.KeyCode.RightControl then
-        task.defer(function()
-            local inLobby = IsInLobby()
-            if Window.Visible then
-                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-                UserInputService.MouseIconEnabled = true
-            else
-                if not inLobby then
-                    UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
-                    UserInputService.MouseIconEnabled = false
-                else
-                    UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-                    UserInputService.MouseIconEnabled = true
-                end
+local function SyncMouseState()
+    local inLobby = IsInLobby()
+    if Window and Window.Visible then
+        if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        end
+        if not UserInputService.MouseIconEnabled then
+            UserInputService.MouseIconEnabled = true
+        end
+    else
+        if not inLobby then
+            if UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
             end
-        end)
+            if UserInputService.MouseIconEnabled then
+                UserInputService.MouseIconEnabled = false
+            end
+        else
+            if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            end
+            if not UserInputService.MouseIconEnabled then
+                UserInputService.MouseIconEnabled = true
+            end
+        end
+    end
+end
+
+-- 1. Sync on menu toggle key press
+table.insert(ScriptConnections, UserInputService.InputBegan:Connect(function(input, gpe)
+    local toggleKey = (Window and Window.ToggleKey) or Enum.KeyCode.RightControl
+    if input.KeyCode == toggleKey then
+        task.defer(SyncMouseState)
     end
 end))
 
+-- 2. Anti-cursor bug fix during in-match gameplay:
+-- When menu is closed and player is in match, clicking into game (MouseButton1 / MouseButton2)
+-- or walking (W/A/S/D/Space/Shift) immediately re-locks mouse to LockCenter and hides cursor,
+-- eliminating the stuck cursor and the need to hold right-click to turn the camera!
+table.insert(ScriptConnections, UserInputService.InputBegan:Connect(function(input, gpe)
+    if not gpe and (not Window or not Window.Visible) and not IsInLobby() then
+        local it = input.UserInputType
+        local kc = input.KeyCode
+        if it == Enum.UserInputType.MouseButton1 or it == Enum.UserInputType.MouseButton2
+           or kc == Enum.KeyCode.W or kc == Enum.KeyCode.A or kc == Enum.KeyCode.S or kc == Enum.KeyCode.D
+           or kc == Enum.KeyCode.Space or kc == Enum.KeyCode.LeftShift or kc == Enum.KeyCode.RightShift then
+            if UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+            end
+            if UserInputService.MouseIconEnabled then
+                UserInputService.MouseIconEnabled = false
+            end
+        end
+    end
+end))
+
+-- 3. While right-click is held or when menu is closed in match, keep LockCenter active
 table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
-    if Window.Visible then
+    if Window and Window.Visible then
         -- Menu is open: unlock mouse so user can click cheat menu
         if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
             UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         end
         if not UserInputService.MouseIconEnabled then
             UserInputService.MouseIconEnabled = true
+        end
+    elseif not IsInLobby() then
+        if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+            if UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+                UserInputService.MouseIconEnabled = false
+            end
         end
     end
 
@@ -2289,11 +3748,22 @@ local function RenderESP()
             for _, hl in pairs(WindowAuras) do pcall(function() hl.Enabled = false end) end
             for _, bha in pairs(WindowAdornments) do pcall(function() bha.Visible = false end) end
             if PruneDeadDrawings then PruneDeadDrawings() end
+            table.clear(KillerPortraitCache)
+            table.clear(PlayerItemCooldowns)
+            table.clear(PlayerItemCache)
         end
         wasInLobby = inLobby
         local myRoot = GetRoot(LocalPlayer)
         local camPos = Camera.CFrame.Position
         local myPos = myRoot and myRoot.Position or camPos
+
+        local mainFrame = Window and (Window.MainFrame or Window.Main)
+        local menuPos = (Window and Window.Visible and mainFrame and mainFrame.Visible) and mainFrame.AbsolutePosition or nil
+        local menuSize = menuPos and mainFrame.AbsoluteSize or nil
+        local function IsInMenu(sx, sy)
+            if not menuPos or not menuSize then return false end
+            return sx >= (menuPos.X - 20) and sx <= (menuPos.X + menuSize.X + 20) and sy >= (menuPos.Y - 45) and sy <= (menuPos.Y + menuSize.Y + 20)
+        end
 
         -- Top Screen Killer Skill (Rendered directly under in-game match timer, hidden in lobby, post-match, or when playing as Killer)
         if not inLobby and not IsKiller(LocalPlayer) and Config.ESP_KillerEnabled and Config.ESP_KillerSkills then
@@ -2378,18 +3848,23 @@ local function RenderESP()
 
         -- 1. Player ESP (Separated: Killer ESP vs Survivor ESP vs Lobby Players)
         for player, esp in pairs(ESP_Objects) do
+            local isLocalMe = (player == LocalPlayer)
             local char = player.Character
             local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
             local data = CachedPlayerData[player]
+            local isDead = IsPlayerDead(player)
+            local isLobbyPlr = IsPlayerInLobby(player)
 
-            if char and root and char:FindFirstChild("Head") then
+            local shouldHide = isLocalMe or isDead or (not inLobby and isLobbyPlr) or (inLobby and not Config.ESP_LobbyEnabled)
+
+            if not shouldHide and char and root and char:FindFirstChild("Head") then
                 local isK = not inLobby and ((data and data.IsKiller) or IsKiller(player))
                 local rootPos = root.Position
                 local rootScreen, onScreen = Camera:WorldToViewportPoint(rootPos)
+                local headScreen = Camera:WorldToViewportPoint(char.Head.Position)
 
-                if onScreen then
+                if onScreen and not IsInMenu(rootScreen.X, rootScreen.Y) and not IsInMenu(headScreen.X, headScreen.Y) then
                     local dist = (myPos - rootPos).Magnitude
-                    local headScreen = Camera:WorldToViewportPoint(char.Head.Position)
                     local currentX = math.floor(rootScreen.X)
                     local currentY = 0
 
@@ -2401,13 +3876,13 @@ local function RenderESP()
                         esp.Box.Visible = false
 
                         -- Render Hot Pink Skeleton (Thin & sleek)
-                        local topY = headScreen.Y - 24
-                        local btmY = rootScreen.Y + 24
+                        local topY = headScreen.Y - 14
+                        local btmY = rootScreen.Y + 18
                         if Config.ESP_KillerSkeleton then
                             local anyVis, hPoint, fPoint = UpdateSkeleton(char, esp.Skeleton, Color3.fromRGB(240, 60, 160), Config.KillerSkeletonThickness or 1.3)
                             currentX = hPoint and hPoint.X or currentX
-                            topY = hPoint and (hPoint.Y - 24) or (headScreen.Y - 24)
-                            btmY = fPoint and (fPoint.Y + 6) or (rootScreen.Y + 24)
+                            topY = hPoint and (hPoint.Y - 14) or (headScreen.Y - 14)
+                            btmY = fPoint and (fPoint.Y + 4) or (rootScreen.Y + 18)
                         else
                             for _, l in pairs(esp.Skeleton) do l.Visible = false end
                         end
@@ -2457,13 +3932,14 @@ local function RenderESP()
 
                 -- SURVIVOR OR LOBBY BRANCH
                 else
-                    local allowESP = inLobby and (Config.ESP_LobbyEnabled ~= false) or (not inLobby and Config.ESP_SurvivorEnabled)
+                    local allowESP = inLobby and (Config.ESP_LobbyEnabled ~= false) or (not inLobby and Config.ESP_SurvivorEnabled and not isLobbyPlr and not isDead)
                     if allowESP then
                         -- Hide Skeleton lines
                         for _, l in pairs(esp.Skeleton) do l.Visible = false end
 
-                        local topWorld = rootPos + Vector3.new(0, 2.5, 0)
-                        local btmWorld = rootPos - Vector3.new(0, 3.1, 0)
+                        local head = char:FindFirstChild("Head")
+                        local topWorld = head and (head.Position + Vector3.new(0, 0.6, 0)) or (rootPos + Vector3.new(0, 1.9, 0))
+                        local btmWorld = rootPos - Vector3.new(0, 2.8, 0)
                         local topScreen, topVis = Camera:WorldToViewportPoint(topWorld)
                         local btmScreen, btmVis = Camera:WorldToViewportPoint(btmWorld)
 
@@ -2480,14 +3956,14 @@ local function RenderESP()
                             local boxX = math.floor(rootScreen.X - boxWidth * 0.5)
                             local boxY = math.floor(math.min(topScreen.Y, btmScreen.Y))
 
-                            -- Carrying detection: suppress box and all intrusive drawings if this survivor is carried by the Killer
+                            -- Carrying detection: suppress box and all intrusive drawings ONLY if this survivor is truly being carried
                             local isBeingCarriedByMe = false
                             if not inLobby and IsKiller(LocalPlayer) then
                                 local myChar = GetCharacter()
                                 local myIsCarrying = (myChar and myChar:GetAttribute("IsCarrying") == true)
                                 local hasCarryTime = (char:GetAttribute("RemainingCarryTime") ~= nil)
                                 local isCarriedAttr = (char:GetAttribute("IsCarried") == true or char:GetAttribute("Carried") == true)
-                                if (myIsCarrying and dist <= 7) or (hasCarryTime and dist <= 7) or (isCarriedAttr and dist <= 7) or (dist <= 4.2) then
+                                if (myIsCarrying and dist <= 7) or (hasCarryTime and dist <= 7) or (isCarriedAttr and dist <= 7) then
                                     isBeingCarriedByMe = true
                                 end
                             end
@@ -2510,13 +3986,13 @@ local function RenderESP()
                                 esp.Box.Visible = false
                             end
 
-                            -- Top Text: [SURVIVOR] Name (or [LOBBY] Name)
+                            -- Top Text: [SURVIVOR] Name (or [LOBBY] Name) - anchored snugly above head
                             local showNames = (not isBeingCarriedByMe) and (inLobby and (Config.ESP_LobbyNames ~= false) or Config.ESP_SurvivorNames)
                             if showNames then
                                 local topStr = inLobby and "[LOBBY] " or "[SURVIVOR] "
                                 topStr = topStr .. (data and data.DisplayName or player.DisplayName)
                                 esp.TopText.Text = topStr
-                                esp.TopText.Position = Vector2.new(rootScreen.X, boxY - 16)
+                                esp.TopText.Position = Vector2.new(rootScreen.X, boxY - 14)
                                 esp.TopText.Color = col
                                 esp.TopText.Visible = true
                             else
@@ -2525,11 +4001,23 @@ local function RenderESP()
 
                             -- Bottom Text: Distance + Status
                             local currentY = boxY + boxHeight + 2
-                            if showNames then
+                            local showDistOrStatus = (not isBeingCarriedByMe) and (inLobby and (Config.ESP_LobbyNames ~= false) or (Config.ESP_SurvivorNames or Config.ESP_SurvivorDistance or Config.ESP_SurvivorStatus))
+                            if showDistOrStatus then
                                 local btmStr = math.floor(dist) .. "m"
                                 if not inLobby and Config.ESP_SurvivorStatus then
-                                    if char:GetAttribute("Knocked") == true then btmStr = btmStr .. " [KNOCKED]"
-                                    elseif char:GetAttribute("HookProgressDepleting") == true then btmStr = btmStr .. " [HOOKED]" end
+                                    local isHooked = (char:GetAttribute("IsHooked") == true) or (CollectionService and CollectionService:HasTag(char, "Hooked"))
+                                    local isCarried = (char:GetAttribute("IsCarried") == true) or (char:GetAttribute("Carried") == true)
+                                    local isDown = (char:GetAttribute("Knocked") == true) or (CollectionService and CollectionService:HasTag(char, "Knocked"))
+                                    local hum = char:FindFirstChildOfClass("Humanoid")
+                                    if isHooked then
+                                        btmStr = btmStr .. " [HOOKED]"
+                                    elseif isCarried then
+                                        btmStr = btmStr .. " [CARRIED]"
+                                    elseif isDown then
+                                        btmStr = btmStr .. " [DOWN]"
+                                    elseif hum and hum.Health < 99 then
+                                        btmStr = btmStr .. " [" .. math.floor(hum.Health) .. "%]"
+                                    end
                                 end
 
                                 esp.BottomText.Text = btmStr
@@ -2605,7 +4093,7 @@ local function RenderESP()
 
     -- 2. Generator ESP
     table.clear(seenGens)
-    if not inLobby and Config.ESP_Generators and not IsKiller(LocalPlayer) then
+    if not inLobby and Config.ESP_Generators then
         for _, item in ipairs(CachedGenerators) do
             local gen = item.Model
             local root = item.Part
@@ -2622,7 +4110,7 @@ local function RenderESP()
                     GenDrawings[gen] = txt
                 end
 
-                if onScreen then
+                if onScreen and not IsInMenu(sPos.X, sPos.Y) then
                     local dist = math.floor((myPos - root.Position).Magnitude)
                     local prog = tonumber(gen:GetAttribute("RepairProgress")) or 0
                     local repairers = tonumber(gen:GetAttribute("PlayersRepairingCount")) or 0
@@ -2700,7 +4188,7 @@ local function RenderESP()
 
                 if dist <= Config.PalletMaxDist then
                     local sPos, onScreen = Camera:WorldToViewportPoint(root.Position)
-                    if onScreen then
+                    if onScreen and not IsInMenu(sPos.X, sPos.Y) then
                         txt.Text = "Pallet " .. math.floor(dist) .. "m"
                         txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
                         txt.Color = Color3.fromRGB(255, 180, 50)
@@ -2723,9 +4211,9 @@ local function RenderESP()
         if not seenPallets[pallet] then txt.Visible = false end
     end
 
-    -- 4. Window / Vault ESP & 3D Glowing Aura (Only for Survivors, hidden for Killer)
+    -- 4. Window / Vault ESP & 3D Glowing Aura
     table.clear(seenWindows)
-    if not inLobby and Config.ESP_Windows and not IsKiller(LocalPlayer) then
+    if not inLobby and Config.ESP_Windows then
         for _, item in ipairs(CachedWindows) do
             local win = item.Model
             local root = item.Part
@@ -2794,7 +4282,7 @@ local function RenderESP()
 
                 if dist <= Config.WindowMaxDist then
                     local sPos, onScreen = Camera:WorldToViewportPoint(root.Position)
-                    if onScreen then
+                    if onScreen and not IsInMenu(sPos.X, sPos.Y) then
                         txt.Text = "Vault " .. math.floor(dist) .. "m"
                         txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
                         txt.Color = Color3.fromRGB(80, 210, 255)
@@ -2809,17 +4297,17 @@ local function RenderESP()
         end
     end
     for win, hl in pairs(WindowAuras) do
-        if not seenWindows[win] or inLobby or not Config.ESP_Windows or not Config.ESP_WindowAura or IsKiller(LocalPlayer) then
+        if not seenWindows[win] or inLobby or not Config.ESP_Windows or not Config.ESP_WindowAura then
             pcall(function() hl.Enabled = false end)
         end
     end
     for win, bha in pairs(WindowAdornments) do
-        if not seenWindows[win] or inLobby or not Config.ESP_Windows or not Config.ESP_WindowAura or IsKiller(LocalPlayer) then
+        if not seenWindows[win] or inLobby or not Config.ESP_Windows or not Config.ESP_WindowAura then
             pcall(function() bha.Visible = false end)
         end
     end
     for win, txt in pairs(WindowDrawings) do
-        if not seenWindows[win] or IsKiller(LocalPlayer) then txt.Visible = false end
+        if not seenWindows[win] then txt.Visible = false end
     end
 
     -- 5. Exit Gates ESP
@@ -2841,7 +4329,7 @@ local function RenderESP()
                     GateDrawings[gate] = txt
                 end
 
-                if onScreen then
+                if onScreen and not IsInMenu(sPos.X, sPos.Y) then
                     local dist = math.floor((myPos - root.Position).Magnitude)
                     txt.Text = string.format("Exit Gate #%d (%dm)", idx, dist)
                     txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
