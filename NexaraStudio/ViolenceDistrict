@@ -81,7 +81,7 @@ local Config = {
     PalletMaxDist = 150,
     WindowMaxDist = 150,
     
-    -- Mechanics / QoL
+    -- Player / QoL
     AutoSkillCheck = false,
     RemoveDarkness = false,
     Fullbright = false,
@@ -714,7 +714,7 @@ task.spawn(function()
             end))
         end
 
-        local mech = rem:FindFirstChild("Mechanics")
+        local mech = rem:FindFirstChild("Player")
         attachVisualize(mech and mech:FindFirstChild("visualize"))
 
         local kRem = rem:FindFirstChild("Killers")
@@ -1967,215 +1967,8 @@ secObjESP:AddToggle({ Name = "Exit Gates ESP", Default = false, Callback = funct
     end
 end })
 
--- ======== PERKS & COOLDOWNS TAB ========
-local TabPerks = Window:CreateTab("Perks & CD", "rbxassetid://10709770560")
-local colP1 = TabPerks:CreateColumn()
-local colP2 = TabPerks:CreateColumn()
-
-local secInspector = colP1:CreateSection("Player Perk Inspector (Max 3)")
-local currentSelectedPlayer = LocalPlayer.Name
-
-local function GetPlayerNamesList()
-    local list = {}
-    for _, p in ipairs(Players:GetPlayers()) do
-        table.insert(list, p.Name)
-    end
-    return list
-end
-
-local inspCard, inspAccent = colP1:CreateCustomCard(110)
-Window:RegisterAccent(inspAccent, "BackgroundColor3")
-
-local inspRoleLabel = Instance.new("TextLabel")
-inspRoleLabel.Size = UDim2.new(1, -20, 0, 16)
-inspRoleLabel.Position = UDim2.fromOffset(10, 8)
-inspRoleLabel.BackgroundTransparency = 1
-inspRoleLabel.Text = "Role: Checking..."
-inspRoleLabel.TextColor3 = Window.Theme.Accent
-inspRoleLabel.TextSize = 11
-inspRoleLabel.TextXAlignment = Enum.TextXAlignment.Left
-inspRoleLabel.FontFace = Font.fromEnum(Enum.Font.GothamBold)
-inspRoleLabel.Parent = inspCard
-
-local inspSkillLabel = Instance.new("TextLabel")
-inspSkillLabel.Size = UDim2.new(1, -20, 0, 16)
-inspSkillLabel.Position = UDim2.fromOffset(10, 26)
-inspSkillLabel.BackgroundTransparency = 1
-inspSkillLabel.Text = "Skill & Charges: None"
-inspSkillLabel.TextColor3 = Window.Theme.Text
-inspSkillLabel.TextSize = 10
-inspSkillLabel.TextXAlignment = Enum.TextXAlignment.Left
-inspSkillLabel.FontFace = GetPreferredFont()
-inspSkillLabel.Parent = inspCard
-
-local inspPerksLabel = Instance.new("TextLabel")
-inspPerksLabel.Size = UDim2.new(1, -20, 0, 60)
-inspPerksLabel.Position = UDim2.fromOffset(10, 44)
-inspPerksLabel.BackgroundTransparency = 1
-inspPerksLabel.Text = "Perks (3 Slots): None"
-inspPerksLabel.TextColor3 = Window.Theme.SubText
-inspPerksLabel.TextSize = 10
-inspPerksLabel.TextXAlignment = Enum.TextXAlignment.Left
-inspPerksLabel.TextYAlignment = Enum.TextYAlignment.Top
-inspPerksLabel.TextWrapped = true
-inspPerksLabel.FontFace = GetPreferredFont()
-inspPerksLabel.Parent = inspCard
-
-local function UpdateInspector(pName)
-    local target = Players:FindFirstChild(pName)
-    if not target then
-        inspRoleLabel.Text = "Player not in server"
-        inspSkillLabel.Text = ""
-        inspPerksLabel.Text = ""
-        return
-    end
-    local role = IsInLobby() and "[LOBBY PLAYER]" or (IsKiller(target) and "[KILLER]" or "[SURVIVOR]")
-    inspRoleLabel.Text = role .. " " .. target.DisplayName .. " (@" .. target.Name .. ")"
-    inspRoleLabel.TextColor3 = IsKiller(target) and Color3.fromRGB(255, 70, 70) or Color3.fromRGB(70, 255, 120)
-    
-    local skill = GetPlayerSkillInfo(target) or "Item: None"
-    inspSkillLabel.Text = skill
-    
-    local pList = GetPlayerPerks(target)
-    if #pList > 0 then
-        inspPerksLabel.Text = "Equipped Perks (3 Max):\n- " .. table.concat(pList, "\n- ")
-    else
-        inspPerksLabel.Text = "Equipped Perks:\nNone detected"
-    end
-end
-
-local playerDropdown = secInspector:AddDropdown({
-    Name = "Select Target",
-    Options = GetPlayerNamesList(),
-    Default = currentSelectedPlayer,
-    Callback = function(v)
-        currentSelectedPlayer = v
-        UpdateInspector(v)
-    end
-})
-
-secInspector:AddButton({
-    Name = "Refresh Player List",
-    Callback = function()
-        local list = GetPlayerNamesList()
-        playerDropdown:Refresh(list, true)
-        UpdateInspector(currentSelectedPlayer)
-    end
-})
-
-UpdateInspector(currentSelectedPlayer)
-
--- Live Cooldowns Section
-local secCD = colP2:CreateSection("Live Timers & Cooldowns")
-local cdCard, cdAccent = colP2:CreateCustomCard(110)
-Window:RegisterAccent(cdAccent, "BackgroundColor3")
-
-local cdPowerLabel = Instance.new("TextLabel")
-cdPowerLabel.Size = UDim2.new(1, -20, 0, 16)
-cdPowerLabel.Position = UDim2.fromOffset(10, 8)
-cdPowerLabel.BackgroundTransparency = 1
-cdPowerLabel.Text = "Status: Ready"
-cdPowerLabel.TextColor3 = Window.Theme.Accent
-cdPowerLabel.TextSize = 11
-cdPowerLabel.TextXAlignment = Enum.TextXAlignment.Left
-cdPowerLabel.FontFace = Font.fromEnum(Enum.Font.GothamBold)
-cdPowerLabel.Parent = cdCard
-
-local cdWiggleLabel = Instance.new("TextLabel")
-cdWiggleLabel.Size = UDim2.new(1, -20, 0, 16)
-cdWiggleLabel.Position = UDim2.fromOffset(10, 28)
-cdWiggleLabel.BackgroundTransparency = 1
-cdWiggleLabel.Text = "Carry / Wiggle: No victim carried"
-cdWiggleLabel.TextColor3 = Window.Theme.Text
-cdWiggleLabel.TextSize = 10
-cdWiggleLabel.TextXAlignment = Enum.TextXAlignment.Left
-cdWiggleLabel.FontFace = GetPreferredFont()
-cdWiggleLabel.Parent = cdCard
-
-local cdHookLabel = Instance.new("TextLabel")
-cdHookLabel.Size = UDim2.new(1, -20, 0, 16)
-cdHookLabel.Position = UDim2.fromOffset(10, 48)
-cdHookLabel.BackgroundTransparency = 1
-cdHookLabel.Text = "Hook Death Progress: Safe"
-cdHookLabel.TextColor3 = Window.Theme.Text
-cdHookLabel.TextSize = 10
-cdHookLabel.TextXAlignment = Enum.TextXAlignment.Left
-cdHookLabel.FontFace = GetPreferredFont()
-cdHookLabel.Parent = cdCard
-
-local cdRadiusLabel = Instance.new("TextLabel")
-cdRadiusLabel.Size = UDim2.new(1, -20, 0, 16)
-cdRadiusLabel.Position = UDim2.fromOffset(10, 68)
-cdRadiusLabel.BackgroundTransparency = 1
-cdRadiusLabel.Text = "Exhaustion (Winded): Ready"
-cdRadiusLabel.TextColor3 = Window.Theme.SubText
-cdRadiusLabel.TextSize = 10
-cdRadiusLabel.TextXAlignment = Enum.TextXAlignment.Left
-cdRadiusLabel.FontFace = GetPreferredFont()
-cdRadiusLabel.Parent = cdCard
-
-task.spawn(function()
-    while ScriptRunning do
-        task.wait(0.5)
-        pcall(function()
-            if IsInLobby() then
-                cdPowerLabel.Text = "Match State: Waiting in Lobby"
-                cdWiggleLabel.Text = "Carry / Wiggle: None"
-                cdHookLabel.Text = "Hook Status: None"
-                cdRadiusLabel.Text = "Exhaustion: None"
-                return
-            end
-
-            -- Survivor exhaustion check
-            local debuff = LocalPlayer.PlayerGui:FindFirstChild("Survivor") and LocalPlayer.PlayerGui.Survivor:FindFirstChild("statuseffects") and LocalPlayer.PlayerGui.Survivor.statuseffects:FindFirstChild("Debuff")
-            local winded = debuff and debuff:FindFirstChild("Winded")
-            if winded and winded.Visible then
-                cdRadiusLabel.Text = "Exhaustion (Winded): ON COOLDOWN"
-                cdRadiusLabel.TextColor3 = Color3.fromRGB(255, 90, 90)
-            else
-                cdRadiusLabel.Text = "Exhaustion (Winded): Ready"
-                cdRadiusLabel.TextColor3 = Color3.fromRGB(80, 255, 120)
-            end
-
-            -- Power / Ammo
-            if IsKiller(LocalPlayer) then
-                local kInfo = GetPlayerSkillInfo(LocalPlayer)
-                cdPowerLabel.Text = kInfo or "Killer Power: Active"
-            else
-                local myChar = LocalPlayer.Character
-                local isChased = myChar and myChar:GetAttribute("IsChased")
-                cdPowerLabel.Text = "Survivor: " .. (isChased and "In Chase!" or "Hidden")
-            end
-
-            -- Carried status
-            local carriedFound = false
-            for _, p in ipairs(Players:GetPlayers()) do
-                local char = p.Character
-                if char then
-                    local wTime = tonumber(char:GetAttribute("RemainingCarryTime"))
-                    if wTime and wTime > 0 then
-                        cdWiggleLabel.Text = string.format("Carried: %s (Wiggle: %.1fs)", p.DisplayName, wTime)
-                        carriedFound = true
-                        break
-                    end
-                end
-            end
-            if not carriedFound then cdWiggleLabel.Text = "Carry / Wiggle: No victim carried" end
-
-            -- Hook status
-            local myChar = LocalPlayer.Character
-            if myChar and myChar:GetAttribute("HookProgressDepleting") then
-                local prog = tonumber(myChar:GetAttribute("HookedProgress")) or 100
-                cdHookLabel.Text = string.format("Hook Death Progress: %d%%", math.floor(prog))
-            else
-                cdHookLabel.Text = "Hook Death Progress: Safe"
-            end
-        end)
-    end
-end)
-
--- ======== SURVIVOR & MECHANICS TAB ========
-local TabMech = Window:CreateTab("Mechanics", "rbxassetid://10747373176")
+-- ======== SURVIVOR & MPlayer TAB ========
+local TabMech = Window:CreateTab("Player", "rbxassetid://10747373176")
 local colM1 = TabMech:CreateColumn()
 local colM2 = TabMech:CreateColumn()
 
