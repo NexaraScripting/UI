@@ -49,40 +49,40 @@ local ScriptRunning = true
 -- ======== CONFIG ========
 local Config = {
     -- ESP Killer (Separated Menu)
-    ESP_KillerEnabled = true,
-    ESP_KillerSkeleton = true,
+    ESP_KillerEnabled = false,
+    ESP_KillerSkeleton = false,
     KillerSkeletonThickness = 1.3,
-    ESP_KillerNames = true,
-    ESP_KillerDistance = true,
-    ESP_KillerSkills = true,
+    ESP_KillerNames = false,
+    ESP_KillerDistance = false,
+    ESP_KillerSkills = false,
     TopKillerSkillSize = 16,
     TopKillerSkillYOffset = 58,
 
     -- ESP Survivor (Separated Menu)
-    ESP_SurvivorEnabled = true,
-    ESP_SurvivorBoxes = true,
-    ESP_SurvivorNames = true,
-    ESP_SurvivorDistance = true,
-    ESP_SurvivorStatus = true,
-    ESP_SurvivorSkills = true,
+    ESP_SurvivorEnabled = false,
+    ESP_SurvivorBoxes = false,
+    ESP_SurvivorNames = false,
+    ESP_SurvivorDistance = false,
+    ESP_SurvivorStatus = false,
+    ESP_SurvivorSkills = false,
     ESP_SurvivorPerks = false,
-    ESP_LobbyEnabled = true,
-    ESP_LobbyBoxes = true,
-    ESP_LobbyNames = true,
+    ESP_LobbyEnabled = false,
+    ESP_LobbyBoxes = false,
+    ESP_LobbyNames = false,
     
     -- ESP Objectives & 3D Auras
-    ESP_Generators = true,
-    ESP_GenProgress = true,
-    ESP_Pallets = true,
-    ESP_PalletAura = true,      -- 3D Golden Amber Highlight
-    ESP_Windows = true,
-    ESP_WindowAura = true,      -- 3D Cyan Blue Highlight (Vault Sill Only)
-    ESP_ExitGates = true,
+    ESP_Generators = false,
+    ESP_GenProgress = false,
+    ESP_Pallets = false,
+    ESP_PalletAura = false,      -- 3D Golden Amber Highlight
+    ESP_Windows = false,
+    ESP_WindowAura = false,      -- 3D Cyan Blue Highlight (Vault Sill Only)
+    ESP_ExitGates = false,
     PalletMaxDist = 150,
     WindowMaxDist = 150,
     
     -- Mechanics / QoL
-    AutoSkillCheck = true,
+    AutoSkillCheck = false,
     RemoveDarkness = false,
     Fullbright = false,
     CustomFOVEnabled = false,
@@ -1796,7 +1796,7 @@ local colV2 = TabVisuals:CreateColumn()
 
 -- Column 1: Killer ESP (Stick Skeleton & Powers)
 local secKillerESP = colV1:CreateSection("Killer ESP (Skeleton & Info)")
-secKillerESP:AddToggle({ Name = "Enable Killer ESP", Default = true, Callback = function(v)
+secKillerESP:AddToggle({ Name = "Enable Killer ESP", Default = false, Callback = function(v)
     Config.ESP_KillerEnabled = v
     if not v then
         TopKillerSkillText.Visible = false
@@ -1813,7 +1813,7 @@ secKillerESP:AddToggle({ Name = "Enable Killer ESP", Default = true, Callback = 
         end
     end
 end })
-secKillerESP:AddToggle({ Name = "Stick Skeleton (Pink)", Default = true, Callback = function(v)
+secKillerESP:AddToggle({ Name = "Stick Skeleton (Pink)", Default = false, Callback = function(v)
     Config.ESP_KillerSkeleton = v
     if not v then
         for _, esp in pairs(ESP_Objects) do
@@ -1827,7 +1827,7 @@ secKillerESP:AddSlider({ Name = "Skeleton Line Width", Min = 1, Max = 3, Default
         for _, l in pairs(esp.Skeleton) do l.Thickness = v end
     end
 end })
-secKillerESP:AddToggle({ Name = "Killer Name & Distance", Default = true, Callback = function(v)
+secKillerESP:AddToggle({ Name = "Killer Name & Distance", Default = false, Callback = function(v)
     Config.ESP_KillerNames = v
     if not v then
         for p, esp in pairs(ESP_Objects) do
@@ -1838,7 +1838,7 @@ secKillerESP:AddToggle({ Name = "Killer Name & Distance", Default = true, Callba
         end
     end
 end })
-secKillerESP:AddToggle({ Name = "Killer Skills, Charges & CD", Default = true, Callback = function(v)
+secKillerESP:AddToggle({ Name = "Killer Skills, Charges & CD", Default = false, Callback = function(v)
     Config.ESP_KillerSkills = v
     if not v then
         TopKillerSkillText.Visible = false
@@ -1857,7 +1857,7 @@ end })
 
 -- Column 2: Survivor ESP (2D Boxes)
 local secSurvESP = colV2:CreateSection("Survivor ESP (2D Boxes)")
-secSurvESP:AddToggle({ Name = "Enable Survivor ESP", Default = true, Callback = function(v)
+secSurvESP:AddToggle({ Name = "Enable Survivor ESP", Default = false, Callback = function(v)
     Config.ESP_SurvivorEnabled = v
     if not v then
         for p, esp in pairs(ESP_Objects) do
@@ -1873,7 +1873,7 @@ secSurvESP:AddToggle({ Name = "Enable Survivor ESP", Default = true, Callback = 
         end
     end
 end })
-secSurvESP:AddToggle({ Name = "Survivor 2D Boxes", Default = true, Callback = function(v)
+secSurvESP:AddToggle({ Name = "Survivor 2D Boxes", Default = false, Callback = function(v)
     Config.ESP_SurvivorBoxes = v
     if not v then
         for p, esp in pairs(ESP_Objects) do
@@ -1884,7 +1884,7 @@ secSurvESP:AddToggle({ Name = "Survivor 2D Boxes", Default = true, Callback = fu
         end
     end
 end })
-secSurvESP:AddToggle({ Name = "Survivor Names & Distance", Default = true, Callback = function(v)
+secSurvESP:AddToggle({ Name = "Survivor Names & Distance", Default = false, Callback = function(v)
     Config.ESP_SurvivorNames = v
     if not v then
         for p, esp in pairs(ESP_Objects) do
@@ -1895,10 +1895,10 @@ secSurvESP:AddToggle({ Name = "Survivor Names & Distance", Default = true, Callb
         end
     end
 end })
-secSurvESP:AddToggle({ Name = "Survivor Status (Knock/Hook)", Default = true, Callback = function(v)
+secSurvESP:AddToggle({ Name = "Survivor Status (Knock/Hook)", Default = false, Callback = function(v)
     Config.ESP_SurvivorStatus = v
 end })
-secSurvESP:AddToggle({ Name = "Survivor Items & Cooldowns", Default = true, Callback = function(v)
+secSurvESP:AddToggle({ Name = "Survivor Items & Cooldowns", Default = false, Callback = function(v)
     Config.ESP_SurvivorSkills = v
     if not v then
         for p, esp in pairs(ESP_Objects) do
@@ -1906,7 +1906,7 @@ secSurvESP:AddToggle({ Name = "Survivor Items & Cooldowns", Default = true, Call
         end
     end
 end })
-secSurvESP:AddToggle({ Name = "Show Players in Lobby", Default = true, Callback = function(v)
+secSurvESP:AddToggle({ Name = "Show Players in Lobby", Default = false, Callback = function(v)
     Config.ESP_LobbyEnabled = v
     if not v and IsInLobby() then
         for p, esp in pairs(ESP_Objects) do
@@ -1920,22 +1920,22 @@ end })
 
 -- Objectives & Auras Section
 local secObjESP = colV1:CreateSection("Objectives & 3D Auras")
-secObjESP:AddToggle({ Name = "Generator ESP", Default = true, Callback = function(v)
+secObjESP:AddToggle({ Name = "Generator ESP", Default = false, Callback = function(v)
     Config.ESP_Generators = v
     if not v then
         for _, txt in pairs(GenDrawings) do txt.Visible = false end
     end
 end })
-secObjESP:AddToggle({ Name = "Generator Progress %", Default = true, Callback = function(v) Config.ESP_GenProgress = v end })
+secObjESP:AddToggle({ Name = "Generator Progress %", Default = false, Callback = function(v) Config.ESP_GenProgress = v end })
 
-secObjESP:AddToggle({ Name = "Pallet ESP (Nearby)", Default = true, Callback = function(v)
+secObjESP:AddToggle({ Name = "Pallet ESP (Nearby)", Default = false, Callback = function(v)
     Config.ESP_Pallets = v
     if not v then
         for _, txt in pairs(PalletDrawings) do txt.Visible = false end
         for _, hl in pairs(PalletAuras) do hl.Enabled = false end
     end
 end })
-secObjESP:AddToggle({ Name = "Pallet 3D Aura (Amber)", Default = true, Callback = function(v)
+secObjESP:AddToggle({ Name = "Pallet 3D Aura (Amber)", Default = false, Callback = function(v)
     Config.ESP_PalletAura = v
     if not v then
         for _, hl in pairs(PalletAuras) do hl.Enabled = false end
@@ -1943,7 +1943,7 @@ secObjESP:AddToggle({ Name = "Pallet 3D Aura (Amber)", Default = true, Callback 
 end })
 secObjESP:AddSlider({ Name = "Pallet Max Distance", Flag = "Pallet Max Distance", Min = 30, Max = 300, Default = 150, Suffix = " studs", Callback = function(v) Config.PalletMaxDist = v end })
 
-secObjESP:AddToggle({ Name = "Window / Vault ESP", Default = true, Callback = function(v)
+secObjESP:AddToggle({ Name = "Window / Vault ESP", Default = false, Callback = function(v)
     Config.ESP_Windows = v
     if not v then
         for _, txt in pairs(WindowDrawings) do txt.Visible = false end
@@ -1951,7 +1951,7 @@ secObjESP:AddToggle({ Name = "Window / Vault ESP", Default = true, Callback = fu
         for _, bha in pairs(WindowAdornments) do bha.Visible = false end
     end
 end })
-secObjESP:AddToggle({ Name = "Window 3D Aura (Ledge Only)", Default = true, Callback = function(v)
+secObjESP:AddToggle({ Name = "Window 3D Aura (Ledge Only)", Default = false, Callback = function(v)
     Config.ESP_WindowAura = v
     if not v then
         for _, hl in pairs(WindowAuras) do hl.Enabled = false end
@@ -1960,7 +1960,7 @@ secObjESP:AddToggle({ Name = "Window 3D Aura (Ledge Only)", Default = true, Call
 end })
 secObjESP:AddSlider({ Name = "Window Max Distance", Flag = "Window Max Distance", Min = 30, Max = 300, Default = 150, Suffix = " studs", Callback = function(v) Config.WindowMaxDist = v end })
 
-secObjESP:AddToggle({ Name = "Exit Gates ESP", Default = true, Callback = function(v)
+secObjESP:AddToggle({ Name = "Exit Gates ESP", Default = false, Callback = function(v)
     Config.ESP_ExitGates = v
     if not v then
         for _, txt in pairs(GateDrawings) do txt.Visible = false end
@@ -2180,7 +2180,7 @@ local colM1 = TabMech:CreateColumn()
 local colM2 = TabMech:CreateColumn()
 
 local secAutomation = colM1:CreateSection("Auto Skill Check")
-secAutomation:AddToggle({ Name = "100% Great Skill Check", Default = true, Callback = function(v) Config.AutoSkillCheck = v end })
+secAutomation:AddToggle({ Name = "100% Great Skill Check", Default = false, Callback = function(v) Config.AutoSkillCheck = v end })
 
 local secMovement = colM1:CreateSection("Camera & Movement")
 secMovement:AddToggle({ Name = "Enable Custom FOV", Default = false, Callback = function(v)
@@ -2315,6 +2315,23 @@ local function SynchronizeConfigState()
     if cv["Show Players in Lobby"] ~= nil then
         Config.ESP_LobbyEnabled = (cv["Show Players in Lobby"] == true)
     end
+    if cv["Enable Killer ESP"] ~= nil then Config.ESP_KillerEnabled = (cv["Enable Killer ESP"] == true) end
+    if cv["Stick Skeleton (Pink)"] ~= nil then Config.ESP_KillerSkeleton = (cv["Stick Skeleton (Pink)"] == true) end
+    if cv["Killer Name & Distance"] ~= nil then Config.ESP_KillerNames = (cv["Killer Name & Distance"] == true) end
+    if cv["Killer Skills, Charges & CD"] ~= nil then Config.ESP_KillerSkills = (cv["Killer Skills, Charges & CD"] == true) end
+    if cv["Enable Survivor ESP"] ~= nil then Config.ESP_SurvivorEnabled = (cv["Enable Survivor ESP"] == true) end
+    if cv["Survivor 2D Boxes"] ~= nil then Config.ESP_SurvivorBoxes = (cv["Survivor 2D Boxes"] == true) end
+    if cv["Survivor Names & Distance"] ~= nil then Config.ESP_SurvivorNames = (cv["Survivor Names & Distance"] == true) end
+    if cv["Survivor Status (Knock/Hook)"] ~= nil then Config.ESP_SurvivorStatus = (cv["Survivor Status (Knock/Hook)"] == true) end
+    if cv["Survivor Items & Cooldowns"] ~= nil then Config.ESP_SurvivorSkills = (cv["Survivor Items & Cooldowns"] == true) end
+    if cv["Generator ESP"] ~= nil then Config.ESP_Generators = (cv["Generator ESP"] == true) end
+    if cv["Generator Progress %"] ~= nil then Config.ESP_GenProgress = (cv["Generator Progress %"] == true) end
+    if cv["Pallet ESP (Nearby)"] ~= nil then Config.ESP_Pallets = (cv["Pallet ESP (Nearby)"] == true) end
+    if cv["Pallet 3D Aura (Amber)"] ~= nil then Config.ESP_PalletAura = (cv["Pallet 3D Aura (Amber)"] == true) end
+    if cv["Window / Vault ESP"] ~= nil then Config.ESP_Windows = (cv["Window / Vault ESP"] == true) end
+    if cv["Window 3D Aura (Ledge Only)"] ~= nil then Config.ESP_WindowAura = (cv["Window 3D Aura (Ledge Only)"] == true) end
+    if cv["Exit Gates ESP"] ~= nil then Config.ESP_ExitGates = (cv["Exit Gates ESP"] == true) end
+    if cv["100% Great Skill Check"] ~= nil then Config.AutoSkillCheck = (cv["100% Great Skill Check"] == true) end
 end
 
 task.defer(function()
