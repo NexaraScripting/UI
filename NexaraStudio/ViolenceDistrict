@@ -175,37 +175,6 @@ pcall(function()
 end)
 
 -- ======== LOBBY & TEAM HELPERS ========
-local function IsInLobby()
-    -- 1. Check LocalPlayer's Team (Authoritative: Survivors & Killer teams only exist during active match)
-    local team = LocalPlayer.Team
-    if team then
-        if team.Name == "Killer" or team.Name == "Survivors" then
-            return false
-        end
-    end
-
-    -- 2. Check Map folder contents (In match, Map has hundreds of children; in lobby, #Map:GetChildren() == 0)
-    local map = Workspace:FindFirstChild("Map")
-    if map and #map:GetChildren() >= 10 then
-        return false
-    end
-
-    -- 3. Check Workspace.Lobby presence
-    local lobby = Workspace:FindFirstChild("Lobby")
-    if lobby and lobby:FindFirstChildWhichIsA("BasePart", true) then
-        if not map or #map:GetChildren() < 10 then
-            return true
-        end
-    end
-
-    -- 4. Spectator team fallback when map is empty
-    if team and team.Name == "Spectator" and (not map or #map:GetChildren() < 10) then
-        return true
-    end
-
-    return false
-end
-
 local function GetCharacter(plr)
     return (plr or LocalPlayer).Character
 end
@@ -213,6 +182,87 @@ end
 local function GetRoot(plr)
     local char = GetCharacter(plr)
     return char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
+end
+
+local cachedLobbyPart = nil
+local function GetLobbyPart()
+    if cachedLobbyPart and cachedLobbyPart.Parent then return cachedLobbyPart end
+    local lobby = Workspace:FindFirstChild("Lobby")
+    if lobby then
+        local house = lobby:FindFirstChild("House")
+        if house then
+            cachedLobbyPart = house:FindFirstChildWhichIsA("BasePart", true)
+        end
+        if not cachedLobbyPart then
+            cachedLobbyPart = lobby:FindFirstChildWhichIsA("SpawnLocation", true) or lobby:FindFirstChildWhichIsA("BasePart", true)
+        end
+    end
+    return cachedLobbyPart
+end
+
+local function IsMatchTimerZero()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return false end
+    for _, guiName in ipairs({"Survivor", "Killer", "Spectator", "HUD", "InGame"}) do
+        local g = pg:FindFirstChild(guiName)
+        if g then
+            local tf = g:FindFirstChild("time") or g:FindFirstChild("Time") or g:FindFirstChild("Timer")
+            if tf then
+                local tl = tf:FindFirstChild("TimerLabel") or tf:FindFirstChildOfClass("TextLabel")
+                if tl and (tl.Text == "00:00" or tl.Text == "0:00") then
+                    return true
+                end
+            end
+        end
+    end
+    for _, gui in ipairs(pg:GetChildren()) do
+        if gui:IsA("ScreenGui") and gui.Name ~= "NexaraStudio" and gui.Name ~= "Nexara_ScreenGui" then
+            local tf = gui:FindFirstChild("time", true)
+            if tf then
+                local tl = tf:FindFirstChild("TimerLabel") or tf:FindFirstChildOfClass("TextLabel")
+                if tl and (tl.Text == "00:00" or tl.Text == "0:00") then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function IsInLobby()
+    -- 1. Check physical proximity to Lobby (Fastest & 100% reliable - 0ms delay on round end teleport)
+    local myRoot = GetRoot(LocalPlayer)
+    local lobbyPart = GetLobbyPart()
+    if myRoot and lobbyPart then
+        local distToLobby = (myRoot.Position - lobbyPart.Position).Magnitude
+        if distToLobby <= 350 then
+            return true
+        end
+    end
+
+    -- 2. Check Match Timer: 00:00 means match has completed
+    if IsMatchTimerZero() then
+        return true
+    end
+
+    -- 3. Check Map folder contents (In match, Map has hundreds of children; in lobby, #Map:GetChildren() == 0 or missing)
+    local map = Workspace:FindFirstChild("Map")
+    if not map or #map:GetChildren() < 10 then
+        return true
+    end
+
+    -- 4. Check LocalPlayer's Team fallback
+    local team = LocalPlayer.Team
+    if team then
+        if team.Name == "Spectator" then
+            return true
+        end
+        if team.Name == "Killer" or team.Name == "Survivors" then
+            return false
+        end
+    end
+
+    return false
 end
 
 local function IsKiller(player)
@@ -2329,17 +2379,8 @@ table.insert(ScriptConnections, UserInputService.InputBegan:Connect(function(inp
 end))
 
 table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
-    local inLobby = IsInLobby()
     if Window.Visible then
         -- Menu is open: unlock mouse so user can click cheat menu
-        if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
-            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-        end
-        if not UserInputService.MouseIconEnabled then
-            UserInputService.MouseIconEnabled = true
-        end
-    elseif inLobby then
-        -- Menu is closed in lobby: keep mouse free for lobby UI
         if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
             UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         end
@@ -2425,11 +2466,21 @@ local seenGens = {}
 local seenPallets = {}
 local seenWindows = {}
 local seenGates = {}
+local wasInLobby = false
 
 local function RenderESP()
     pcall(function()
         Camera = Workspace.CurrentCamera or Camera
         local inLobby = IsInLobby()
+        if inLobby and not wasInLobby then
+            -- Immediate round-end purge: hide killer skill, clear highlights & adornments
+            TopKillerSkillText.Visible = false
+            for _, hl in pairs(PalletAuras) do pcall(function() hl.Enabled = false end) end
+            for _, hl in pairs(WindowAuras) do pcall(function() hl.Enabled = false end) end
+            for _, bha in pairs(WindowAdornments) do pcall(function() bha.Visible = false end) end
+            if PruneDeadDrawings then PruneDeadDrawings() end
+        end
+        wasInLobby = inLobby
         local myRoot = GetRoot(LocalPlayer)
         local camPos = Camera.CFrame.Position
         local myPos = myRoot and myRoot.Position or camPos
