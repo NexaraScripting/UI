@@ -7,6 +7,9 @@ if _G.Nexara_VD_Cleanup then
     pcall(_G.Nexara_VD_Cleanup)
     _G.Nexara_VD_Cleanup = nil
 end
+pcall(function()
+    game:GetService("RunService"):UnbindFromRenderStep("Nexara_MouseUnlock")
+end)
 if _G.Nexara_CurrentWindow then
     pcall(function()
         _G.Nexara_CurrentWindow.Visible = false
@@ -25,8 +28,21 @@ if _G.Nexara_CurrentInstance and _G.Nexara_CurrentInstance.Connections then
     _G.Nexara_CurrentInstance = nil
 end
 
+getgenv().NexaraUI = nil
+getgenv().Nexara = nil
 _G.NexaraLibOnly = true
-local Nexara = loadstring(game:HttpGet("https://raw.githubusercontent.com/Surankannig/UI/refs/heads/main/UI-NexaraStudio"))()
+local Nexara = nil
+local ok, content = pcall(function() return readfile("Nexara Studio/Ui/UI-NexaraStudio.lua") end)
+if ok and content and content ~= "" then
+    local fn, _ = loadstring(content)
+    if fn then Nexara = fn() end
+end
+if not Nexara then
+    Nexara = getgenv().NexaraUI or getgenv().Nexara
+end
+if not Nexara then
+    Nexara = loadstring(game:HttpGet("https://raw.githubusercontent.com/Surankannig/UI/refs/heads/main/UI-NexaraStudio"))()
+end
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -82,6 +98,19 @@ local Config = {
     ESP_ExitGates = false,
     PalletMaxDist = 150,
     WindowMaxDist = 150,
+
+    -- Custom ESP Colors
+    Color_SurvivorBox = Color3.fromRGB(80, 255, 120),
+    Color_SurvivorNames = Color3.fromRGB(80, 255, 120),
+    Color_KillerSkeleton = Color3.fromRGB(255, 60, 140),
+    Color_KillerNames = Color3.fromRGB(255, 60, 60),
+    Color_KillerSkills = Color3.fromRGB(80, 220, 255),
+    Color_Generators = Color3.fromRGB(0, 240, 255),
+    Color_PalletAura = Color3.fromRGB(255, 170, 0),
+    Color_PalletNames = Color3.fromRGB(255, 180, 50),
+    Color_WindowAura = Color3.fromRGB(0, 210, 255),
+    Color_WindowNames = Color3.fromRGB(80, 210, 255),
+    Color_ExitGates = Color3.fromRGB(50, 255, 120),
     
     -- Player / QoL
     AutoSkillCheck = false,
@@ -460,8 +489,9 @@ local HiddenMarkCooldownEnd = 0
 local SlasherMistCooldownEnd = 0
 local SlasherPursuitCooldownEnd = 0
 local StalkerGraspCooldownEnd = 0
-local MaskedDashCooldownEnd = 0
-local MaskedSwapCooldownEnd = 0
+local MaskedActiveEnd = 0
+local MaskedCooldownEnd = 0
+local LastMaskedState = "Richard"
 local AbyssBurstCooldownEnd = 0
 local AbyssSlashCooldownEnd = 0
 local KillerFrenzyCooldownEnd = 0
@@ -536,6 +566,7 @@ local function SetupPlayerCooldownHooks(player)
     local function onChar(char)
         if not char then return end
         ClearPlayerCooldowns(player)
+        PersistentPerksCache[player] = nil
 
         -- 0. Real-time Perk Detection: Server clones perk scripts directly into char during match
         table.insert(ScriptConnections, char.ChildAdded:Connect(function(child)
@@ -552,6 +583,21 @@ local function SetupPlayerCooldownHooks(player)
             end)
             if attrName == "Parry" and char:GetAttribute("Parry") == true then
                 SetItemCooldown(player, "Parrying Dagger", 60)
+            elseif attrName == "Mask" then
+                local m = char:GetAttribute("Mask")
+                if m and m ~= "Richard" and LastMaskedState == "Richard" then
+                    MaskedActiveEnd = os.clock() + 68
+                    MaskedCooldownEnd = 0
+                    LastMaskedState = m
+                elseif m == "Richard" and LastMaskedState ~= "Richard" then
+                    MaskedActiveEnd = 0
+                    MaskedCooldownEnd = os.clock() + 30
+                    LastMaskedState = "Richard"
+                end
+            elseif attrName == "MaskExpired" and char:GetAttribute("MaskExpired") == true then
+                MaskedActiveEnd = 0
+                MaskedCooldownEnd = os.clock() + 30
+                LastMaskedState = "Richard"
             elseif (attrName == "overridelookscript" or attrName == "Aiming") and char:GetAttribute(attrName) == true then
                 local eqItem = player:GetAttribute("EquippedItem")
                 if eqItem == "Riot Shield" or char:FindFirstChild("Riot Shield") then
@@ -1029,19 +1075,25 @@ task.spawn(function()
             end
         end
 
-        -- 4. The Masked (Mask Up & Frenzy Dash)
+        -- 4. The Masked (Random Mask Power: 68s duration, 30s cooldown, single skill)
         local maskedRem = kRem:FindFirstChild("Masked")
         if maskedRem then
-            local dashRem = maskedRem:FindFirstChild("alexattack") or maskedRem:FindFirstChild("StopDash")
-            if dashRem then
-                table.insert(ScriptConnections, dashRem.OnClientEvent:Connect(function()
-                    MaskedDashCooldownEnd = os.clock() + 20
-                end))
-            end
             local maskRem = maskedRem:FindFirstChild("Activatepower")
             if maskRem then
-                table.insert(ScriptConnections, maskRem.OnClientEvent:Connect(function()
-                    MaskedSwapCooldownEnd = os.clock() + 30
+                table.insert(ScriptConnections, maskRem.OnClientEvent:Connect(function(maskName)
+                    MaskedActiveEnd = os.clock() + 68
+                    MaskedCooldownEnd = 0
+                    if maskName and typeof(maskName) == "string" and maskName ~= "" then
+                        LastMaskedState = maskName
+                    end
+                end))
+            end
+            local deactRem = maskedRem:FindFirstChild("Deactivatepower")
+            if deactRem then
+                table.insert(ScriptConnections, deactRem.OnClientEvent:Connect(function()
+                    MaskedActiveEnd = 0
+                    MaskedCooldownEnd = os.clock() + 30
+                    LastMaskedState = "Richard"
                 end))
             end
         end
@@ -1077,22 +1129,248 @@ task.spawn(function()
 end)
 
 local Window = Nexara:CreateWindow({
-    Title = "Nexara Studio | Violence District V 1.0.0-a912beta",
+    Title = "Nexara Studio | Violence District - v1.0.0-a912beta",
     Size = UDim2.fromOffset(720, 520),
     ToggleKey = Enum.KeyCode.RightControl,
-    Theme = { Accent = Color3.fromRGB(220, 50, 50) } -- Blood red theme
+    Theme = { Accent = Color3.fromRGB(245, 245, 250) } -- NexaraTheme (Black & White)
 })
 
--- Centralize mouse control in script so UI library doesn't fight game or leave cursor on screen
-Window.UnlockMouse = false
+-- Centralize mouse control in script with native modal unlock for seamless first-person cursor
+Window.UnlockMouse = true
 _G.Nexara_CurrentInstance = Nexara
 _G.Nexara_CurrentWindow = Window
 
-if Window.CustomBg then
-    Window.CustomBg.ImageTransparency = 0.65
+-- Invisible modal button inside window to natively unlock mouse in first-person without vanishing
+local modalUnlockBtn = Instance.new("TextButton")
+modalUnlockBtn.Name = "Nexara_ModalUnlock"
+modalUnlockBtn.Size = UDim2.fromOffset(10, 10)
+modalUnlockBtn.Position = UDim2.fromOffset(0, 0)
+modalUnlockBtn.BackgroundTransparency = 1
+modalUnlockBtn.Text = ""
+modalUnlockBtn.Modal = true
+modalUnlockBtn.Selectable = false
+modalUnlockBtn.Active = false
+modalUnlockBtn.Visible = Window.Visible
+modalUnlockBtn.Parent = Window.MainFrame or Window.Gui
+
+if Window.MainFrame then
+    table.insert(ScriptConnections, Window.MainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+        modalUnlockBtn.Visible = Window.MainFrame.Visible
+        if Window.MainFrame.Visible then
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            UserInputService.MouseIconEnabled = true
+        end
+    end))
 end
 
-Nexara:AddWatermark("Nexara Studio")
+-- Hook Window:CreateTab to enhance AddToggle for colored toggles:
+-- 1. Anchors Toggle switch at the far right edge (UDim2.new(1, -34, 0.5, -9)) to match all other toggles perfectly
+-- 2. Places ColorBadge directly in front of the Toggle switch (UDim2.new(1, -58, 0.5, -7))
+-- 3. Keeps Toggle switch button standard Accent/theme color (does NOT change to the ESP color)
+local origCreateTab = Window.CreateTab
+function Window:CreateTab(tabName, tabIcon)
+    local TabObj = origCreateTab(self, tabName, tabIcon)
+    local al = TabObj.ActiveLine or (TabObj.Button and TabObj.Button:FindFirstChild("ActiveLine"))
+    if al then
+        al.AnchorPoint = Vector2.new(0.5, 1)
+        al.Position = UDim2.new(0.5, 0, 1, 0)
+        al:GetPropertyChangedSignal("Position"):Connect(function()
+            if al.Position ~= UDim2.new(0.5, 0, 1, 0) then
+                al.AnchorPoint = Vector2.new(0.5, 1)
+                al.Position = UDim2.new(0.5, 0, 1, 0)
+            end
+        end)
+    end
+    local origCreateColumn = TabObj.CreateColumn
+    function TabObj:CreateColumn()
+        local ColObj = origCreateColumn(self)
+        local origCreateSection = ColObj.CreateSection
+        function ColObj:CreateSection(secTitle)
+            local SecObj = origCreateSection(self, secTitle)
+            local origAddToggle = SecObj.AddToggle
+            function SecObj:AddToggle(toggleOpts)
+                if not toggleOpts or toggleOpts.Color == nil then
+                    return origAddToggle(self, toggleOpts)
+                end
+
+                toggleOpts = toggleOpts or {}
+                local tName = toggleOpts.Name or "Toggle"
+                local tFlag = toggleOpts.Flag or tName
+                local tDefault = toggleOpts.Default or false
+                local tCallback = toggleOpts.Callback or function() end
+                local customColor = toggleOpts.Color
+                local currentColor = customColor or Window.Theme.Accent
+
+                local Row = Instance.new("Frame")
+                Row.Name = "ToggleRow_" .. tName
+                Row.Size = UDim2.new(1, 0, 0, 20)
+                Row.BackgroundTransparency = 1
+                Row.Parent = self.Container
+
+                local Trigger = Instance.new("TextButton")
+                Trigger.Name = "Trigger"
+                Trigger.Size = UDim2.new(1, 0, 1, 0)
+                Trigger.BackgroundTransparency = 1
+                Trigger.Text = ""
+                Trigger.Parent = Row
+
+                local Label = Instance.new("TextLabel")
+                Label.Name = "Label"
+                Label.Size = UDim2.new(1, -64, 1, 0)
+                Label.Position = UDim2.fromOffset(0, 0)
+                Label.BackgroundTransparency = 1
+                Label.Text = tName
+                Label.TextColor3 = Window.Theme.Text
+                Label.TextSize = 11
+                Label.TextXAlignment = Enum.TextXAlignment.Left
+                Label.FontFace = GetPreferredFont()
+                Label.Parent = Trigger
+
+                local Pill = Instance.new("Frame")
+                Pill.Name = "Pill"
+                Pill.Size = UDim2.fromOffset(34, 18)
+                Pill.Position = UDim2.new(1, -34, 0.5, -9)
+                local offPillColor = Color3.fromRGB(40, 52, 46)
+                Pill.BackgroundColor3 = tDefault and Window.Theme.Accent or offPillColor
+                Pill.BorderSizePixel = 0
+                Pill.Parent = Trigger
+
+                local PillCorner = Instance.new("UICorner")
+                PillCorner.CornerRadius = UDim.new(1, 0)
+                PillCorner.Parent = Pill
+
+                local PillStroke = Instance.new("UIStroke")
+                PillStroke.Color = Color3.fromRGB(30, 40, 36)
+                PillStroke.Thickness = 1
+                PillStroke.Parent = Pill
+
+                local Knob = Instance.new("Frame")
+                Knob.Name = "Knob"
+                Knob.Size = UDim2.fromOffset(14, 14)
+                Knob.AnchorPoint = Vector2.new(0, 0.5)
+                local posOn = UDim2.new(1, -16, 0.5, 0)
+                local posOff = UDim2.new(0, 2, 0.5, 0)
+                Knob.Position = tDefault and posOn or posOff
+                local knobColorOn = Color3.fromRGB(22, 22, 22)
+                local knobColorOff = Color3.fromRGB(115, 140, 130)
+                Knob.BackgroundColor3 = tDefault and knobColorOn or knobColorOff
+                Knob.BorderSizePixel = 0
+                Knob.Parent = Pill
+
+                local KnobCorner = Instance.new("UICorner")
+                KnobCorner.CornerRadius = UDim.new(1, 0)
+                KnobCorner.Parent = Knob
+
+                local state = tDefault
+                local ToggleItem = { State = state, Color = currentColor, Name = tName, Flag = tFlag }
+
+                local function SetState(val, silent)
+                    state = val
+                    ToggleItem.State = state
+                    local targetPillCol = state and Window.Theme.Accent or offPillColor
+                    local targetKnobCol = state and knobColorOn or knobColorOff
+                    local targetPos = state and posOn or posOff
+
+                    TweenService:Create(Pill, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        BackgroundColor3 = targetPillCol
+                    }):Play()
+                    TweenService:Create(Knob, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        Position = targetPos,
+                        BackgroundColor3 = targetKnobCol
+                    }):Play()
+
+                    Window.ConfigValues[tFlag] = state
+                    tCallback(state, ToggleItem.Color)
+                    if not silent and Window.OnSilentAutoSave then
+                        Window.OnSilentAutoSave()
+                    end
+                end
+
+                Window:OnAccentChanged(function(newAccent)
+                    if state then
+                        TweenService:Create(Pill, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                            BackgroundColor3 = newAccent
+                        }):Play()
+                    end
+                end)
+
+                local lastToggleTick = 0
+                local function DoToggle()
+                    if os.clock() - lastToggleTick < 0.08 then return end
+                    lastToggleTick = os.clock()
+                    SetState(not state)
+                end
+                Trigger.MouseButton1Click:Connect(DoToggle)
+
+                local ColorBadge = Instance.new("TextButton")
+                ColorBadge.Name = "ColorBadge"
+                ColorBadge.Size = UDim2.fromOffset(18, 14)
+                ColorBadge.Position = UDim2.new(1, -58, 0.5, -7)
+                ColorBadge.BackgroundColor3 = currentColor
+                ColorBadge.BorderSizePixel = 0
+                ColorBadge.Text = ""
+                ColorBadge.ZIndex = 5
+                ColorBadge.Parent = Row
+
+                local BadgeCorner = Instance.new("UICorner")
+                BadgeCorner.CornerRadius = UDim.new(0, 3)
+                BadgeCorner.Parent = ColorBadge
+
+                local BadgeStroke = Instance.new("UIStroke")
+                BadgeStroke.Color = Window.Theme.Outline
+                BadgeStroke.Thickness = 1
+                BadgeStroke.Parent = ColorBadge
+
+                ColorBadge.MouseButton1Click:Connect(function()
+                    Nexara:OpenColorPicker(ColorBadge, ToggleItem.Color, function(newCol)
+                        ToggleItem.Color = newCol
+                        ColorBadge.BackgroundColor3 = newCol
+                        Window.ConfigValues[tFlag .. "_Color"] = { math.floor(newCol.R * 255), math.floor(newCol.G * 255), math.floor(newCol.B * 255) }
+                        tCallback(ToggleItem.State, newCol)
+                        if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
+                    end)
+                end)
+
+                function ToggleItem:Set(val, silent)
+                    SetState(val, silent)
+                end
+                function ToggleItem:SetColor(newCol, silent)
+                    ToggleItem.Color = newCol
+                    ColorBadge.BackgroundColor3 = newCol
+                    Window.ConfigValues[tFlag .. "_Color"] = { math.floor(newCol.R * 255), math.floor(newCol.G * 255), math.floor(newCol.B * 255) }
+                    if not silent then tCallback(ToggleItem.State, newCol) end
+                end
+
+                Window.ConfigFlags[tFlag] = ToggleItem
+                return ToggleItem
+            end
+            return SecObj
+        end
+        return ColObj
+    end
+    return TabObj
+end
+
+-- Priority 2000 (RenderPriority.Last.Value) runs strictly AFTER Roblox's CameraModule (priority 200),
+-- guaranteeing the cursor will never be locked to center while the UI window is visible!
+pcall(function()
+    RunService:BindToRenderStep("Nexara_MouseUnlock", Enum.RenderPriority.Last.Value, function()
+        if Window and Window.Visible then
+            if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            end
+            if not UserInputService.MouseIconEnabled then
+                UserInputService.MouseIconEnabled = true
+            end
+            if modalUnlockBtn and not modalUnlockBtn.Visible then
+                modalUnlockBtn.Visible = true
+            end
+        end
+    end)
+end)
+
+
+-- Nexara:AddWatermark("Nexara Studio") -- Removed name watermark as requested
 Nexara:Notify({ Title = "Violence District", Content = "Loaded V 1.0.0-a912beta! Press [RightControl] to toggle.", Duration = 4 })
 
 
@@ -1169,8 +1447,112 @@ local function SyncGamePerksDatabase()
 end
 task.spawn(SyncGamePerksDatabase)
 
+local IgnoredAttributes = {
+    -- Generic survivor / character movement & action attributes (MUST NEVER MAP TO PERKS)
+    ["vaultspeed"] = true,
+    ["speedboost"] = true,
+    ["repairboost"] = true,
+    ["healboost"] = true,
+    ["healnerf"] = true,
+    ["skillcheckfrequency"] = true,
+    ["skillcheckspeed"] = true,
+    ["bleedboost"] = true,
+    ["unhookspeed"] = true,
+    ["breakspeed"] = true,
+    ["iframes"] = true,
+    ["knocked"] = true,
+    ["isrunning"] = true,
+    ["hookcount"] = true,
+    ["hookedprogress"] = true,
+    ["ischasing"] = true,
+    ["chasemusic"] = true,
+    ["suspense"] = true,
+    ["suspenseradius"] = true,
+    ["terrorradius"] = true,
+    ["speed"] = true,
+    ["swift"] = true,
+    ["spearmode"] = true,
+    ["spears"] = true,
+    ["bloodlust"] = true,
+    ["special"] = true,
+    ["overridelookscript"] = true,
+    ["chasetargetuserid"] = true,
+    ["isvaulting"] = true,
+    ["vaultending"] = true,
+    ["issliding"] = true,
+    ["isdroppingpallet"] = true,
+    ["isrepairing"] = true,
+    ["ishealing"] = true,
+    ["isunhooking"] = true,
+    ["isexiting"] = true,
+    ["crouching"] = true,
+    ["disabled"] = true,
+    ["movementlocked"] = true,
+    ["sprinting"] = true,
+    ["aiming"] = true,
+    ["parry"] = true,
+    ["untargettable"] = true,
+    ["supresshitanim"] = true,
+    ["tokens"] = true,
+    ["remainingcarrytime"] = true,
+    ["visuallearnerbonus"] = true,
+    ["visual_learner_bonus"] = true,
+    ["anticamp"] = true,
+    ["anticampcharge"] = true,
+
+    -- Player instance settings / cosmetic attributes
+    ["itemsdata"] = true,
+    ["itemsdataloaded"] = true,
+    ["itemskinsdataloaded"] = true,
+    ["skinsdataloaded"] = true,
+    ["emotesdataloaded"] = true,
+    ["killersdataloaded"] = true,
+    ["perksdataloaded"] = true,
+    ["initdone"] = true,
+    ["selectedkiller"] = true,
+    ["equippeditem"] = true,
+    ["level"] = true,
+    ["exp"] = true,
+    ["expinround"] = true,
+    ["xpboostremaining"] = true,
+    ["moneyinround"] = true,
+    ["gears"] = true,
+    ["screws"] = true,
+    ["candy"] = true,
+    ["ornaments"] = true,
+    ["pingdisplay"] = true,
+    ["runtoggle"] = true,
+    ["crouchtoggle"] = true,
+    ["clickhold"] = true,
+    ["hairtoggled"] = true,
+    ["familyfriendly"] = true,
+    ["touchsense"] = true,
+    ["epilepsymode"] = true,
+    ["filmgrain"] = true,
+    ["musicvolume"] = true,
+    ["envvolume"] = true,
+    ["emotevolume"] = true,
+    ["heartbeat"] = true,
+    ["heartbeatcolor"] = true,
+    ["killeraura"] = true,
+    ["survaura"] = true,
+    ["genaura"] = true,
+    ["spikeaura"] = true,
+    ["leveraura"] = true,
+    ["bloodpoolscolor"] = true,
+    ["displayvip"] = true,
+    ["allowkiller"] = true,
+    ["killerchance"] = true,
+    ["killerend"] = true,
+    ["spectate"] = true,
+    ["isspectating"] = true,
+    ["platform"] = true,
+    ["region"] = true,
+    ["privateserverowner"] = true,
+}
+
 local StatusToPerkMap = {
-    -- Survivor perks & attributes
+    -- Survivor perks (aliases & real perk names)
     ["winded"] = "Quick Recovery",
     ["quickrecovery"] = "Quick Recovery",
     ["timetogrowup"] = "Time To Grow Up",
@@ -1185,7 +1567,6 @@ local StatusToPerkMap = {
     ["onmyown"] = "On My Own",
     ["karma"] = "High Karma",
     ["highkarma"] = "High Karma",
-    ["anticampcharge"] = "High Karma",
     ["snakestep"] = "Snake Step",
     ["headsup"] = "Heads Up",
     ["groupproject"] = "Group Project",
@@ -1214,8 +1595,8 @@ local StatusToPerkMap = {
     ["flawlessexecution"] = "Flawless Execution",
     ["partnersincrime"] = "Partners In Crime",
     ["visuallearner"] = "Visual Learner",
-    ["visual_learner_bonus"] = "Visual Learner",
-    ["visuallearnerbonus"] = "Visual Learner",
+    ["finessevault"] = "Flowstate",
+
     -- Killer perks (including game developer typos e.g. excitment & kings_scourge)
     ["excitment"] = "Excitement",
     ["excitement"] = "Excitement",
@@ -1261,6 +1642,11 @@ GetPlayerPerks = function(player)
     local perks = {}
     if not player then return perks end
 
+    -- Reset cache if player is in lobby so match data never bleeds across sessions
+    if IsInLobby() or IsPlayerInLobby(player) then
+        PersistentPerksCache[player] = nil
+    end
+
     local isK = IsKiller(player)
     local targetNorm = isK and KnownKillerPerksNormalized or KnownSurvivorPerksNormalized
     local otherNorm = isK and KnownSurvivorPerksNormalized or KnownKillerPerksNormalized
@@ -1272,20 +1658,20 @@ GetPlayerPerks = function(player)
         str = str:gsub("^perk%d*[_%s]*", ""):gsub("^slot%d*[_%s]*", ""):gsub("^p%d*[_%s]*", "")
         str = str:gsub("[_%s]*tier[%s%d]*$", ""):gsub("[_%s]*t%d+$", ""):gsub("[_%s]*lvl[%s%d]*$", ""):gsub("[_%s]*active$", ""):gsub("[_%s]*cooldown$", ""):gsub("[_%s]*cd$", ""):gsub("[_%s]*proc$", ""):gsub("%d+$", "")
         local clean = str:gsub("%s+", ""):gsub("[^%a]", "")
-        if #clean < 3 then return nil end
+        if #clean < 3 or IgnoredAttributes[clean] then return nil end
         if StatusToPerkMap[clean] then return StatusToPerkMap[clean] end
         if targetNorm and targetNorm[clean] then return targetNorm[clean] end
         if otherNorm and otherNorm[clean] then return otherNorm[clean] end
         if targetNorm then
             for k, v in pairs(targetNorm) do
-                if clean == k or clean:find(k, 1, true) or (#clean >= 5 and k:find(clean, 1, true)) then
+                if clean == k or (clean:find(k, 1, true) and #k >= 6) or (#clean >= 6 and k:find(clean, 1, true)) then
                     return v
                 end
             end
         end
         if otherNorm then
             for k, v in pairs(otherNorm) do
-                if clean == k or clean:find(k, 1, true) or (#clean >= 5 and k:find(clean, 1, true)) then
+                if clean == k or (clean:find(k, 1, true) and #k >= 6) or (#clean >= 6 and k:find(clean, 1, true)) then
                     return v
                 end
             end
@@ -1305,11 +1691,16 @@ GetPlayerPerks = function(player)
         end
         if pName and type(pName) == "string" and pName ~= "" and pName ~= "---" and pName ~= "None" then
             local clean = pName:lower():gsub("%s+", ""):gsub("[^%a]", "")
-            local mapped = matchPerkName(pName) or (targetNorm and targetNorm[clean]) or (otherNorm and otherNorm[clean])
-            if mapped and mapped ~= "" and not table.find(perks, mapped) and #perks < 3 then
-                table.insert(perks, mapped)
-                PlayerPerkTiers[player] = PlayerPerkTiers[player] or {}
-                PlayerPerkTiers[player][mapped] = tonumber(pTier) or 3
+            if not IgnoredAttributes[clean] then
+                local mapped = matchPerkName(pName) or (targetNorm and targetNorm[clean]) or (otherNorm and otherNorm[clean])
+                if mapped and mapped ~= "" then
+                    local cleanMapped = mapped:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                    if not IgnoredAttributes[cleanMapped] and not table.find(perks, mapped) and #perks < 3 then
+                        table.insert(perks, mapped)
+                        PlayerPerkTiers[player] = PlayerPerkTiers[player] or {}
+                        PlayerPerkTiers[player][mapped] = tonumber(pTier) or 3
+                    end
+                end
             end
         end
     end
@@ -1369,36 +1760,34 @@ GetPlayerPerks = function(player)
             end
         end
 
-        -- If server returned authoritative loadout, store and return
         if remoteDone or #perks > 0 then
             PersistentPerksCache[player] = perks
             return perks
         end
     end
 
-    -- 2. Other Players (or fallback if LocalPlayer remote failed): Check ALL in-game vectors
-    -- Pre-seed from existing match cache, but sanitize against player's current role!
+    -- 2. Other Players: Check ALL in-game vectors
+    -- Pre-seed from existing match cache, but sanitize against player's current role and IgnoredAttributes!
     if PersistentPerksCache[player] then
         local roleCleanCache = {}
         for _, p in ipairs(PersistentPerksCache[player]) do
             local pClean = p:lower():gsub("%s+", ""):gsub("[^%a]", "")
-            local isKnownKiller = KnownKillerPerksNormalized and KnownKillerPerksNormalized[pClean] ~= nil
-            local isKnownSurvivor = KnownSurvivorPerksNormalized and KnownSurvivorPerksNormalized[pClean] ~= nil
-            local keep = true
-            if isK and isKnownSurvivor and not isKnownKiller then
-                keep = false
-            elseif not isK and isKnownKiller and not isKnownSurvivor then
-                keep = false
-            end
-            if keep then
-                table.insert(roleCleanCache, p)
-                addPerk(p, PlayerPerkTiers[player] and PlayerPerkTiers[player][p] or 3)
+            if not IgnoredAttributes[pClean] and not p:find("^%[Active Perk") then
+                local isKnownKiller = KnownKillerPerksNormalized and KnownKillerPerksNormalized[pClean] ~= nil
+                local isKnownSurvivor = KnownSurvivorPerksNormalized and KnownSurvivorPerksNormalized[pClean] ~= nil
+                local keep = true
+                if isK and isKnownSurvivor and not isKnownKiller then
+                    keep = false
+                elseif not isK and isKnownKiller and not isKnownSurvivor then
+                    keep = false
+                end
+                if keep then
+                    table.insert(roleCleanCache, p)
+                    addPerk(p, PlayerPerkTiers[player] and PlayerPerkTiers[player][p] or 3)
+                end
             end
         end
         PersistentPerksCache[player] = roleCleanCache
-        if #perks >= 3 then
-            return perks
-        end
     end
 
     local char = player.Character
@@ -1413,17 +1802,23 @@ GetPlayerPerks = function(player)
         end
     end
 
-    -- Vector B: Character Direct Children & Scripts (Server clones perk scripts into char during match, e.g. "Foundation staff 3", "Piercing Reverie", etc.)
+    -- Vector B: Character Descendants & Scripts (cloned perk scripts & animation/sound indicators)
     if char then
-        for _, c in ipairs(char:GetChildren()) do
+        for _, c in ipairs(char:GetDescendants()) do
             if #perks >= 3 then break end
-            local t = tonumber(c.Name:match("(%d+)$")) or (c:IsA("ValueBase") and tonumber(c.Value)) or 3
-            local mapped = matchPerkName(c.Name)
-            if mapped then
-                addPerk(mapped, t)
-            elseif c:IsA("ValueBase") and c.Value then
-                local vMapped = matchPerkName(tostring(c.Value))
-                if vMapped then addPerk(vMapped, t) end
+            local cleanC = c.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if not IgnoredAttributes[cleanC] then
+                local mapped = matchPerkName(c.Name)
+                if mapped then
+                    local t = tonumber(c.Name:match("(%d+)$")) or (c:IsA("ValueBase") and tonumber(c.Value)) or 3
+                    addPerk(mapped, t)
+                elseif c:IsA("ValueBase") and c.Value and c.Value ~= false and c.Value ~= 0 and c.Value ~= "" then
+                    local vClean = tostring(c.Value):lower():gsub("%s+", ""):gsub("[^%a]", "")
+                    if not IgnoredAttributes[vClean] then
+                        local vMapped = matchPerkName(tostring(c.Value))
+                        if vMapped then addPerk(vMapped, 3) end
+                    end
+                end
             end
         end
     end
@@ -1433,18 +1828,24 @@ GetPlayerPerks = function(player)
     if bp then
         for _, c in ipairs(bp:GetChildren()) do
             if #perks >= 3 then break end
-            local t = tonumber(c.Name:match("(%d+)$")) or (c:IsA("ValueBase") and tonumber(c.Value)) or 3
-            local mapped = matchPerkName(c.Name)
-            if mapped then
-                addPerk(mapped, t)
-            elseif c:IsA("ValueBase") and c.Value then
-                local vMapped = matchPerkName(tostring(c.Value))
-                if vMapped then addPerk(vMapped, t) end
+            local cleanC = c.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if not IgnoredAttributes[cleanC] then
+                local t = tonumber(c.Name:match("(%d+)$")) or (c:IsA("ValueBase") and tonumber(c.Value)) or 3
+                local mapped = matchPerkName(c.Name)
+                if mapped then
+                    addPerk(mapped, t)
+                elseif c:IsA("ValueBase") and c.Value and c.Value ~= false and c.Value ~= 0 and c.Value ~= "" then
+                    local vClean = tostring(c.Value):lower():gsub("%s+", ""):gsub("[^%a]", "")
+                    if not IgnoredAttributes[vClean] then
+                        local vMapped = matchPerkName(tostring(c.Value))
+                        if vMapped then addPerk(vMapped, t) end
+                    end
+                end
             end
         end
     end
 
-    -- Vector D: Direct Attributes on Character & Player (Both Attribute Name and Attribute String Value)
+    -- Vector D: Direct Attributes on Character & Player (strict filter: ignores base physics/movement attributes)
     local function scanDirectAttrs(inst)
         if not inst then return end
         local attrs = nil
@@ -1452,17 +1853,21 @@ GetPlayerPerks = function(player)
         if not attrs then return end
         for attrName, attrVal in pairs(attrs) do
             if #perks >= 3 then break end
-            local mappedKey = matchPerkName(attrName)
-            if mappedKey then
-                if attrVal == true or (type(attrVal) == "number" and attrVal >= 0) or (type(attrVal) == "string" and attrVal ~= "" and attrVal ~= "None") then
+            local cleanName = tostring(attrName):lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if not IgnoredAttributes[cleanName] and attrVal ~= false and attrVal ~= 0 and attrVal ~= "" and attrVal ~= "None" then
+                local mappedKey = matchPerkName(attrName)
+                if mappedKey then
                     local t = (type(attrVal) == "number" and attrVal >= 1 and attrVal <= 3) and attrVal or 3
                     addPerk(mappedKey, t)
                 end
             end
             if type(attrVal) == "string" and attrVal ~= "" and attrVal ~= "None" then
-                local mappedVal = matchPerkName(attrVal)
-                if mappedVal then
-                    addPerk(mappedVal, 3)
+                local cleanVal = attrVal:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                if not IgnoredAttributes[cleanVal] then
+                    local mappedVal = matchPerkName(attrVal)
+                    if mappedVal then
+                        addPerk(mappedVal, 3)
+                    end
                 end
             end
         end
@@ -1482,13 +1887,19 @@ GetPlayerPerks = function(player)
         if f then
             for _, c in ipairs(f:GetChildren()) do
                 if #perks >= 3 then break end
-                local mapped = matchPerkName(c.Name)
-                local t = c:IsA("ValueBase") and tonumber(c.Value) or 3
-                if mapped then
-                    addPerk(mapped, t)
-                elseif c:IsA("ValueBase") and c.Value then
-                    local vMapped = matchPerkName(tostring(c.Value))
-                    if vMapped then addPerk(vMapped, 3) end
+                local cleanC = c.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                if not IgnoredAttributes[cleanC] then
+                    local mapped = matchPerkName(c.Name)
+                    local t = c:IsA("ValueBase") and tonumber(c.Value) or 3
+                    if mapped then
+                        addPerk(mapped, t)
+                    elseif c:IsA("ValueBase") and c.Value and c.Value ~= false and c.Value ~= 0 and c.Value ~= "" then
+                        local vClean = tostring(c.Value):lower():gsub("%s+", ""):gsub("[^%a]", "")
+                        if not IgnoredAttributes[vClean] then
+                            local vMapped = matchPerkName(tostring(c.Value))
+                            if vMapped then addPerk(vMapped, 3) end
+                        end
+                    end
                 end
             end
         end
@@ -1501,57 +1912,32 @@ GetPlayerPerks = function(player)
         if pf then
             for _, c in ipairs(pf:GetChildren()) do
                 if #perks >= 3 then break end
-                local mapped = matchPerkName(c.Name) or (c:IsA("ValueBase") and matchPerkName(tostring(c.Value)))
-                if mapped then addPerk(mapped) end
+                local cleanC = c.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                if not IgnoredAttributes[cleanC] then
+                    local mapped = matchPerkName(c.Name) or (c:IsA("ValueBase") and matchPerkName(tostring(c.Value)))
+                    if mapped then addPerk(mapped) end
+                end
             end
         end
     end
 
-    -- Accumulate in PersistentPerksCache (never overwrite/drop perks detected during match)
-    PersistentPerksCache[player] = PersistentPerksCache[player] or {}
-    for _, p in ipairs(perks) do
-        if not table.find(PersistentPerksCache[player], p) and #PersistentPerksCache[player] < 3 then
-            table.insert(PersistentPerksCache[player], p)
-        end
+    -- Save exact equipped perks to match cache (does NOT fake-fill missing slots)
+    if #perks > 0 then
+        PersistentPerksCache[player] = perks
     end
 
-    if #PersistentPerksCache[player] > 0 then
-        return PersistentPerksCache[player]
-    end
-
-    return perks
+    return PersistentPerksCache[player] or perks
 end
 
--- Round / Match Lifecycle: clear cross-match cached perks when a brand new match begins
-pcall(function()
-    local rem = ReplicatedStorage:WaitForChild("Remotes", 5)
-    local roundEvent = rem and rem:WaitForChild("Round", 5)
-    if roundEvent and roundEvent:IsA("RemoteEvent") then
-        table.insert(ScriptConnections, roundEvent.OnClientEvent:Connect(function(isActive)
-            if isActive == true then
-                -- New match actively started: refresh non-local player caches for fresh detection
-                for p in pairs(PersistentPerksCache) do
-                    if p ~= LocalPlayer then
-                        PersistentPerksCache[p] = nil
-                        PlayerPerkTiers[p] = nil
-                    end
-                end
-            end
-        end))
+-- Player disconnect cleanup: only clear caches when player genuinely leaves the server
+table.insert(ScriptConnections, Players.PlayerRemoving:Connect(function(leavingPlr)
+    PersistentPerksCache[leavingPlr] = nil
+    PlayerPerkTiers[leavingPlr] = nil
+    if cachedRosterRows[leavingPlr] then
+        pcall(function() cachedRosterRows[leavingPlr].Card:Destroy() end)
+        cachedRosterRows[leavingPlr] = nil
     end
-    local gameFolder = rem and rem:FindFirstChild("Game")
-    local startEvent = gameFolder and gameFolder:FindFirstChild("Start")
-    if startEvent then
-        table.insert(ScriptConnections, startEvent.Event:Connect(function()
-            for p in pairs(PersistentPerksCache) do
-                if p ~= LocalPlayer then
-                    PersistentPerksCache[p] = nil
-                    PlayerPerkTiers[p] = nil
-                end
-            end
-        end))
-    end
-end)
+end))
 
 -- SEPARATE SKILLS, CHARGES & COOLDOWNS
 local function GetPlayerSkillInfo(player)
@@ -1767,14 +2153,30 @@ local function GetPlayerSkillInfo(player)
             table.insert(skillEntries, "Evil's Grasp [" .. (graspCD > 0 and ("CD " .. graspCD .. "s") or "Ready") .. "]")
 
         elseif kName == "Masked" then
-            -- Skill 1: Mask Up (30s CD)
-            local swapCD = math.max(0, math.ceil(MaskedSwapCooldownEnd - os.clock()))
-            table.insert(skillEntries, "Mask Up [" .. (swapCD > 0 and ("CD " .. swapCD .. "s") or "Ready") .. "]")
+            -- Single Skill: Random Mask (68s active duration countdown, 30s cooldown)
+            local currentMask = char:GetAttribute("Mask") or "Richard"
+            local now = os.clock()
 
-            -- Skill 2: Frenzy Dash (20s CD)
-            local dashCD = math.max(0, math.ceil(MaskedDashCooldownEnd - os.clock()))
-            local dashStatus = dashCD > 0 and ("CD " .. dashCD .. "s") or (char:GetAttribute("Dash") and "[DASHING!]" or "Ready")
-            table.insert(skillEntries, "Frenzy Dash [" .. dashStatus .. "]")
+            if currentMask ~= "Richard" and LastMaskedState == "Richard" then
+                MaskedActiveEnd = now + 68
+                MaskedCooldownEnd = 0
+                LastMaskedState = currentMask
+            elseif currentMask == "Richard" and LastMaskedState ~= "Richard" then
+                MaskedActiveEnd = 0
+                MaskedCooldownEnd = now + 30
+                LastMaskedState = "Richard"
+            end
+
+            local activeLeft = math.max(0, math.ceil(MaskedActiveEnd - now))
+            local cdLeft = math.max(0, math.ceil(MaskedCooldownEnd - now))
+
+            if currentMask ~= "Richard" and activeLeft > 0 then
+                table.insert(skillEntries, string.format("Mask: %s [Active %ds]", currentMask, activeLeft))
+            elseif cdLeft > 0 then
+                table.insert(skillEntries, string.format("Mask [CD %ds]", cdLeft))
+            else
+                table.insert(skillEntries, "Mask [Ready]")
+            end
 
         elseif kName == "Abysswalker" then
             -- Skill 1: Dark Severance (15s CD)
@@ -2005,11 +2407,74 @@ local function UpdateBackgroundCache()
 
         local function isNearExistingVault(pos)
             for _, w in ipairs(windows) do
-                if w.Part and (w.Part.Position - pos).Magnitude < 4.5 then
+                if w.Part and (w.Part.Position - pos).Magnitude < 4.0 then
                     return true
                 end
             end
             return false
+        end
+
+        local function registerVault(container, refPart, sillType)
+            if not refPart or not refPart:IsA("BasePart") then return end
+            -- Reject gigantic building structures (must be actual vault part or trigger)
+            if refPart.Size.X > 12 or refPart.Size.Y > 12 or refPart.Size.Z > 12 then return end
+            if isNearExistingVault(refPart.Position) then return end
+            table.insert(windows, {
+                Model = container or refPart.Parent,
+                Part = refPart,
+                VaultLedge = refPart,
+                SillType = sillType or "Auto"
+            })
+        end
+
+        local function findBestVaultPart(container, triggerPart)
+            if not container then return triggerPart, "Trigger" end
+            -- Priority 1: Specifically named bottom / ledge / sill parts
+            local bottom = container:FindFirstChild("Bottom") or container:FindFirstChild("Ledge") or container:FindFirstChild("Sill") or container:FindFirstChild("VaultLedge") or container:FindFirstChild("VaultSill")
+            if bottom and bottom:IsA("BasePart") and bottom.Size.X <= 10 and bottom.Size.Y <= 10 and bottom.Size.Z <= 10 then
+                return bottom, "Bottom"
+            end
+
+            -- Priority 2: Horizontal sill part (low height, wide)
+            for _, c in ipairs(container:GetChildren()) do
+                if c:IsA("BasePart") and c.Size.Y <= 1.8 and math.max(c.Size.X, c.Size.Z) >= 2.5 and math.max(c.Size.X, c.Size.Z) <= 8 then
+                    local cName = c.Name:lower()
+                    if not cName:find("invis") and not cName:find("trigger") and not cName:find("collision") then
+                        return c, "Sill"
+                    end
+                end
+            end
+
+            -- Priority 3: Trigger part itself
+            if triggerPart and triggerPart:IsA("BasePart") and triggerPart.Size.X <= 10 and triggerPart.Size.Y <= 10 and triggerPart.Size.Z <= 10 then
+                return triggerPart, "Trigger"
+            end
+
+            -- Priority 4: Look for any child part with "trigger" or "vault" or "bottom"
+            for _, c in ipairs(container:GetChildren()) do
+                if c:IsA("BasePart") and c.Size.X <= 10 and c.Size.Y <= 10 and c.Size.Z <= 10 then
+                    local cName = c.Name:lower()
+                    if cName:find("bottom") or cName:find("ledge") or cName:find("sill") then
+                        return c, "Bottom"
+                    elseif cName:find("trigger") or cName:find("vault") then
+                        return c, "Trigger"
+                    end
+                end
+            end
+
+            -- Priority 5: inviswall (height > 2.5)
+            local invis = container:FindFirstChild("inviswall") or container:FindFirstChild("InvisWall") or container:FindFirstChild("Invis")
+            if invis and invis:IsA("BasePart") and invis.Size.X <= 10 and invis.Size.Y <= 10 and invis.Size.Z <= 10 then
+                return invis, "InvisWall"
+            end
+
+            -- Fallback to triggerPart or container.PrimaryPart if reasonably sized
+            if triggerPart and triggerPart:IsA("BasePart") then return triggerPart, "Trigger" end
+            local prim = container.PrimaryPart or container:FindFirstChildWhichIsA("BasePart")
+            if prim and prim.Size.X <= 10 and prim.Size.Y <= 10 and prim.Size.Z <= 10 then
+                return prim, "Auto"
+            end
+            return nil, nil
         end
 
         -- 1. Universal Multi-Map Vault Detection: CollectionService tags
@@ -2017,24 +2482,20 @@ local function UpdateBackgroundCache()
             local CollectionService = game:GetService("CollectionService")
             for _, tag in ipairs({"VaultPoint", "Vault", "Window", "VaultLedge", "VaultSpot", "WindowVault"}) do
                 for _, vt in ipairs(CollectionService:GetTagged(tag)) do
-                    local container = vt:IsA("Model") and vt or vt:FindFirstAncestorOfClass("Model") or vt.Parent
-                    if container and container:IsA("Model") and not winSeen[container] then
-                        winSeen[container] = true
-                        local bottomPart = container:FindFirstChild("Bottom") or container:FindFirstChild("Ledge") or container:FindFirstChild("Sill")
-                        local ledge = bottomPart
-                        if not ledge then
-                            for _, c in ipairs(container:GetChildren()) do
-                                if c:IsA("BasePart") and not c.Name:lower():find("invis") and not c.Name:lower():find("trigger") and not c.Name:lower():find("collision") and not c.Name:lower():find("doorframe") then
-                                    ledge = c
-                                    break
-                                end
-                            end
+                    local directPart = vt:IsA("BasePart") and vt or vt:FindFirstAncestorWhichIsA("BasePart")
+                    local container = vt:IsA("Model") and vt or (vt.Parent and vt.Parent:IsA("Model") and vt.Parent) or vt:FindFirstAncestorOfClass("Model")
+                    if container and (container == Workspace or container.Name == "Map" or container.Name:lower():find("house") or container.Name:lower():find("building") or container.Name:lower():find("ruin")) then
+                        if vt.Parent and vt.Parent:IsA("Model") and vt.Parent.Name ~= "Map" and vt.Parent ~= Workspace then
+                            container = vt.Parent
+                        else
+                            container = nil
                         end
-                        local part = ledge or (vt:IsA("BasePart") and vt) or container.PrimaryPart or container:FindFirstChildWhichIsA("BasePart")
-                        if part and not isNearExistingVault(part.Position) then
-                            ledge = ledge or part
-                            if ledge.Transparency >= 0.99 then ledge.Transparency = 0.98 end
-                            table.insert(windows, { Model = container, Part = part, VaultLedge = ledge })
+                    end
+                    if not container or not winSeen[container] then
+                        if container then winSeen[container] = true end
+                        local bestPart, sillType = findBestVaultPart(container, directPart)
+                        if bestPart then
+                            registerVault(container, bestPart, sillType)
                         end
                     end
                 end
@@ -2098,30 +2559,19 @@ local function UpdateBackgroundCache()
                     end
                 end
 
-                -- Window / Vault detection across all maps (handle models inside folders named Windows or Vaults)
+                -- Window / Vault detection across all maps (handle models inside folders named Windows or Vaults or with VaultTrigger)
                 if d:IsA("Model") and not winSeen[d] then
                     local dName = d.Name:lower()
                     local pName = d.Parent and d.Parent.Name:lower() or ""
                     local hasTrigger = d:FindFirstChild("VaultTrigger", true) ~= nil
                     local hasBottom = d:FindFirstChild("Bottom") ~= nil or d:FindFirstChild("Ledge") ~= nil
                     local isWindow = hasTrigger or (hasBottom and (dName:find("window") or dName:find("vault") or pName == "windows" or pName == "vaults" or pName == "vaultpoints"))
-                    if isWindow and not d:FindFirstChild("DoorFrame") then
+                    if isWindow then
                         winSeen[d] = true
-                        local bottomPart = d:FindFirstChild("Bottom") or d:FindFirstChild("Ledge") or d:FindFirstChild("Sill")
-                        local ledge = bottomPart
-                        if not ledge then
-                            for _, c in ipairs(d:GetChildren()) do
-                                if c:IsA("BasePart") and not c.Name:lower():find("invis") and not c.Name:lower():find("trigger") and not c.Name:lower():find("collision") and not c.Name:lower():find("doorframe") then
-                                    ledge = c
-                                    break
-                                end
-                            end
-                        end
-                        local part = ledge or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                        if part and not isNearExistingVault(part.Position) then
-                            ledge = ledge or part
-                            if ledge.Transparency >= 0.99 then ledge.Transparency = 0.98 end
-                            table.insert(windows, { Model = d, Part = part, VaultLedge = ledge })
+                        local trigger = d:FindFirstChild("VaultTrigger", true)
+                        local bestPart, sillType = findBestVaultPart(d, trigger and trigger:IsA("BasePart") and trigger)
+                        if bestPart then
+                            registerVault(d, bestPart, sillType)
                         end
                     end
                 end
@@ -2140,6 +2590,14 @@ local function UpdateBackgroundCache()
         CachedGates = gates
     end)
 end
+
+pcall(function()
+    for _, d in ipairs(Workspace:GetDescendants()) do
+        if d:IsA("BasePart") and (d.Transparency >= 0.97 and d.Transparency <= 0.99) and (d.Name == "Bottom" or d.Name:lower():find("invis") or d.Name:lower():find("trigger")) then
+            d.Transparency = 1
+        end
+    end
+end)
 
 UpdateBackgroundCache()
 task.spawn(function()
@@ -2253,6 +2711,286 @@ local PalletAuras = {}
 local WindowAuras = {}
 local WindowAdornments = {}
 
+-- Pallet & Window State Tracking (Dropped Pallets & Blocked Vaults)
+local DroppedPallets = {}
+local BlockedWindows = {}
+local BlockedWindowPositions = {}
+local LastKillerVaultingState = {}
+
+local function IsPalletDropped(model, prim)
+    if not model then return false end
+    if DroppedPallets[model] then return true end
+    if model:GetAttribute("Dropped") == true or model:GetAttribute("isDropped") == true or model:GetAttribute("isdropped") == true or model:GetAttribute("State") == "Dropped" then
+        return true
+    end
+    if model:FindFirstChild("PalletPointSlide", true) or model:FindFirstChild("SlidePoint", true) or model:FindFirstChild("DestroyPrompt", true) then
+        return true
+    end
+    local pPart = prim or model.PrimaryPart or model:FindFirstChild("PrimaryPartPallet") or model:FindFirstChildWhichIsA("BasePart")
+    if pPart then
+        if math.abs(pPart.CFrame.UpVector.Y) < 0.45 then
+            return true
+        end
+    end
+    return false
+end
+
+local function KillerHasContainment()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if IsKiller(p) then
+            local perks = (CachedPlayerData[p] and CachedPlayerData[p].Perks) or GetPlayerPerks(p)
+            for _, perk in ipairs(perks) do
+                local clean = tostring(perk):lower():gsub("%s+", ""):gsub("[^%a]", "")
+                if clean:find("containment") or clean:find("bamboozle") then
+                    return true, 30
+                end
+            end
+            local char = p.Character
+            if char then
+                for _, s in ipairs(char:GetChildren()) do
+                    local sn = s.Name:lower():gsub("%s+", "")
+                    if sn:find("containment") or sn:find("bamboozle") then
+                        return true, 30
+                    end
+                end
+            end
+            for _, attrName in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "containment", "Containment"}) do
+                local val = tostring(p:GetAttribute(attrName) or (char and char:GetAttribute(attrName)) or ""):lower()
+                if val:find("containment") or val:find("bamboozle") or val == "true" then
+                    return true, 30
+                end
+            end
+        end
+    end
+    if IsKiller(LocalPlayer) then
+        local char = LocalPlayer.Character
+        if char then
+            for _, s in ipairs(char:GetChildren()) do
+                local sn = s.Name:lower():gsub("%s+", "")
+                if sn:find("containment") or sn:find("bamboozle") then
+                    return true, 30
+                end
+            end
+        end
+        return true, 30
+    end
+    return false, 0
+end
+
+local function FindNearestWindow(posOrPart)
+    local targetPos = nil
+    if typeof(posOrPart) == "Instance" then
+        if posOrPart:IsA("BasePart") then
+            targetPos = posOrPart.Position
+        elseif posOrPart:IsA("Model") then
+            local prim = posOrPart.PrimaryPart or posOrPart:FindFirstChildWhichIsA("BasePart") or posOrPart:GetPivot()
+            targetPos = typeof(prim) == "CFrame" and prim.Position or (prim and prim.Position)
+        end
+    elseif typeof(posOrPart) == "Vector3" then
+        targetPos = posOrPart
+    elseif typeof(posOrPart) == "CFrame" then
+        targetPos = posOrPart.Position
+    end
+
+    if not targetPos then return nil, nil end
+
+    local bestWin = nil
+    local bestPart = nil
+    local bestDist = 18.0
+    for _, item in ipairs(CachedWindows) do
+        local win = item.Model or item.Part
+        local root = item.VaultLedge or item.Part
+        if root and root.Parent then
+            local d = (root.Position - targetPos).Magnitude
+            if d < bestDist then
+                bestDist = d
+                bestWin = win
+                bestPart = root
+            end
+        end
+    end
+    return bestWin, bestPart
+end
+
+local function MarkWindowBlocked(posOrPart, duration)
+    local dur = tonumber(duration) or 30
+    local exp = os.clock() + dur
+    local targetPos = nil
+
+    if typeof(posOrPart) == "Vector3" then
+        targetPos = posOrPart
+    elseif typeof(posOrPart) == "CFrame" then
+        targetPos = posOrPart.Position
+    elseif typeof(posOrPart) == "Instance" then
+        if posOrPart:IsA("BasePart") then
+            targetPos = posOrPart.Position
+        elseif posOrPart:IsA("Model") then
+            local p = posOrPart.PrimaryPart or posOrPart:FindFirstChildWhichIsA("BasePart") or posOrPart:GetPivot()
+            targetPos = typeof(p) == "CFrame" and p.Position or (p and p.Position)
+        end
+        BlockedWindows[posOrPart] = exp
+        if posOrPart.Parent and posOrPart.Parent:IsA("Model") then
+            BlockedWindows[posOrPart.Parent] = exp
+        end
+    end
+
+    local win, part = FindNearestWindow(posOrPart)
+    if win then BlockedWindows[win] = exp end
+    if part then BlockedWindows[part] = exp end
+    if targetPos then
+        table.insert(BlockedWindowPositions, { Pos = targetPos, Expire = exp })
+    end
+    if part and part.Position then
+        table.insert(BlockedWindowPositions, { Pos = part.Position, Expire = exp })
+    end
+end
+
+local function OnKillerVault(cfOrPart, maybePart)
+    local hasCont, dur = KillerHasContainment()
+    if hasCont then
+        local target = maybePart or cfOrPart
+        MarkWindowBlocked(target, dur > 0 and dur or 30)
+    end
+end
+
+local function GetWindowBlockTime(win, rootPart, ledgePart)
+    local now = os.clock()
+    -- 1. Direct instance checks
+    if win and BlockedWindows[win] and BlockedWindows[win] > now then
+        return true, BlockedWindows[win] - now
+    end
+    if rootPart and BlockedWindows[rootPart] and BlockedWindows[rootPart] > now then
+        return true, BlockedWindows[rootPart] - now
+    end
+    if ledgePart and BlockedWindows[ledgePart] and BlockedWindows[ledgePart] > now then
+        return true, BlockedWindows[ledgePart] - now
+    end
+
+    -- 2. Spatial coordinate proximity check (matches regardless of model pointer or re-cache)
+    local checkPos = (ledgePart and ledgePart.Position) or (rootPart and rootPart.Position)
+    if checkPos then
+        for i = #BlockedWindowPositions, 1, -1 do
+            local entry = BlockedWindowPositions[i]
+            if entry.Expire <= now then
+                table.remove(BlockedWindowPositions, i)
+            elseif (entry.Pos - checkPos).Magnitude < 8.0 then
+                return true, entry.Expire - now
+            end
+        end
+    end
+
+    -- 3. Game CollectionService tag "Blocked"
+    local cs = game:GetService("CollectionService")
+    if (win and cs:HasTag(win, "Blocked")) or (rootPart and cs:HasTag(rootPart, "Blocked")) or (ledgePart and cs:HasTag(ledgePart, "Blocked")) then
+        return true, 30
+    end
+
+    -- 4. In-game attributes
+    local attr = (win and (win:GetAttribute("Blocked") or win:GetAttribute("IsBlocked"))) or (rootPart and rootPart:GetAttribute("Blocked"))
+    if attr == true then
+        return true, 30
+    elseif type(attr) == "number" and attr > now then
+        return true, attr - now
+    end
+
+    return false, 0
+end
+
+-- Network listeners & Local Hooks for Window Blocks & Killer Containment Perks
+pcall(function()
+    if hookmetamethod then
+        local oldNamecall
+        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+            local method = getnamecallmethod()
+            local args = {...}
+            if method == "FireServer" and self then
+                local nm = self.Name
+                if nm == "VaultCommit" or nm == "VaultEvent-jason" or nm == "VaultEvent" then
+                    local target = args[1]
+                    if target then
+                        task.defer(function()
+                            OnKillerVault(target)
+                        end)
+                    end
+                end
+            end
+            return oldNamecall(self, ...)
+        end)
+    end
+end)
+
+table.insert(ScriptConnections, RunService.Heartbeat:Connect(function()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if IsKiller(p) and p.Character then
+            local char = p.Character
+            local isV = char:GetAttribute("isVaulting") == true or char:GetAttribute("IsVaulting") == true
+            if isV and not LastKillerVaultingState[p] then
+                LastKillerVaultingState[p] = true
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    OnKillerVault(hrp.Position)
+                end
+            elseif not isV then
+                LastKillerVaultingState[p] = false
+            end
+        end
+    end
+end))
+
+pcall(function()
+    local remWindow = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Window")
+    if remWindow then
+        local animJason = remWindow:FindFirstChild("VaultAnim-jason")
+        if animJason and animJason:IsA("RemoteEvent") then
+            table.insert(ScriptConnections, animJason.OnClientEvent:Connect(function(p1, p2)
+                OnKillerVault(p1, p2)
+            end))
+        end
+        local eventJason = remWindow:FindFirstChild("VaultEvent-jason")
+        if eventJason and eventJason:IsA("RemoteEvent") then
+            table.insert(ScriptConnections, eventJason.OnClientEvent:Connect(function(p1, p2)
+                OnKillerVault(p1, p2)
+            end))
+        end
+        local kvc = remWindow:FindFirstChild("killervaultconfirmed")
+        if kvc and kvc:IsA("BindableEvent") then
+            table.insert(ScriptConnections, kvc.Event:Connect(function(p1, p2)
+                OnKillerVault(p1, p2)
+            end))
+        end
+        local wb = remWindow:FindFirstChild("WindowBlocked")
+        if wb and wb:IsA("BindableEvent") then
+            table.insert(ScriptConnections, wb.Event:Connect(function(targetWindow, duration)
+                MarkWindowBlocked(targetWindow, duration or 30)
+            end))
+        end
+    end
+end)
+
+-- Network listeners for Pallet Drops
+pcall(function()
+    local remPallet = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Pallet")
+    if remPallet then
+        local dropAnim = remPallet:FindFirstChild("PalletDropAnim")
+        if dropAnim and dropAnim:IsA("RemoteEvent") then
+            table.insert(ScriptConnections, dropAnim.OnClientEvent:Connect(function(p1, p2)
+                local target = p2 or p1
+                local win = target and (target:IsA("Model") and target or target.Parent)
+                if win then DroppedPallets[win] = true end
+            end))
+        end
+        local dropEvent = remPallet:FindFirstChild("PalletDropEvent")
+        if dropEvent and dropEvent:IsA("RemoteEvent") then
+            table.insert(ScriptConnections, dropEvent.OnClientEvent:Connect(function(p1, p2)
+                local target = p2 or p1
+                local win = target and (target:IsA("Model") and target or target.Parent)
+                if win then DroppedPallets[win] = true end
+            end))
+        end
+    end
+end)
+
+
 local function ClearDrawingsMap(map)
     for inst, d in pairs(map) do
         pcall(function() d:Remove() end)
@@ -2307,7 +3045,7 @@ PruneDeadDrawings = function()
                 pcall(function() hl:Destroy() end)
                 WindowAuras[inst] = nil
             else
-                pcall(function() hl.Enabled = false end)
+                pcall(function() hl.Visible = false; hl.Enabled = false end)
             end
         end
         for inst, bha in pairs(WindowAdornments) do
@@ -2339,7 +3077,7 @@ local function HideAllESP()
         for _, txt in pairs(PalletDrawings) do txt.Visible = false end
         for _, hl in pairs(PalletAuras) do pcall(function() hl.Enabled = false end) end
         for _, txt in pairs(WindowDrawings) do txt.Visible = false end
-        for _, hl in pairs(WindowAuras) do pcall(function() hl.Enabled = false end) end
+        for _, hl in pairs(WindowAuras) do pcall(function() hl.Visible = false; hl.Enabled = false end) end
         for _, bha in pairs(WindowAdornments) do pcall(function() bha.Visible = false end) end
         for _, txt in pairs(GateDrawings) do txt.Visible = false end
     end)
@@ -2349,6 +3087,10 @@ end
 local function UnloadScript()
     ScriptRunning = false
     pcall(function() RunService:UnbindFromRenderStep("NexaraESP_Render") end)
+    pcall(function() RunService:UnbindFromRenderStep("Nexara_MouseUnlock") end)
+    if modalUnlockBtn then
+        pcall(function() modalUnlockBtn:Destroy() end)
+    end
     for _, conn in ipairs(ScriptConnections) do
         pcall(function() conn:Disconnect() end)
     end
@@ -2371,7 +3113,7 @@ local function UnloadScript()
     
     pcall(function()
         for _, d in ipairs(workspace:GetDescendants()) do
-            if (d:IsA("Highlight") or d:IsA("BoxHandleAdornment") or d:IsA("SelectionBox")) and (d.Name:find("Nexara") or d.Name:find("Aura") or d.Name:find("WindowBox")) then
+            if (d:IsA("Highlight") or d:IsA("BoxHandleAdornment") or d:IsA("SelectionBox")) and (d.Name:find("Nexara") or d.Name:find("Aura") or d.Name:find("WindowBox") or d.Name:find("WindowGlow")) then
                 d:Destroy()
             end
         end
@@ -2695,14 +3437,162 @@ task.spawn(function()
     end
 end)
 
--- ======== VISUALS (ESP) TAB (SEPARATED KILLER & SURVIVOR MENUS) ========
+-- ======== VISUALS (ESP) TAB (SEGMENTED TOP CATEGORY NAVIGATION & 2-COLUMN LAYOUT) ========
 local TabVisuals = Window:CreateTab("Visuals", "rbxassetid://10723346959")
+
+-- Destroy default UIListLayout on TabView so TopCategoryNav and ColumnsFrame can be freely animated with smooth slide-down
+local viewLayout = TabVisuals.View:FindFirstChildOfClass("UIListLayout")
+if viewLayout then
+    viewLayout:Destroy()
+end
+
+-- Top Category Navigation Bar (Direct horizontal row of function categories)
+local TopCategoryNav = Instance.new("Frame")
+TopCategoryNav.Name = "TopCategoryNav"
+TopCategoryNav.Size = UDim2.new(1, 0, 0, 32)
+TopCategoryNav.Position = UDim2.new(0, 0, 0, 0)
+TopCategoryNav.BackgroundColor3 = Window.Theme.Section
+TopCategoryNav.BackgroundTransparency = Window.TransparentEnabled and 0.25 or 0
+TopCategoryNav.BorderSizePixel = 0
+TopCategoryNav.Parent = TabVisuals.View
+Instance.new("UICorner", TopCategoryNav).CornerRadius = UDim.new(0, 6)
+Window:RegisterThemeElement(TopCategoryNav, "BackgroundColor3", "Surface")
+
+local navStroke = Instance.new("UIStroke")
+navStroke.Color = Window.Theme.SectionBorder
+navStroke.Thickness = 1
+navStroke.Parent = TopCategoryNav
+
+local navLayout = Instance.new("UIListLayout")
+navLayout.FillDirection = Enum.FillDirection.Horizontal
+navLayout.SortOrder = Enum.SortOrder.LayoutOrder
+navLayout.Padding = UDim.new(0, 4)
+navLayout.Parent = TopCategoryNav
+
+local navPad = Instance.new("UIPadding")
+navPad.PaddingTop = UDim.new(0, 3)
+navPad.PaddingBottom = UDim.new(0, 3)
+navPad.PaddingLeft = UDim.new(0, 4)
+navPad.PaddingRight = UDim.new(0, 4)
+navPad.Parent = TopCategoryNav
+
+-- Container Frame for 2 Columns (50% / 50% split)
+local ColumnsFrame = Instance.new("Frame")
+ColumnsFrame.Name = "ColumnsFrame"
+ColumnsFrame.Size = UDim2.new(1, 0, 1, -38)
+ColumnsFrame.Position = UDim2.new(0, 0, 0, 38)
+ColumnsFrame.BackgroundTransparency = 1
+ColumnsFrame.BorderSizePixel = 0
+ColumnsFrame.Parent = TabVisuals.View
+
+local colContainerLayout = Instance.new("UIListLayout")
+colContainerLayout.FillDirection = Enum.FillDirection.Horizontal
+colContainerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+colContainerLayout.Padding = UDim.new(0, 8)
+colContainerLayout.Parent = ColumnsFrame
+
+-- Create 2 Columns and reparent into ColumnsFrame
 local colV1 = TabVisuals:CreateColumn()
 local colV2 = TabVisuals:CreateColumn()
+colV1.Frame.Parent = ColumnsFrame
+colV2.Frame.Parent = ColumnsFrame
+colV1.Frame.Size = UDim2.new(0.5, -4, 1, 0)
+colV2.Frame.Size = UDim2.new(0.5, -4, 1, 0)
+colV1.Frame.Visible = true
+colV2.Frame.Visible = true
 
--- Column 1: Killer ESP (Stick Skeleton & Powers)
-local secKillerESP = colV1:CreateSection("Killer ESP (Skeleton & Info)")
-secKillerESP:AddToggle({ Name = "Enable Killer ESP", Default = false, Callback = function(v)
+-- ==== SECTION 1: SURVIVOR ESP (2 SECTIONS: LEFT & RIGHT) ====
+-- ==== SECTION 1: SURVIVOR ESP (2 SECTIONS: LEFT & RIGHT) ====
+local secSurv1 = colV1:CreateSection("Survivor ESP & Boxes")
+secSurv1:AddToggle({ Name = "Enable Survivor ESP", Default = false, Callback = function(v)
+    Config.ESP_SurvivorEnabled = v
+    if not v then
+        for p, esp in pairs(ESP_Objects) do
+            if not IsKiller(p) then
+                esp.BoxOutline.Visible = false
+                esp.Box.Visible = false
+                esp.TopText.Visible = false
+                esp.BottomText.Visible = false
+                esp.PerkText.Visible = false
+                esp.SkillText.Visible = false
+                for _, l in pairs(esp.Skeleton) do l.Visible = false end
+            end
+        end
+    end
+end })
+secSurv1:AddToggle({
+    Name = "Survivor 2D Boxes",
+    Default = false,
+    Color = Config.Color_SurvivorBox,
+    Callback = function(v, col)
+        Config.ESP_SurvivorBoxes = v
+        if col then Config.Color_SurvivorBox = col end
+        if not v then
+            for p, esp in pairs(ESP_Objects) do
+                if not IsKiller(p) then
+                    esp.BoxOutline.Visible = false
+                    esp.Box.Visible = false
+                end
+            end
+        end
+    end
+})
+secSurv1:AddToggle({
+    Name = "Survivor Names & Distance",
+    Default = false,
+    Color = Config.Color_SurvivorNames,
+    Callback = function(v, col)
+        Config.ESP_SurvivorNames = v
+        if col then Config.Color_SurvivorNames = col end
+        if not v then
+            for p, esp in pairs(ESP_Objects) do
+                if not IsKiller(p) then
+                    esp.TopText.Visible = false
+                    esp.BottomText.Visible = false
+                end
+            end
+        end
+    end
+})
+
+local secSurv2 = colV2:CreateSection("Survivor Status & Items")
+secSurv2:AddToggle({ Name = "Survivor Status (Knock/Hook)", Default = false, Callback = function(v)
+    Config.ESP_SurvivorStatus = v
+end })
+secSurv2:AddToggle({ Name = "Survivor Items & Cooldowns", Default = false, Callback = function(v)
+    Config.ESP_SurvivorSkills = v
+    if not v then
+        for p, esp in pairs(ESP_Objects) do
+            if not IsKiller(p) then esp.SkillText.Visible = false end
+        end
+    end
+end })
+
+local secSurvCam = colV1:CreateSection("Camera & Movement")
+secSurvCam:AddToggle({ Name = "Enable Custom FOV", Default = false, Callback = function(v)
+    Config.CustomFOVEnabled = v
+    if not v then
+        Camera.FieldOfView = 70
+    else
+        Camera.FieldOfView = Config.FOV
+    end
+end })
+
+secSurvCam:AddSlider({ Name = "Field of View (FOV)", Min = 70, Max = 120, Default = 80, Callback = function(v)
+    Config.FOV = v
+    if Config.CustomFOVEnabled then
+        Camera.FieldOfView = v
+    end
+end })
+
+local secSurvSkill = colV2:CreateSection("Auto Skill Check")
+secSurvSkill:AddToggle({ Name = "Skill Check Perfect", Default = false, Callback = function(v)
+    Config.AutoSkillCheck = v
+end })
+
+-- ==== SECTION 2: KILLER ESP (2 SECTIONS: LEFT & RIGHT) ====
+local secKiller1 = colV1:CreateSection("Killer ESP & Skeleton")
+secKiller1:AddToggle({ Name = "Enable Killer ESP", Default = false, Callback = function(v)
     Config.ESP_KillerEnabled = v
     if not v then
         TopKillerSkillText.Visible = false
@@ -2719,175 +3609,345 @@ secKillerESP:AddToggle({ Name = "Enable Killer ESP", Default = false, Callback =
         end
     end
 end })
-secKillerESP:AddToggle({ Name = "Stick Skeleton (Pink)", Default = false, Callback = function(v)
-    Config.ESP_KillerSkeleton = v
-    if not v then
-        for _, esp in pairs(ESP_Objects) do
-            for _, l in pairs(esp.Skeleton) do l.Visible = false end
+secKiller1:AddToggle({
+    Name = "Stick Skeleton",
+    Default = false,
+    Color = Config.Color_KillerSkeleton,
+    Callback = function(v, col)
+        Config.ESP_KillerSkeleton = v
+        if col then Config.Color_KillerSkeleton = col end
+        if not v then
+            for _, esp in pairs(ESP_Objects) do
+                for _, l in pairs(esp.Skeleton) do l.Visible = false end
+            end
         end
     end
-end })
-secKillerESP:AddSlider({ Name = "Skeleton Line Width", Min = 1, Max = 3, Default = 1.3, Float = 0.1, Callback = function(v)
+})
+secKiller1:AddSlider({ Name = "Skeleton Line Width", Min = 1, Max = 3, Default = 1.3, Float = 0.1, Callback = function(v)
     Config.KillerSkeletonThickness = v
     for _, esp in pairs(ESP_Objects) do
         for _, l in pairs(esp.Skeleton) do l.Thickness = v end
     end
 end })
-secKillerESP:AddToggle({ Name = "Killer Name & Distance", Default = false, Callback = function(v)
-    Config.ESP_KillerNames = v
-    if not v then
-        for p, esp in pairs(ESP_Objects) do
-            if IsKiller(p) then
-                esp.TopText.Visible = false
-                esp.BottomText.Visible = false
+secKiller1:AddToggle({
+    Name = "Killer Name & Distance",
+    Default = false,
+    Color = Config.Color_KillerNames,
+    Callback = function(v, col)
+        Config.ESP_KillerNames = v
+        if col then Config.Color_KillerNames = col end
+        if not v then
+            for p, esp in pairs(ESP_Objects) do
+                if IsKiller(p) then
+                    esp.TopText.Visible = false
+                    esp.BottomText.Visible = false
+                end
             end
         end
     end
-end })
-secKillerESP:AddToggle({ Name = "Killer Skills, Charges & CD", Default = false, Callback = function(v)
-    Config.ESP_KillerSkills = v
-    if not v then
-        TopKillerSkillText.Visible = false
-        for p, esp in pairs(ESP_Objects) do
-            if IsKiller(p) then esp.SkillText.Visible = false end
+})
+
+local secKiller2 = colV2:CreateSection("Killer Skills & Overlay")
+secKiller2:AddToggle({
+    Name = "Killer Skills, Charges & CD",
+    Default = false,
+    Color = Config.Color_KillerSkills,
+    Callback = function(v, col)
+        Config.ESP_KillerSkills = v
+        if col then
+            Config.Color_KillerSkills = col
+            TopKillerSkillText.Color = col
+        end
+        if not v then
+            TopKillerSkillText.Visible = false
+            for p, esp in pairs(ESP_Objects) do
+                if IsKiller(p) then esp.SkillText.Visible = false end
+            end
         end
     end
-end })
-secKillerESP:AddSlider({ Name = "Top Killer Skill Size", Min = 12, Max = 26, Default = 16, Float = 1, Callback = function(v)
+})
+secKiller2:AddSlider({ Name = "Top Killer Skill Size", Min = 12, Max = 26, Default = 16, Float = 1, Callback = function(v)
     Config.TopKillerSkillSize = v
     TopKillerSkillText.Size = v
 end })
-secKillerESP:AddSlider({ Name = "Top Killer Skill Y Offset", Min = 35, Max = 100, Default = 58, Float = 1, Callback = function(v)
-    Config.TopKillerSkillYOffset = v
-end })
-secKillerESP:AddToggle({ Name = "Killer Perks ESP", Default = false, Callback = function(v)
-    Config.ESP_KillerPerks = v
-    if not v then
-        for p, esp in pairs(ESP_Objects) do
-            if IsKiller(p) then esp.PerkText.Visible = false end
+
+-- ==== SECTION 3: OBJECTIVES & WORLD (2 SECTIONS: LEFT & RIGHT) ====
+local secObj1 = colV1:CreateSection("Generators & Exit Gates")
+secObj1:AddToggle({
+    Name = "Generator ESP",
+    Default = false,
+    Color = Config.Color_Generators,
+    Callback = function(v, col)
+        Config.ESP_Generators = v
+        if col then Config.Color_Generators = col end
+        if not v then
+            for _, txt in pairs(GenDrawings) do txt.Visible = false end
+        end
+    end
+})
+secObj1:AddToggle({ Name = "Generator Progress %", Default = false, Callback = function(v) Config.ESP_GenProgress = v end })
+secObj1:AddToggle({
+    Name = "Exit Gates ESP",
+    Default = false,
+    Color = Config.Color_ExitGates,
+    Callback = function(v, col)
+        Config.ESP_ExitGates = v
+        if col then Config.Color_ExitGates = col end
+        if not v then
+            for _, txt in pairs(GateDrawings) do txt.Visible = false end
+        end
+    end
+})
+
+local secObj2 = colV2:CreateSection("Pallets & Vaults")
+secObj2:AddToggle({
+    Name = "Pallet 3D Aura",
+    Default = false,
+    Color = Config.Color_PalletAura,
+    Callback = function(v, col)
+        Config.ESP_PalletAura = v
+        if col then
+            Config.Color_PalletAura = col
+            for _, hl in pairs(PalletAuras) do
+                pcall(function() hl.FillColor = col end)
+            end
+        end
+        if not v then
+            for _, hl in pairs(PalletAuras) do pcall(function() hl.Enabled = false end) end
+        end
+    end
+})
+secObj2:AddToggle({
+    Name = "Pallet Name & Distance",
+    Default = false,
+    Color = Config.Color_PalletNames,
+    Callback = function(v, col)
+        Config.ESP_Pallets = v
+        if col then Config.Color_PalletNames = col end
+        if not v then
+            for _, txt in pairs(PalletDrawings) do txt.Visible = false end
+        end
+    end
+})
+secObj2:AddSlider({ Name = "Pallet Max Distance", Flag = "Pallet Max Distance", Min = 30, Max = 300, Default = 150, Suffix = " studs", Callback = function(v) Config.PalletMaxDist = v end })
+
+secObj2:AddToggle({
+    Name = "Window 3D Aura",
+    Default = false,
+    Color = Config.Color_WindowAura,
+    Callback = function(v, col)
+        Config.ESP_WindowAura = v
+        if col then
+            Config.Color_WindowAura = col
+            local glowCol = col:Lerp(Color3.new(1, 1, 1), 0.35)
+            for _, glow in pairs(WindowAuras) do pcall(function() glow.Color3 = glowCol end) end
+            for _, bha in pairs(WindowAdornments) do pcall(function() bha.Color3 = col end) end
+        end
+        if not v then
+            for _, glow in pairs(WindowAuras) do pcall(function() glow.Visible = false end) end
+            for _, bha in pairs(WindowAdornments) do pcall(function() bha.Visible = false end) end
+        end
+    end
+})
+secObj2:AddToggle({
+    Name = "Window Name & Distance",
+    Default = false,
+    Color = Config.Color_WindowNames,
+    Callback = function(v, col)
+        Config.ESP_Windows = v
+        if col then Config.Color_WindowNames = col end
+        if not v then
+            for _, txt in pairs(WindowDrawings) do txt.Visible = false end
+        end
+    end
+})
+secObj2:AddSlider({ Name = "Window Max Distance", Flag = "Window Max Distance", Min = 30, Max = 300, Default = 150, Suffix = " studs", Callback = function(v) Config.WindowMaxDist = v end })
+
+-- ==== SECTION 4: WORLD & LIGHTING ====
+local secWorld1 = colV1:CreateSection("World & Lighting")
+secWorld1:AddToggle({ Name = "Remove Darkness (No Blackout)", Default = false, Callback = function(v)
+    Config.RemoveDarkness = v
+    local darkGui = LocalPlayer.PlayerGui:FindFirstChild("Darkness")
+    if darkGui then
+        for _, child in ipairs(darkGui:GetChildren()) do
+            if child:IsA("GuiObject") then child.Visible = not v end
         end
     end
 end })
 
--- Column 2: Survivor ESP (2D Boxes)
-local secSurvESP = colV2:CreateSection("Survivor ESP (2D Boxes)")
-secSurvESP:AddToggle({ Name = "Enable Survivor ESP", Default = false, Callback = function(v)
-    Config.ESP_SurvivorEnabled = v
-    if not v then
-        for p, esp in pairs(ESP_Objects) do
-            if not IsKiller(p) then
-                esp.BoxOutline.Visible = false
-                esp.Box.Visible = false
-                esp.TopText.Visible = false
-                esp.BottomText.Visible = false
-                esp.PerkText.Visible = false
-                esp.SkillText.Visible = false
-                for _, l in pairs(esp.Skeleton) do l.Visible = false end
+secWorld1:AddToggle({ Name = "Fullbright (Clear Vision)", Default = false, Callback = function(v)
+    Config.Fullbright = v
+    if v then
+        pcall(function()
+            Lighting.Ambient = Color3.fromRGB(150, 150, 150)
+            Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 150)
+            Lighting.Brightness = 2
+            local atmo = Lighting:FindFirstChildWhichIsA("Atmosphere")
+            if atmo then
+                atmo.Density = 0.1
+                atmo.Haze = 0
+            end
+        end)
+    else
+        RestoreOriginalLighting()
+    end
+end })
+
+-- ==== TOP NAVIGATION CATEGORY SWITCHER ====
+local currentVisualCategory = "Survivor"
+local categoryButtons = {}
+local isInitialCategorySelect = true
+
+local visualCategories = {
+    { Id = "Survivor", Name = "Survivor" },
+    { Id = "Killer", Name = "Killer" },
+    { Id = "Objectives", Name = "Objectives" },
+    { Id = "World", Name = "World" },
+}
+
+local function selectVisualCategory(catId)
+    currentVisualCategory = catId
+
+    local showSurv = (catId == "Survivor")
+    local showKiller = (catId == "Killer")
+    local showObj = (catId == "Objectives")
+    local showWorld = (catId == "World")
+
+    secSurv1.Box.Visible = showSurv
+    secSurv2.Box.Visible = showSurv
+    secSurvCam.Box.Visible = showSurv
+    secSurvSkill.Box.Visible = showSurv
+
+    secKiller1.Box.Visible = showKiller
+    secKiller2.Box.Visible = showKiller
+
+    secObj1.Box.Visible = showObj
+    secObj2.Box.Visible = showObj
+
+    secWorld1.Box.Visible = showWorld
+
+    for _, btnData in ipairs(categoryButtons) do
+        local isSelected = (btnData.Id == catId)
+        if isSelected then
+            TweenService:Create(btnData.Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 0.45,
+                TextColor3 = Window.Theme.Text
+            }):Play()
+            btnData.Indicator.Visible = true
+            if not isInitialCategorySelect then
+                btnData.Indicator.Size = UDim2.new(0, 0, 0, 2)
+            end
+            TweenService:Create(btnData.Indicator, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+                Size = UDim2.new(0.7, 0, 0, 2)
+            }):Play()
+        else
+            TweenService:Create(btnData.Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 1,
+                TextColor3 = Window.Theme.SubText
+            }):Play()
+            if btnData.Indicator.Visible then
+                local shrinkTw = TweenService:Create(btnData.Indicator, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                    Size = UDim2.new(0, 0, 0, 2)
+                })
+                shrinkTw:Play()
+                task.delay(0.18, function()
+                    if currentVisualCategory ~= btnData.Id then
+                        btnData.Indicator.Visible = false
+                    end
+                end)
             end
         end
     end
-end })
-secSurvESP:AddToggle({ Name = "Survivor 2D Boxes", Default = false, Callback = function(v)
-    Config.ESP_SurvivorBoxes = v
-    if not v then
-        for p, esp in pairs(ESP_Objects) do
-            if not IsKiller(p) then
-                esp.BoxOutline.Visible = false
-                esp.Box.Visible = false
-            end
-        end
-    end
-end })
-secSurvESP:AddToggle({ Name = "Survivor Names & Distance", Default = false, Callback = function(v)
-    Config.ESP_SurvivorNames = v
-    if not v then
-        for p, esp in pairs(ESP_Objects) do
-            if not IsKiller(p) then
-                esp.TopText.Visible = false
-                esp.BottomText.Visible = false
-            end
-        end
-    end
-end })
-secSurvESP:AddToggle({ Name = "Survivor Status (Knock/Hook)", Default = false, Callback = function(v)
-    Config.ESP_SurvivorStatus = v
-end })
-secSurvESP:AddToggle({ Name = "Survivor Items & Cooldowns", Default = false, Callback = function(v)
-    Config.ESP_SurvivorSkills = v
-    if not v then
-        for p, esp in pairs(ESP_Objects) do
-            if not IsKiller(p) then esp.SkillText.Visible = false end
-        end
-    end
-end })
-secSurvESP:AddToggle({ Name = "Survivor Perks ESP", Default = false, Callback = function(v)
-    Config.ESP_SurvivorPerks = v
-    if not v then
-        for p, esp in pairs(ESP_Objects) do
-            if not IsKiller(p) then esp.PerkText.Visible = false end
-        end
-    end
-end })
-secSurvESP:AddToggle({ Name = "Show Players in Lobby", Default = false, Callback = function(v)
-    Config.ESP_LobbyEnabled = v
-    if not v and IsInLobby() then
-        for p, esp in pairs(ESP_Objects) do
-            esp.BoxOutline.Visible = false
-            esp.Box.Visible = false
-            esp.TopText.Visible = false
-            esp.BottomText.Visible = false
-        end
-    end
-end })
 
--- Objectives & Auras Section
-local secObjESP = colV1:CreateSection("Objectives & 3D Auras")
-secObjESP:AddToggle({ Name = "Generator ESP", Default = false, Callback = function(v)
-    Config.ESP_Generators = v
-    if not v then
-        for _, txt in pairs(GenDrawings) do txt.Visible = false end
+    -- Smooth slide-down animation for content sections on category switch
+    if not isInitialCategorySelect and TabVisuals.View.Visible then
+        ColumnsFrame.Position = UDim2.new(0, 0, 0, 48)
+        TweenService:Create(ColumnsFrame, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0, 0, 0, 38)
+        }):Play()
     end
-end })
-secObjESP:AddToggle({ Name = "Generator Progress %", Default = false, Callback = function(v) Config.ESP_GenProgress = v end })
+end
 
-secObjESP:AddToggle({ Name = "Pallet ESP (Nearby)", Default = false, Callback = function(v)
-    Config.ESP_Pallets = v
-    if not v then
-        for _, txt in pairs(PalletDrawings) do txt.Visible = false end
-        for _, hl in pairs(PalletAuras) do hl.Enabled = false end
-    end
-end })
-secObjESP:AddToggle({ Name = "Pallet 3D Aura (Amber)", Default = false, Callback = function(v)
-    Config.ESP_PalletAura = v
-    if not v then
-        for _, hl in pairs(PalletAuras) do hl.Enabled = false end
-    end
-end })
-secObjESP:AddSlider({ Name = "Pallet Max Distance", Flag = "Pallet Max Distance", Min = 30, Max = 300, Default = 150, Suffix = " studs", Callback = function(v) Config.PalletMaxDist = v end })
+for _, catData in ipairs(visualCategories) do
+    local itemBtn = Instance.new("TextButton")
+    itemBtn.Name = "NavBtn_" .. catData.Id
+    itemBtn.Size = UDim2.new(0.25, -5, 1, 0)
+    itemBtn.BackgroundColor3 = Window.Theme.Inline
+    itemBtn.BackgroundTransparency = 1
+    itemBtn.BorderSizePixel = 0
+    itemBtn.Text = catData.Name
+    itemBtn.TextColor3 = Window.Theme.SubText
+    itemBtn.TextSize = 11
+    itemBtn.FontFace = GetPreferredFont()
+    itemBtn.AutoButtonColor = false
+    itemBtn.Parent = TopCategoryNav
+    Instance.new("UICorner", itemBtn).CornerRadius = UDim.new(0, 4)
 
-secObjESP:AddToggle({ Name = "Window / Vault ESP", Default = false, Callback = function(v)
-    Config.ESP_Windows = v
-    if not v then
-        for _, txt in pairs(WindowDrawings) do txt.Visible = false end
-        for _, hl in pairs(WindowAuras) do hl.Enabled = false end
-        for _, bha in pairs(WindowAdornments) do bha.Visible = false end
-    end
-end })
-secObjESP:AddToggle({ Name = "Window 3D Aura (Ledge Only)", Default = false, Callback = function(v)
-    Config.ESP_WindowAura = v
-    if not v then
-        for _, hl in pairs(WindowAuras) do hl.Enabled = false end
-        for _, bha in pairs(WindowAdornments) do bha.Visible = false end
-    end
-end })
-secObjESP:AddSlider({ Name = "Window Max Distance", Flag = "Window Max Distance", Min = 30, Max = 300, Default = 150, Suffix = " studs", Callback = function(v) Config.WindowMaxDist = v end })
+    local activeIndicator = Instance.new("Frame")
+    activeIndicator.Name = "ActiveIndicator"
+    activeIndicator.Size = UDim2.new(0.7, 0, 0, 2)
+    activeIndicator.AnchorPoint = Vector2.new(0.5, 1)
+    activeIndicator.Position = UDim2.new(0.5, 0, 1, -1)
+    activeIndicator.BackgroundColor3 = Window.Theme.Accent
+    activeIndicator.BorderSizePixel = 0
+    activeIndicator.Visible = false
+    activeIndicator.Parent = itemBtn
+    Instance.new("UICorner", activeIndicator).CornerRadius = UDim.new(0, 1)
+    Window:RegisterAccent(activeIndicator, "BackgroundColor3")
 
-secObjESP:AddToggle({ Name = "Exit Gates ESP", Default = false, Callback = function(v)
-    Config.ESP_ExitGates = v
-    if not v then
-        for _, txt in pairs(GateDrawings) do txt.Visible = false end
+    table.insert(categoryButtons, {
+        Id = catData.Id,
+        Button = itemBtn,
+        Indicator = activeIndicator
+    })
+
+    itemBtn.MouseEnter:Connect(function()
+        if currentVisualCategory ~= catData.Id then
+            TweenService:Create(itemBtn, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 0.8,
+                TextColor3 = Window.Theme.Text
+            }):Play()
+        end
+    end)
+    itemBtn.MouseLeave:Connect(function()
+        if currentVisualCategory ~= catData.Id then
+            TweenService:Create(itemBtn, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 1,
+                TextColor3 = Window.Theme.SubText
+            }):Play()
+        end
+    end)
+    itemBtn.MouseButton1Click:Connect(function()
+        selectVisualCategory(catData.Id)
+    end)
+end
+
+-- Default selection
+selectVisualCategory("Survivor")
+isInitialCategorySelect = false
+
+-- Entrance animation when entering Visuals tab (sub-tabs and columns slide down smoothly)
+local function playVisualsEntrance()
+    if not TabVisuals.View.Visible then return end
+
+    -- Slide down TopCategoryNav (the sub-tabs: Survivor, Killer, etc.) from top
+    TopCategoryNav.Position = UDim2.new(0, 0, 0, -22)
+    TweenService:Create(TopCategoryNav, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0, 0, 0, 0)
+    }):Play()
+
+    -- Slide down ColumnsFrame (the 2 sections below)
+    ColumnsFrame.Position = UDim2.new(0, 0, 0, 50)
+    TweenService:Create(ColumnsFrame, TweenInfo.new(0.32, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0, 0, 0, 38)
+    }):Play()
+end
+
+TabVisuals.View:GetPropertyChangedSignal("Visible"):Connect(function()
+    if TabVisuals.View.Visible then
+        playVisualsEntrance()
     end
-end })
+end)
 
 -- ======== PLAYERLIST (DBD SCOREBOARD ROSTER) TAB ========
 -- In-game asset mapping (Perks, Items, Killers) pulled directly from game files
@@ -3251,12 +4311,12 @@ local colRoster = TabPlayerlist:CreateColumn()
 colRoster.Frame.Size = UDim2.new(1, 0, 1, 0)
 
 -- Header Status Card
-local RosterHeaderCard, RosterHeaderAccent = colRoster:CreateCustomCard(44)
+local RosterHeaderCard, RosterHeaderAccent = colRoster:CreateCustomCard(36)
 Window:RegisterAccent(RosterHeaderAccent, "BackgroundColor3")
 
 local RosterHeaderIcon = Instance.new("ImageLabel")
-RosterHeaderIcon.Size = UDim2.fromOffset(20, 20)
-RosterHeaderIcon.Position = UDim2.fromOffset(10, 12)
+RosterHeaderIcon.Size = UDim2.fromOffset(18, 18)
+RosterHeaderIcon.Position = UDim2.fromOffset(10, 9)
 RosterHeaderIcon.BackgroundTransparency = 1
 RosterHeaderIcon.Image = "rbxassetid://10723415766"
 RosterHeaderIcon.ImageColor3 = Window.Theme.Accent
@@ -3264,42 +4324,15 @@ RosterHeaderIcon.Parent = RosterHeaderCard
 Window:RegisterAccent(RosterHeaderIcon, "ImageColor3")
 
 local RosterTitle = Instance.new("TextLabel")
-RosterTitle.Size = UDim2.new(1, -120, 0, 16)
-RosterTitle.Position = UDim2.fromOffset(36, 6)
+RosterTitle.Size = UDim2.new(1, -45, 0, 18)
+RosterTitle.Position = UDim2.fromOffset(36, 9)
 RosterTitle.BackgroundTransparency = 1
-RosterTitle.Text = "Match Roster & Loadouts"
+RosterTitle.Text = "Match Info Beta"
 RosterTitle.TextColor3 = Window.Theme.Text
-RosterTitle.TextSize = 12
+RosterTitle.TextSize = 13
 RosterTitle.TextXAlignment = Enum.TextXAlignment.Left
 RosterTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
 RosterTitle.Parent = RosterHeaderCard
-
-local RosterSubText = Instance.new("TextLabel")
-RosterSubText.Size = UDim2.new(1, -120, 0, 14)
-RosterSubText.Position = UDim2.fromOffset(36, 22)
-RosterSubText.BackgroundTransparency = 1
-RosterSubText.Text = "Loading players..."
-RosterSubText.TextColor3 = Window.Theme.SubText
-RosterSubText.TextSize = 9
-RosterSubText.TextXAlignment = Enum.TextXAlignment.Left
-RosterSubText.FontFace = GetPreferredFont()
-RosterSubText.Parent = RosterHeaderCard
-
-local RefreshRosterBtn = Instance.new("TextButton")
-RefreshRosterBtn.Size = UDim2.fromOffset(80, 24)
-RefreshRosterBtn.Position = UDim2.new(1, -90, 0.5, -12)
-RefreshRosterBtn.BackgroundColor3 = Window.Theme.ElementBackground
-RefreshRosterBtn.BorderSizePixel = 0
-RefreshRosterBtn.Text = "↻ Refresh"
-RefreshRosterBtn.TextColor3 = Window.Theme.Text
-RefreshRosterBtn.TextSize = 10
-RefreshRosterBtn.FontFace = Font.fromEnum(Enum.Font.GothamBold)
-RefreshRosterBtn.Parent = RosterHeaderCard
-Instance.new("UICorner", RefreshRosterBtn).CornerRadius = UDim.new(0, 5)
-local refStroke = Instance.new("UIStroke", RefreshRosterBtn)
-refStroke.Color = Window.Theme.Accent
-refStroke.Thickness = 1
-Window:RegisterAccent(refStroke, "Color")
 
 local RosterListContainer = Instance.new("Frame")
 RosterListContainer.Name = "RosterListContainer"
@@ -3516,23 +4549,24 @@ local function CreatePlayerRow(plr)
     infoCol.Parent = card
 
     local nameLabel = Instance.new("TextLabel")
-    nameLabel.Size = UDim2.new(1, 0, 0, 16)
+    nameLabel.Size = UDim2.new(1, 0, 0, 18)
+    nameLabel.Position = UDim2.fromOffset(0, 8)
     nameLabel.BackgroundTransparency = 1
     nameLabel.Text = (plr == LocalPlayer and "★ " or "") .. plr.DisplayName
     nameLabel.TextColor3 = Window.Theme.Text
-    nameLabel.TextSize = 12
+    nameLabel.TextSize = 13
     nameLabel.TextXAlignment = Enum.TextXAlignment.Left
     nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
     nameLabel.FontFace = Font.fromEnum(Enum.Font.GothamBold)
     nameLabel.Parent = infoCol
 
     local userLabel = Instance.new("TextLabel")
-    userLabel.Size = UDim2.new(1, 0, 0, 12)
-    userLabel.Position = UDim2.fromOffset(0, 16)
+    userLabel.Size = UDim2.new(1, 0, 0, 14)
+    userLabel.Position = UDim2.fromOffset(0, 28)
     userLabel.BackgroundTransparency = 1
     userLabel.Text = "@" .. plr.Name
     userLabel.TextColor3 = Window.Theme.SubText
-    userLabel.TextSize = 9
+    userLabel.TextSize = 10
     userLabel.TextXAlignment = Enum.TextXAlignment.Left
     userLabel.FontFace = GetPreferredFont()
     userLabel.Parent = infoCol
@@ -3541,6 +4575,7 @@ local function CreatePlayerRow(plr)
     tagRow.Size = UDim2.new(1, 0, 0, 16)
     tagRow.Position = UDim2.fromOffset(0, 32)
     tagRow.BackgroundTransparency = 1
+    tagRow.Visible = false
     tagRow.Parent = infoCol
 
     local tagLayout = Instance.new("UIListLayout")
@@ -3729,6 +4764,7 @@ local function CreatePlayerRow(plr)
         ItemImg = itImg,
         ItemNameLabel = itemNameLabel,
         ItemDetLabel = itemDetLabel,
+        PerkBoxes = perkBoxes,
         PerkImgs = perkImgs,
         PerkLabels = perkLabels,
     }
@@ -3750,17 +4786,8 @@ local function UpdateRoster(force)
         end
     end
 
-    -- Header summary & Killer info as clean text
     local inLobby = IsInLobby()
-    if inLobby then
-        RosterTitle.Text = "Player Loadouts & Roster"
-        RosterSubText.Text = "In Lobby (" .. #allPlayers .. " Players Connected) • Auto-updating"
-    else
-        RosterTitle.Text = "Player Loadouts & Status"
-        local kType = killerPlr and ResolveKillerType(killerPlr) or "Unknown"
-        local kName = killerPlr and killerPlr.DisplayName or "None"
-        RosterSubText.Text = "Killer: " .. kName .. " [" .. kType .. "]"
-    end
+    RosterTitle.Text = "Match Info Beta"
 
     -- Remove left players
     for p, row in pairs(cachedRosterRows) do
@@ -3812,7 +4839,8 @@ local function UpdateRoster(force)
             row.StatusText.Text = kState
             row.StatusText.TextColor3 = Color3.fromRGB(255, 120, 140)
 
-            row.PerksHeader.Text = "KILLER PERKS"
+            local perks = GetPlayerPerks(plr) or {}
+            row.PerksHeader.Text = "KILLER PERKS (3 SLOTS)"
             -- Killer Power Box (Hidden completely as requested: perks only)
             row.ItemHeader.Visible = false
             row.ItemBox.Visible = false
@@ -3849,15 +4877,19 @@ local function UpdateRoster(force)
             row.ItemStroke.Color = Color3.fromRGB(255, 180, 50)
         end
 
-        -- Perks (Icons + Names pulled from game)
+        -- Perks (Icons + Names pulled from game, independent of LocalPlayer's slots)
         local perks = GetPlayerPerks(plr) or {}
+        local maxDisplaySlots = 3
         for i = 1, 3 do
+            local pb = row.PerkBoxes and row.PerkBoxes[i]
             local pName = perks[i]
             local pImg = row.PerkImgs[i]
             local pLbl = row.PerkLabels[i]
-            if pName and pName ~= "" then
+
+            if pb then pb.Visible = true end
+            if pName and pName ~= "" and pName ~= "---" then
                 local pTier = (PlayerPerkTiers[plr] and PlayerPerkTiers[plr][pName]) or 3
-                local pIcon = GetPerkIcon(pName, pTier)
+                local pIcon = GetPerkIcon(pName, pTier) or "rbxassetid://115375812494391"
                 if pIcon and pIcon ~= "" then
                     pImg.Image = pIcon
                     pImg.Visible = true
@@ -3916,9 +4948,7 @@ end
     colRoster.Frame.CanvasSize = UDim2.new(0, 0, 0, 50 + (#ordered * 78))
 end
 
-RefreshRosterBtn.MouseButton1Click:Connect(function()
-    UpdateRoster(true)
-end)
+
 
 TabPlayerlist.Button.MouseButton1Click:Connect(function()
     task.spawn(function()
@@ -3937,65 +4967,7 @@ task.spawn(function()
     end
 end)
 
--- ======== SURVIVOR & MPlayer TAB ========
-local TabMech = Window:CreateTab("Player", "rbxassetid://10747373176")
-local colM1 = TabMech:CreateColumn()
-local colM2 = TabMech:CreateColumn()
 
-local secAutomation = colM1:CreateSection("Auto Skill Check")
-secAutomation:AddToggle({ Name = "100% Great Skill Check", Default = false, Callback = function(v) Config.AutoSkillCheck = v end })
-
-local secMovement = colM1:CreateSection("Camera & Movement")
-secMovement:AddToggle({ Name = "Enable Custom FOV", Default = false, Callback = function(v)
-    Config.CustomFOVEnabled = v
-    if not v then
-        Camera.FieldOfView = 70
-    else
-        Camera.FieldOfView = Config.FOV
-    end
-end })
-
-secMovement:AddSlider({ Name = "Field of View (FOV)", Min = 70, Max = 120, Default = 80, Callback = function(v)
-    Config.FOV = v
-    if Config.CustomFOVEnabled then
-        Camera.FieldOfView = v
-    end
-end })
-
-secMovement:AddSlider({ Name = "WalkSpeed", Min = 16, Max = 35, Default = 16, Callback = function(v)
-    Config.WalkSpeed = v
-    local hum = GetCharacter() and GetCharacter():FindFirstChildOfClass("Humanoid")
-    if hum then hum.WalkSpeed = v end
-end })
-
-local secWorld = colM2:CreateSection("World & Lighting")
-secWorld:AddToggle({ Name = "Remove Darkness (No Blackout)", Default = false, Callback = function(v)
-    Config.RemoveDarkness = v
-    local darkGui = LocalPlayer.PlayerGui:FindFirstChild("Darkness")
-    if darkGui then
-        for _, child in ipairs(darkGui:GetChildren()) do
-            if child:IsA("GuiObject") then child.Visible = not v end
-        end
-    end
-end })
-
-secWorld:AddToggle({ Name = "Fullbright (Clear Vision)", Default = false, Callback = function(v)
-    Config.Fullbright = v
-    if v then
-        pcall(function()
-            Lighting.Ambient = Color3.fromRGB(150, 150, 150)
-            Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 150)
-            Lighting.Brightness = 2
-            local atmo = Lighting:FindFirstChildWhichIsA("Atmosphere")
-            if atmo then
-                atmo.Density = 0.1
-                atmo.Haze = 0
-            end
-        end)
-    else
-        RestoreOriginalLighting()
-    end
-end })
 
 -- Hook all ConfigFlags items to force callbacks to execute on LoadConfigData even when silent=true is passed
 local function WrapConfigFlagsForAutoLoad()
@@ -4013,13 +4985,55 @@ local function WrapConfigFlagsForAutoLoad()
                 Window.OnSilentAutoSave = origAutoSave
             end
         end
+        if item and type(item.Open) == "function" and not item._wrappedForPopupPos then
+            item._wrappedForPopupPos = true
+            local rawOpen = item.Open
+            item.Open = function(selfItem)
+                rawOpen(selfItem)
+                task.defer(function()
+                    local gs = game:GetService("GuiService")
+                    local insetY = (Window.Gui and Window.Gui.IgnoreGuiInset and gs:GetGuiInset().Y) or 0
+                    if insetY > 0 then
+                        pcall(function()
+                            local btn, popup
+                            for i = 1, 15 do
+                                local ok, val = pcall(function() return debug.getupvalue(rawOpen, i) end)
+                                if not ok then break end
+                                if typeof(val) == "Instance" then
+                                    if val.Name == "Button" and val:IsA("TextButton") then
+                                        btn = val
+                                    elseif val.Name == "DropdownPopup" and val:IsA("ScrollingFrame") then
+                                        popup = val
+                                    end
+                                end
+                            end
+                            if btn and popup and popup.Visible then
+                                local targetY = btn.AbsolutePosition.Y + btn.AbsoluteSize.Y + 2 + insetY
+                                popup.Position = UDim2.fromOffset(btn.AbsolutePosition.X, targetY)
+                            end
+                        end)
+                    end
+                end)
+            end
+        end
     end
 end
 
 WrapConfigFlagsForAutoLoad()
 
 -- ======== SETTINGS TAB ========
-Window:CreateSettingsTab({ ConfigDirectory = "Nexara Studio Config" })
+Window:CreateSettingsTab({ ConfigDirectory = "Nexara Studio Config", DefaultTheme = "NexaraTheme" })
+
+-- Guarantee NexaraTheme and Stars weather exist in Dropdowns even when loading older GitHub UI
+local presetDrop = Window.ConfigFlags and Window.ConfigFlags["ThemePreset"]
+if presetDrop and presetDrop.Refresh then
+    presetDrop:Refresh({"NexaraTheme", "Halloween", "Christmas", "Teal", "Crimson", "Violet", "Emerald", "Amber", "Azure", "Rose", "White"})
+end
+
+local weatherDrop = Window.ConfigFlags and Window.ConfigFlags["ThemeWeather"]
+if weatherDrop and weatherDrop.Refresh then
+    weatherDrop:Refresh({"None", "Snow", "Rain", "Leaves", "Sakura", "Stars", "Shooting Stars"})
+end
 
 WrapConfigFlagsForAutoLoad()
 
@@ -4038,9 +5052,7 @@ local function SynchronizeConfigState()
         Config.TopKillerSkillSize = tonumber(cv["Top Killer Skill Size"]) or Config.TopKillerSkillSize
         TopKillerSkillText.Size = Config.TopKillerSkillSize
     end
-    if cv["Top Killer Skill Y Offset"] ~= nil then
-        Config.TopKillerSkillYOffset = tonumber(cv["Top Killer Skill Y Offset"]) or Config.TopKillerSkillYOffset
-    end
+
     if cv["Pallet Max Distance"] ~= nil then
         Config.PalletMaxDist = tonumber(cv["Pallet Max Distance"]) or Config.PalletMaxDist
     end
@@ -4052,11 +5064,6 @@ local function SynchronizeConfigState()
         if Config.CustomFOVEnabled then
             Camera.FieldOfView = Config.FOV
         end
-    end
-    if cv["WalkSpeed"] ~= nil then
-        Config.WalkSpeed = tonumber(cv["WalkSpeed"]) or Config.WalkSpeed
-        local hum = GetCharacter() and GetCharacter():FindFirstChildOfClass("Humanoid")
-        if hum then hum.WalkSpeed = Config.WalkSpeed end
     end
 
     if cv["Enable Custom FOV"] ~= nil then
@@ -4075,11 +5082,49 @@ local function SynchronizeConfigState()
     if cv["Fullbright (Clear Vision)"] ~= nil then
         Config.Fullbright = (cv["Fullbright (Clear Vision)"] == true)
     end
-    if cv["Show Players in Lobby"] ~= nil then
-        Config.ESP_LobbyEnabled = (cv["Show Players in Lobby"] == true)
+
+    local function syncCol(flag, def)
+        local val = cv[flag .. "_Color"]
+        local resolved = def
+        if type(val) == "table" and #val >= 3 then
+            local r = tonumber(val[1]) or 0
+            local g = tonumber(val[2]) or 0
+            local b = tonumber(val[3]) or 0
+            if r > 1 or g > 1 or b > 1 then
+                resolved = Color3.fromRGB(math.clamp(math.floor(r), 0, 255), math.clamp(math.floor(g), 0, 255), math.clamp(math.floor(b), 0, 255))
+            else
+                resolved = Color3.new(math.clamp(r, 0, 1), math.clamp(g, 0, 1), math.clamp(b, 0, 1))
+            end
+        elseif typeof(val) == "Color3" then
+            resolved = val
+        elseif type(val) == "string" and val:sub(1, 1) == "#" then
+            resolved = Color3.fromHex(val)
+        end
+        cv[flag .. "_Color"] = { math.floor(resolved.R * 255), math.floor(resolved.G * 255), math.floor(resolved.B * 255) }
+        if Window and Window.ConfigFlags and Window.ConfigFlags[flag] and Window.ConfigFlags[flag].SetColor then
+            pcall(function() Window.ConfigFlags[flag]:SetColor(resolved, true) end)
+        end
+        return resolved
     end
+
+    Config.Color_SurvivorBox = syncCol("Survivor 2D Boxes", Config.Color_SurvivorBox)
+    Config.Color_SurvivorNames = syncCol("Survivor Names & Distance", Config.Color_SurvivorNames)
+    Config.Color_KillerSkeleton = syncCol("Stick Skeleton", Config.Color_KillerSkeleton)
+    Config.Color_KillerNames = syncCol("Killer Name & Distance", Config.Color_KillerNames)
+    Config.Color_KillerSkills = syncCol("Killer Skills, Charges & CD", Config.Color_KillerSkills)
+    Config.Color_Generators = syncCol("Generator ESP", Config.Color_Generators)
+    Config.Color_ExitGates = syncCol("Exit Gates ESP", Config.Color_ExitGates)
+    Config.Color_PalletAura = syncCol("Pallet 3D Aura", Config.Color_PalletAura)
+    Config.Color_PalletNames = syncCol("Pallet Name & Distance", Config.Color_PalletNames)
+    Config.Color_WindowAura = syncCol("Window 3D Aura", Config.Color_WindowAura)
+    Config.Color_WindowNames = syncCol("Window Name & Distance", Config.Color_WindowNames)
+
+    if TopKillerSkillText then
+        TopKillerSkillText.Color = Config.Color_KillerSkills or Color3.fromRGB(80, 220, 255)
+    end
+
     if cv["Enable Killer ESP"] ~= nil then Config.ESP_KillerEnabled = (cv["Enable Killer ESP"] == true) end
-    if cv["Stick Skeleton (Pink)"] ~= nil then Config.ESP_KillerSkeleton = (cv["Stick Skeleton (Pink)"] == true) end
+    if cv["Stick Skeleton"] ~= nil then Config.ESP_KillerSkeleton = (cv["Stick Skeleton"] == true) end
     if cv["Killer Name & Distance"] ~= nil then Config.ESP_KillerNames = (cv["Killer Name & Distance"] == true) end
     if cv["Killer Skills, Charges & CD"] ~= nil then Config.ESP_KillerSkills = (cv["Killer Skills, Charges & CD"] == true) end
     if cv["Enable Survivor ESP"] ~= nil then Config.ESP_SurvivorEnabled = (cv["Enable Survivor ESP"] == true) end
@@ -4089,12 +5134,16 @@ local function SynchronizeConfigState()
     if cv["Survivor Items & Cooldowns"] ~= nil then Config.ESP_SurvivorSkills = (cv["Survivor Items & Cooldowns"] == true) end
     if cv["Generator ESP"] ~= nil then Config.ESP_Generators = (cv["Generator ESP"] == true) end
     if cv["Generator Progress %"] ~= nil then Config.ESP_GenProgress = (cv["Generator Progress %"] == true) end
-    if cv["Pallet ESP (Nearby)"] ~= nil then Config.ESP_Pallets = (cv["Pallet ESP (Nearby)"] == true) end
-    if cv["Pallet 3D Aura (Amber)"] ~= nil then Config.ESP_PalletAura = (cv["Pallet 3D Aura (Amber)"] == true) end
-    if cv["Window / Vault ESP"] ~= nil then Config.ESP_Windows = (cv["Window / Vault ESP"] == true) end
-    if cv["Window 3D Aura (Ledge Only)"] ~= nil then Config.ESP_WindowAura = (cv["Window 3D Aura (Ledge Only)"] == true) end
+    if cv["Pallet 3D Aura"] ~= nil then Config.ESP_PalletAura = (cv["Pallet 3D Aura"] == true) end
+    if cv["Pallet Name & Distance"] ~= nil then Config.ESP_Pallets = (cv["Pallet Name & Distance"] == true) end
+    if cv["Window 3D Aura"] ~= nil then Config.ESP_WindowAura = (cv["Window 3D Aura"] == true) end
+    if cv["Window Name & Distance"] ~= nil then Config.ESP_Windows = (cv["Window Name & Distance"] == true) end
     if cv["Exit Gates ESP"] ~= nil then Config.ESP_ExitGates = (cv["Exit Gates ESP"] == true) end
-    if cv["100% Great Skill Check"] ~= nil then Config.AutoSkillCheck = (cv["100% Great Skill Check"] == true) end
+    if cv["Skill Check Perfect"] ~= nil then
+        Config.AutoSkillCheck = (cv["Skill Check Perfect"] == true)
+    elseif cv["100% Great Skill Check"] ~= nil then
+        Config.AutoSkillCheck = (cv["100% Great Skill Check"] == true)
+    end
 end
 
 task.defer(function()
@@ -4137,47 +5186,72 @@ table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
     end)
 end))
 
--- Mouse Cursor Management & Steady FOV & Darkness Enforcer
-local function SyncMouseState()
-    local inLobby = IsInLobby()
+-- Mouse Cursor Management & First-Person Fix
+-- We bind at Enum.RenderPriority.Last so our unlock runs strictly AFTER CameraModule / game scripts
+local mouseUnlockBound = false
+local function UpdateMouseUnlockBinding()
     if Window and Window.Visible then
-        if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
-            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        if not mouseUnlockBound then
+            mouseUnlockBound = true
+            pcall(function()
+                RunService:BindToRenderStep("Nexara_MouseUnlock", Enum.RenderPriority.Last.Value, function()
+                    if Window and Window.Visible then
+                        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                        UserInputService.MouseIconEnabled = true
+                    end
+                end)
+            end)
         end
-        if not UserInputService.MouseIconEnabled then
+        if modalUnlockBtn and modalUnlockBtn.Parent then
+            modalUnlockBtn.Visible = true
+        end
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+    else
+        if mouseUnlockBound then
+            mouseUnlockBound = false
+            pcall(function() RunService:UnbindFromRenderStep("Nexara_MouseUnlock") end)
+        end
+        if modalUnlockBtn and modalUnlockBtn.Parent then
+            modalUnlockBtn.Visible = false
+        end
+        if not IsInLobby() then
+            UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+            UserInputService.MouseIconEnabled = false
+        else
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
             UserInputService.MouseIconEnabled = true
         end
-    else
-        if not inLobby then
-            if UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
-                UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
-            end
-            if UserInputService.MouseIconEnabled then
-                UserInputService.MouseIconEnabled = false
-            end
-        else
-            if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
-                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-            end
-            if not UserInputService.MouseIconEnabled then
-                UserInputService.MouseIconEnabled = true
-            end
-        end
     end
+end
+
+local function SyncMouseState()
+    UpdateMouseUnlockBinding()
 end
 
 -- 1. Sync on menu toggle key press
 table.insert(ScriptConnections, UserInputService.InputBegan:Connect(function(input, gpe)
     local toggleKey = (Window and Window.ToggleKey) or Enum.KeyCode.RightControl
     if input.KeyCode == toggleKey then
-        task.defer(SyncMouseState)
+        task.defer(UpdateMouseUnlockBinding)
     end
 end))
 
+-- Listen for Window.Visible property changes directly from UI library
+pcall(function()
+    if Window and Window.Gui then
+        local mainFrame = Window.Gui:FindFirstChild("Main") or Window.Gui:FindFirstChildWhichIsA("Frame", true)
+        if mainFrame then
+            table.insert(ScriptConnections, mainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+                UpdateMouseUnlockBinding()
+            end))
+        end
+    end
+end)
+
 -- 2. Anti-cursor bug fix during in-match gameplay:
 -- When menu is closed and player is in match, clicking into game (MouseButton1 / MouseButton2)
--- or walking (W/A/S/D/Space/Shift) immediately re-locks mouse to LockCenter and hides cursor,
--- eliminating the stuck cursor and the need to hold right-click to turn the camera!
+-- or walking (W/A/S/D/Space/Shift) immediately re-locks mouse to LockCenter and hides cursor
 table.insert(ScriptConnections, UserInputService.InputBegan:Connect(function(input, gpe)
     if not gpe and (not Window or not Window.Visible) and not IsInLobby() then
         local it = input.UserInputType
@@ -4198,12 +5272,8 @@ end))
 -- 3. While right-click is held or when menu is closed in match, keep LockCenter active
 table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
     if Window and Window.Visible then
-        -- Menu is open: unlock mouse so user can click cheat menu
-        if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
-            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-        end
-        if not UserInputService.MouseIconEnabled then
-            UserInputService.MouseIconEnabled = true
+        if not mouseUnlockBound then
+            UpdateMouseUnlockBinding()
         end
     elseif not IsInLobby() then
         if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
@@ -4227,12 +5297,6 @@ table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
         if darkGui and darkGui.Enabled then
             darkGui.Enabled = false
         end
-    end
-
-    -- WalkSpeed override
-    if Config.WalkSpeed > 16 then
-        local hum = GetCharacter() and GetCharacter():FindFirstChildOfClass("Humanoid")
-        if hum and hum.WalkSpeed ~= Config.WalkSpeed then hum.WalkSpeed = Config.WalkSpeed end
     end
 end))
 
@@ -4309,6 +5373,9 @@ local function RenderESP()
             table.clear(KillerPortraitCache)
             table.clear(PlayerItemCooldowns)
             table.clear(PlayerItemCache)
+            table.clear(DroppedPallets)
+            table.clear(BlockedWindows)
+            table.clear(BlockedWindowPositions)
         end
         wasInLobby = inLobby
         local myRoot = GetRoot(LocalPlayer)
@@ -4392,6 +5459,7 @@ local function RenderESP()
                         formattedText = formattedText:gsub("%s*|%s*CHASING", ""):gsub("%[CHASING%]", "")
                         TopKillerSkillText.Text = formattedText
                         TopKillerSkillText.Position = Vector2.new(posX, posY)
+                        TopKillerSkillText.Color = Config.Color_KillerSkills or Color3.fromRGB(80, 220, 255)
                         TopKillerSkillText.Visible = true
                     end
                 else
@@ -4437,7 +5505,7 @@ local function RenderESP()
                         local topY = headScreen.Y - 14
                         local btmY = rootScreen.Y + 18
                         if Config.ESP_KillerSkeleton then
-                            local anyVis, hPoint, fPoint = UpdateSkeleton(char, esp.Skeleton, Color3.fromRGB(240, 60, 160), Config.KillerSkeletonThickness or 1.3)
+                            local anyVis, hPoint, fPoint = UpdateSkeleton(char, esp.Skeleton, Config.Color_KillerSkeleton or Color3.fromRGB(240, 60, 160), Config.KillerSkeletonThickness or 1.3)
                             currentX = hPoint and hPoint.X or currentX
                             topY = hPoint and (hPoint.Y - 14) or (headScreen.Y - 14)
                             btmY = fPoint and (fPoint.Y + 4) or (rootScreen.Y + 18)
@@ -4450,7 +5518,7 @@ local function RenderESP()
                             local topStr = (data and data.DisplayName or player.DisplayName) .. " [" .. math.floor(dist) .. "m]"
                             esp.TopText.Text = topStr
                             esp.TopText.Position = Vector2.new(currentX, topY)
-                            esp.TopText.Color = Color3.fromRGB(255, 60, 160)
+                            esp.TopText.Color = Config.Color_KillerNames or Color3.fromRGB(255, 60, 160)
                             esp.TopText.Visible = true
                         else
                             esp.TopText.Visible = false
@@ -4510,17 +5578,12 @@ local function RenderESP()
 
                         local head = char:FindFirstChild("Head")
                         local topWorld = head and (head.Position + Vector3.new(0, 0.6, 0)) or (rootPos + Vector3.new(0, 1.9, 0))
-                        local btmWorld = rootPos - Vector3.new(0, 2.8, 0)
+                        local btmWorld = rootPos - Vector3.new(0, 2.5, 0)
                         local topScreen, topVis = Camera:WorldToViewportPoint(topWorld)
                         local btmScreen, btmVis = Camera:WorldToViewportPoint(btmWorld)
 
-                        if topVis and btmVis then
-                            local col = inLobby and Color3.fromRGB(0, 210, 255) or Color3.fromRGB(80, 255, 120)
-                            if char:GetAttribute("Knocked") == true then
-                                col = Color3.fromRGB(255, 150, 40)
-                            elseif char:GetAttribute("HookProgressDepleting") == true then
-                                col = Color3.fromRGB(200, 80, 255)
-                            end
+                        if topScreen.Z > 0 and btmScreen.Z > 0 then
+                            local col = inLobby and Color3.fromRGB(0, 210, 255) or (Config.Color_SurvivorBox or Color3.fromRGB(80, 255, 120))
 
                             local boxHeight = math.floor(math.abs(btmScreen.Y - topScreen.Y))
                             local boxWidth = math.floor(boxHeight * 0.55)
@@ -4557,43 +5620,53 @@ local function RenderESP()
                                 esp.Box.Visible = false
                             end
 
-                            -- Top Text: [SURVIVOR] Name (or [LOBBY] Name) - anchored snugly above head
-                            local showNames = (not isBeingCarriedByMe) and (inLobby and (Config.ESP_LobbyNames ~= false) or Config.ESP_SurvivorNames)
+                            -- Status check (Hooked, Carried, Down, Injured)
+                            local statusText = nil
+                            local statusColor = nil
+                            if not inLobby and Config.ESP_SurvivorStatus then
+                                local isHooked = (char:GetAttribute("IsHooked") == true) or (CollectionService and CollectionService:HasTag(char, "Hooked"))
+                                local isCarried = (char:GetAttribute("IsCarried") == true) or (char:GetAttribute("Carried") == true)
+                                local isDown = (char:GetAttribute("Knocked") == true) or (CollectionService and CollectionService:HasTag(char, "Knocked"))
+                                local hum = char:FindFirstChildOfClass("Humanoid")
+                                if isHooked then
+                                    statusText = "[HOOKED]"
+                                    statusColor = Color3.fromRGB(255, 60, 60)
+                                elseif isCarried then
+                                    statusText = "[CARRIED]"
+                                    statusColor = Color3.fromRGB(255, 170, 0)
+                                elseif isDown then
+                                    statusText = "[DOWN]"
+                                    statusColor = Color3.fromRGB(255, 85, 85)
+                                elseif hum and hum.Health < 99 then
+                                    statusText = "[Injured]"
+                                    statusColor = Color3.fromRGB(255, 215, 0) -- Fixed Yellow
+                                end
+                            end
+
+                            -- Top Text: Player Name [Distance] (Clean, no [SURVIVOR] prefix)
+                            local showNames = (not isBeingCarriedByMe) and (inLobby and (Config.ESP_LobbyNames ~= false) or (Config.ESP_SurvivorNames or Config.ESP_SurvivorDistance))
                             if showNames then
-                                local topStr = inLobby and "[LOBBY] " or "[SURVIVOR] "
-                                topStr = topStr .. (data and data.DisplayName or player.DisplayName)
+                                local topStr = (data and data.DisplayName or player.DisplayName)
+                                if not inLobby then
+                                    topStr = topStr .. " [" .. math.floor(dist) .. "m]"
+                                end
                                 esp.TopText.Text = topStr
                                 esp.TopText.Position = Vector2.new(rootScreen.X, boxY - 14)
-                                esp.TopText.Color = col
+                                local nameCol = inLobby and Color3.fromRGB(0, 210, 255) or (Config.Color_SurvivorNames or Color3.fromRGB(80, 255, 120))
+                                esp.TopText.Color = nameCol
                                 esp.TopText.Visible = true
                             else
                                 esp.TopText.Visible = false
                             end
 
-                            -- Bottom Text: Distance + Status
+                            -- Bottom: Under the feet (Status [Injured] -> Item -> Perks)
                             local currentY = boxY + boxHeight + 2
-                            local showDistOrStatus = (not isBeingCarriedByMe) and (inLobby and (Config.ESP_LobbyNames ~= false) or (Config.ESP_SurvivorNames or Config.ESP_SurvivorDistance or Config.ESP_SurvivorStatus))
-                            if showDistOrStatus then
-                                local btmStr = math.floor(dist) .. "m"
-                                if not inLobby and Config.ESP_SurvivorStatus then
-                                    local isHooked = (char:GetAttribute("IsHooked") == true) or (CollectionService and CollectionService:HasTag(char, "Hooked"))
-                                    local isCarried = (char:GetAttribute("IsCarried") == true) or (char:GetAttribute("Carried") == true)
-                                    local isDown = (char:GetAttribute("Knocked") == true) or (CollectionService and CollectionService:HasTag(char, "Knocked"))
-                                    local hum = char:FindFirstChildOfClass("Humanoid")
-                                    if isHooked then
-                                        btmStr = btmStr .. " [HOOKED]"
-                                    elseif isCarried then
-                                        btmStr = btmStr .. " [CARRIED]"
-                                    elseif isDown then
-                                        btmStr = btmStr .. " [DOWN]"
-                                    elseif hum and hum.Health < 99 then
-                                        btmStr = btmStr .. " [" .. math.floor(hum.Health) .. "%]"
-                                    end
-                                end
 
-                                esp.BottomText.Text = btmStr
+                            -- Status Text: Positioned directly under feet
+                            if (not isBeingCarriedByMe) and statusText then
+                                esp.BottomText.Text = statusText
                                 esp.BottomText.Position = Vector2.new(rootScreen.X, currentY)
-                                esp.BottomText.Color = Color3.fromRGB(255, 255, 255)
+                                esp.BottomText.Color = statusColor
                                 esp.BottomText.Visible = true
                                 currentY = currentY + 14
                             else
@@ -4712,10 +5785,8 @@ local function RenderESP()
                         txt.Color = Color3.fromRGB(0, 240, 255)
                     elseif repairers > 0 then
                         txt.Color = Color3.fromRGB(255, 215, 0)
-                    elseif prog >= 50 then
-                        txt.Color = Color3.fromRGB(80, 255, 80)
                     else
-                        txt.Color = Color3.fromRGB(255, 90, 90)
+                        txt.Color = Config.Color_Generators or Color3.fromRGB(255, 200, 50)
                     end
                     txt.Visible = true
                 else
@@ -4730,7 +5801,7 @@ local function RenderESP()
 
     -- 3. Pallet ESP & 3D Glowing Aura
     table.clear(seenPallets)
-    if not inLobby and Config.ESP_Pallets then
+    if not inLobby and (Config.ESP_Pallets or Config.ESP_PalletAura) then
         local palletList = {}
         for _, item in ipairs(CachedPallets) do
             local pallet = item.Model
@@ -4753,10 +5824,11 @@ local function RenderESP()
             if Config.ESP_PalletAura and idx <= 14 and dist <= Config.PalletMaxDist then
                 local targetAdornee = item.PalletWood or pallet
                 local hl = PalletAuras[pallet]
+                local aCol = Config.Color_PalletAura or Color3.fromRGB(255, 170, 0)
                 if not hl or not hl.Parent then
                     hl = Instance.new("Highlight")
                     hl.Name = "Nexara_PalletAura"
-                    hl.FillColor = Color3.fromRGB(255, 170, 0)
+                    hl.FillColor = aCol
                     hl.OutlineColor = Color3.fromRGB(255, 230, 100)
                     hl.FillTransparency = 0.65
                     hl.OutlineTransparency = 0.1
@@ -4764,6 +5836,8 @@ local function RenderESP()
                     hl.Adornee = targetAdornee
                     hl.Parent = targetAdornee
                     PalletAuras[pallet] = hl
+                else
+                    hl.FillColor = aCol
                 end
                 hl.Enabled = true
             elseif PalletAuras[pallet] then
@@ -4781,12 +5855,33 @@ local function RenderESP()
                 PalletDrawings[pallet] = txt
             end
 
-            if dist <= Config.PalletMaxDist then
+            if Config.ESP_Pallets and dist <= Config.PalletMaxDist then
                 local sPos, onScreen = Camera:WorldToViewportPoint(root.Position)
                 if onScreen and not IsInMenu(sPos.X, sPos.Y) then
-                    txt.Text = "Pallet " .. math.floor(dist) .. "m"
+                    local isDropped = IsPalletDropped(pallet, root)
+                    local isDropping = false
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        local c = p.Character
+                        if c and (c:GetAttribute("isDroppingPallet") == true or c:GetAttribute("IsDroppingPallet") == true) then
+                            local r = c:FindFirstChild("HumanoidRootPart")
+                            if r and (r.Position - root.Position).Magnitude < 7 then
+                                isDropping = true
+                                break
+                            end
+                        end
+                    end
+
+                    if isDropping then
+                        txt.Text = "Pallet Dropping " .. math.floor(dist) .. "m"
+                        txt.Color = Color3.fromRGB(255, 80, 80)
+                    elseif isDropped then
+                        txt.Text = "Pallet [Dropped] " .. math.floor(dist) .. "m"
+                        txt.Color = Color3.fromRGB(255, 140, 40)
+                    else
+                        txt.Text = "Pallet " .. math.floor(dist) .. "m"
+                        txt.Color = Config.Color_PalletNames or Color3.fromRGB(255, 180, 50)
+                    end
                     txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
-                    txt.Color = Color3.fromRGB(255, 180, 50)
                     txt.Visible = true
                 else
                     txt.Visible = false
@@ -4797,23 +5892,22 @@ local function RenderESP()
         end
     end
     for pallet, hl in pairs(PalletAuras) do
-        if not seenPallets[pallet] or inLobby or not Config.ESP_Pallets or not Config.ESP_PalletAura then
+        if not seenPallets[pallet] or inLobby or not Config.ESP_PalletAura then
             pcall(function() hl.Enabled = false end)
         end
     end
     for pallet, txt in pairs(PalletDrawings) do
-        if not seenPallets[pallet] then txt.Visible = false end
+        if not seenPallets[pallet] or not Config.ESP_Pallets then txt.Visible = false end
     end
 
     -- 4. Window / Vault ESP & 3D Glowing Aura
     table.clear(seenWindows)
-    if not inLobby and Config.ESP_Windows then
+    if not inLobby and (Config.ESP_Windows or Config.ESP_WindowAura) then
         local windowList = {}
         local renderedVaultPos = {}
         for _, item in ipairs(CachedWindows) do
-            local win = item.Model
-            local root = item.Part
-            local ledge = item.VaultLedge
+            local win = item.Model or item.Part
+            local root = item.VaultLedge or item.Part
             if win and win.Parent and root and root.Parent then
                 local isDup = false
                 for _, rPos in ipairs(renderedVaultPos) do
@@ -4827,74 +5921,91 @@ local function RenderESP()
                     seenWindows[win] = true
                     local dist = (myPos - root.Position).Magnitude
                     table.insert(windowList, { Item = item, Dist = dist })
-                else
-                    if WindowDrawings[win] then WindowDrawings[win].Visible = false end
-                    if WindowAuras[win] then WindowAuras[win].Enabled = false end
-                    if WindowAdornments[win] then WindowAdornments[win].Visible = false end
                 end
             end
         end
         table.sort(windowList, function(a, b) return a.Dist < b.Dist end)
 
+        local wAuraCol = Config.Color_WindowAura or Color3.fromRGB(0, 210, 255)
+        local wGlowCol = wAuraCol:Lerp(Color3.new(1, 1, 1), 0.35)
+
         for idx, entry in ipairs(windowList) do
             local item = entry.Item
-            local win = item.Model
+            local win = item.Model or item.Part
             local root = item.Part
-            local ledge = item.VaultLedge
+            local ledge = item.VaultLedge or root
+            local sillType = item.SillType or "Auto"
             local dist = entry.Dist
 
-            -- 3D Glowing Aura on ONLY the vault sill ledge (Dual-Layer: BoxHandleAdornment + Highlight)
-            if Config.ESP_WindowAura and dist <= Config.WindowMaxDist and ledge and ledge.Parent then
-                if ledge.Transparency >= 0.99 then
-                    ledge.Transparency = 0.98
-                end
+            -- Calculate full vault barrier dimensions & offset (Highlights the entire vault wall, not just a thin top strip)
+            local rawW = math.max(ledge.Size.X, ledge.Size.Z)
+            local rawT = math.min(ledge.Size.X, ledge.Size.Z)
+            local width = math.clamp(rawW, 3.8, 6.0)
+            local thickness = math.clamp(rawT, 0.8, 2.0)
+            local height = (ledge.Size.Y >= 1.2 and ledge.Size.Y <= 4.0) and ledge.Size.Y or 2.8
 
-                -- Layer 1: BoxHandleAdornment (Cyan 3D box outline, renders through walls, no highlight engine limit!)
-                local vol = ledge.Size.X * ledge.Size.Y * ledge.Size.Z
-                local bha = WindowAdornments[win]
-                if vol <= 600 then
-                    if not bha or not bha.Parent then
-                        bha = Instance.new("BoxHandleAdornment")
-                        bha.Name = "Nexara_WindowBox"
-                        bha.Size = ledge.Size + Vector3.new(0.08, 0.08, 0.08)
-                        bha.Color3 = Color3.fromRGB(0, 210, 255)
-                        bha.Transparency = 0.55
-                        bha.AlwaysOnTop = true
-                        bha.ZIndex = 5
-                        bha.Adornee = ledge
-                        bha.Parent = ledge
-                        WindowAdornments[win] = bha
-                    end
-                    bha.Visible = true
-                elseif bha then
-                    bha.Visible = false
-                end
-
-                -- Layer 2: Highlight (Capped at closest 12 windows so 14 pallets + 12 windows = 26 <= 31 limit!)
-                if idx <= 12 then
-                    local hl = WindowAuras[win]
-                    if not hl or not hl.Parent then
-                        hl = Instance.new("Highlight")
-                        hl.Name = "Nexara_WindowAura"
-                        hl.FillColor = Color3.fromRGB(0, 190, 255)
-                        hl.OutlineColor = Color3.fromRGB(100, 230, 255)
-                        hl.FillTransparency = 0.65
-                        hl.OutlineTransparency = 0.1
-                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                        hl.Adornee = ledge
-                        hl.Parent = ledge
-                        WindowAuras[win] = hl
-                    end
-                    hl.Enabled = true
-                elseif WindowAuras[win] then
-                    pcall(function() WindowAuras[win].Enabled = false end)
-                end
+            local sillSize
+            if ledge.Size.X >= ledge.Size.Z then
+                sillSize = Vector3.new(width, height, thickness)
             else
-                if WindowAuras[win] then pcall(function() WindowAuras[win].Enabled = false end) end
-                if WindowAdornments[win] then pcall(function() WindowAdornments[win].Visible = false end) end
+                sillSize = Vector3.new(thickness, height, width)
             end
 
-            -- Distance Text
+            local offsetY = 0
+            if (sillType == "Trigger" or sillType == "InvisWall") and ledge.Size.Y >= 4.5 then
+                offsetY = -(ledge.Size.Y - height) / 2
+            end
+
+            -- Check blocked status & countdown timer
+            local isBlocked, blockTimeLeft = GetWindowBlockTime(win, root, ledge)
+
+            local activeBoxColor = isBlocked and Color3.fromRGB(255, 50, 50) or wAuraCol
+            local activeGlowColor = isBlocked and Color3.fromRGB(255, 100, 100) or wGlowCol
+
+            -- 3D Glowing Vault Sill (Dual-Layer Hologram: Solid Core + Neon Outer Glow)
+            if Config.ESP_WindowAura and dist <= Config.WindowMaxDist and ledge and ledge.Parent then
+                -- Layer 1: Core BoxHandleAdornment
+                local bha = WindowAdornments[win]
+                if not bha or not bha.Parent or not bha:IsA("BoxHandleAdornment") then
+                    bha = Instance.new("BoxHandleAdornment")
+                    bha.Name = "Nexara_WindowBox"
+                    bha.AlwaysOnTop = true
+                    bha.ZIndex = 8
+                    bha.Parent = ledge
+                    WindowAdornments[win] = bha
+                end
+                bha.Adornee = ledge
+                bha.Size = sillSize
+                bha.CFrame = CFrame.new(0, offsetY, 0)
+                bha.Color3 = activeBoxColor
+                bha.Transparency = 0.45
+                bha.Visible = true
+
+                -- Layer 2: Outer Glow Shell BoxHandleAdornment (Stored in WindowAuras)
+                local glow = WindowAuras[win]
+                if not glow or not glow.Parent or not glow:IsA("BoxHandleAdornment") then
+                    if glow and glow:IsA("Highlight") then
+                        pcall(function() glow:Destroy() end)
+                    end
+                    glow = Instance.new("BoxHandleAdornment")
+                    glow.Name = "Nexara_WindowGlow"
+                    glow.AlwaysOnTop = true
+                    glow.ZIndex = 7
+                    glow.Parent = ledge
+                    WindowAuras[win] = glow
+                end
+                glow.Adornee = ledge
+                glow.Size = sillSize + Vector3.new(0.12, 0.12, 0.12)
+                glow.CFrame = CFrame.new(0, offsetY, 0)
+                glow.Color3 = activeGlowColor
+                glow.Transparency = 0.75
+                glow.Visible = true
+            else
+                if WindowAdornments[win] then pcall(function() WindowAdornments[win].Visible = false end) end
+                if WindowAuras[win] then pcall(function() WindowAuras[win].Visible = false end) end
+            end
+
+            -- Distance Text & Block Timer
             local txt = WindowDrawings[win]
             if not txt then
                 txt = Drawing.new("Text")
@@ -4905,12 +6016,19 @@ local function RenderESP()
                 WindowDrawings[win] = txt
             end
 
-            if dist <= Config.WindowMaxDist then
-                local sPos, onScreen = Camera:WorldToViewportPoint(root.Position)
+            if Config.ESP_Windows and dist <= Config.WindowMaxDist then
+                local sillWorldPos = ledge.CFrame:PointToWorldSpace(Vector3.new(0, offsetY, 0))
+                local sPos, onScreen = Camera:WorldToViewportPoint(sillWorldPos)
                 if onScreen and not IsInMenu(sPos.X, sPos.Y) then
-                    txt.Text = "Vault " .. math.floor(dist) .. "m"
+                    if isBlocked then
+                        local sec = math.max(1, math.ceil(blockTimeLeft))
+                        txt.Text = string.format("Vault [BLOCKED %ds] %dm", sec, math.floor(dist))
+                        txt.Color = Color3.fromRGB(255, 60, 60)
+                    else
+                        txt.Text = "Vault " .. math.floor(dist) .. "m"
+                        txt.Color = Config.Color_WindowNames or Color3.fromRGB(80, 210, 255)
+                    end
                     txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
-                    txt.Color = Color3.fromRGB(80, 210, 255)
                     txt.Visible = true
                 else
                     txt.Visible = false
@@ -4920,18 +6038,18 @@ local function RenderESP()
             end
         end
     end
-    for win, hl in pairs(WindowAuras) do
-        if not seenWindows[win] or inLobby or not Config.ESP_Windows or not Config.ESP_WindowAura then
-            pcall(function() hl.Enabled = false end)
+    for win, glow in pairs(WindowAuras) do
+        if not seenWindows[win] or inLobby or not Config.ESP_WindowAura then
+            pcall(function() glow.Visible = false end)
         end
     end
     for win, bha in pairs(WindowAdornments) do
-        if not seenWindows[win] or inLobby or not Config.ESP_Windows or not Config.ESP_WindowAura then
+        if not seenWindows[win] or inLobby or not Config.ESP_WindowAura then
             pcall(function() bha.Visible = false end)
         end
     end
     for win, txt in pairs(WindowDrawings) do
-        if not seenWindows[win] then txt.Visible = false end
+        if not seenWindows[win] or not Config.ESP_Windows then txt.Visible = false end
     end
 
     -- 5. Exit Gates ESP
@@ -4957,7 +6075,7 @@ local function RenderESP()
                     local dist = math.floor((myPos - root.Position).Magnitude)
                     txt.Text = string.format("Exit Gate #%d (%dm)", idx, dist)
                     txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
-                    txt.Color = Color3.fromRGB(50, 255, 120)
+                    txt.Color = Config.Color_ExitGates or Color3.fromRGB(50, 255, 120)
                     txt.Visible = true
                 else
                     txt.Visible = false
