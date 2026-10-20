@@ -53,7 +53,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local MarketplaceService = game:GetService("MarketplaceService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local TweenService = game:GetService("TweenService")
-local GuiService = game:GetService("GuiService")
+local _GuiService = game:GetService("GuiService")
 local CollectionService = game:GetService("CollectionService")
 
 local LocalPlayer = Players.LocalPlayer
@@ -527,6 +527,24 @@ local KillerPerkCooldowns = {}
 local SurvivorPerkCooldowns = {}
 local PlayerItemCooldowns = {}
 local PlayerItemCache = {}
+local CachedPlayerData = {}
+local ESP_Objects = {}
+local cachedRosterRows = {}
+local UpdateMouseUnlockBinding = nil
+local ItemIcons = {
+    ["Twist of Fate"] = "rbxassetid://132056840388397",
+    ["Motion Tracker"] = "rbxassetid://132463384683157",
+    ["Gate"] = "rbxassetid://125030248803938",
+    ["Flashlight"] = "rbxassetid://74098471049890",
+    ["Bandage"] = "rbxassetid://82212412764648",
+    ["Medkit"] = "rbxassetid://82212412764648",
+    ["Parrying Dagger"] = "rbxassetid://73125857028072",
+    ["Adrenaline Shot"] = "rbxassetid://18720210000",
+    ["Shadow Clone"] = "rbxassetid://134088840518889",
+    ["WaxBound Candle"] = "rbxassetid://106285555718658",
+    ["Holy Water"] = "rbxassetid://87891828424217",
+    ["Riot Shield"] = "rbxassetid://74132675904402",
+}
 local CureFlaskCooldownEnd = 0
 local VeilSpearCooldownEnd = 0
 local VeilVoidCooldownEnd = 0
@@ -535,11 +553,18 @@ local LastVeilWasCharged = false
 local HiddenLeapCooldownEnd = 0
 local HiddenMarkCooldownEnd = 0
 local SlasherMistCooldownEnd = 0
+local SlasherMistActiveEnd = 0
 local SlasherPursuitCooldownEnd = 0
+local SlasherPursuitActiveEnd = 0
 local StalkerGraspCooldownEnd = 0
+local StalkerHunterEnd = 0
 local MaskedActiveEnd = 0
 local MaskedCooldownEnd = 0
 local LastMaskedState = "Richard"
+local KillerFrenzyActiveEnd = 0
+local KillerFrenzyCooldownEnd = 0
+local AbyssSlashCooldownEnd = 0
+local AbyssBurstCooldownEnd = 0
 
 -- THE MASKED: REAL-TIME MASK POWER DATABASE & SURVIVOR HUD ALERTS
 local MaskDatabase = {
@@ -656,7 +681,7 @@ local MaskDatabase = {
     },
 }
 
-local MaskAssetCache = {}
+local _MaskAssetCache = {}
 local function ResolveMaskInfo(maskName)
     if not maskName or maskName == "" then return nil end
     local clean = tostring(maskName):lower():gsub("%s+", ""):gsub("[^%a]", "")
@@ -1027,7 +1052,7 @@ end
 local function SetItemCooldown(player, itemName, duration)
     if not player or not itemName or not duration then return end
     if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
-    local endTime = os.clock() + tonumber(duration)
+    local endTime = os.clock() + (tonumber(duration) or 0)
     local pName = typeof(player) == "Instance" and player.Name or tostring(player)
     PlayerItemCooldowns[pName .. "_" .. itemName] = endTime
     if not PlayerItemCooldowns[pName] then
@@ -1059,7 +1084,7 @@ pcall(function()
     if cdRemote then
         table.insert(ScriptConnections, cdRemote.OnClientEvent:Connect(function(slot, dur)
             if slot and dur then
-                local endT = os.clock() + tonumber(dur)
+                local endT = os.clock() + (tonumber(dur) or 0)
                 if IsKiller(LocalPlayer) then
                     KillerPerkCooldowns[tostring(slot)] = endT
                 else
@@ -1101,17 +1126,20 @@ local function SetupPlayerCooldownHooks(player)
                 SetItemCooldown(player, "Parrying Dagger", 60)
             elseif attrName == "Mask" then
                 local m = char:GetAttribute("Mask")
-                if m and m ~= "Richard" and LastMaskedState ~= m then
+                if m and m ~= "Richard" and LastMaskedState == "Richard" then
                     MaskedActiveEnd = os.clock() + 68
                     MaskedCooldownEnd = 0
-                    local prevMask = LastMaskedState
+                    LastMaskedState = m
+                    TriggerMaskAlert(m, true)
+                elseif m and m ~= "Richard" and LastMaskedState ~= "Richard" and LastMaskedState ~= m then
+                    -- Swapped to another mask at 30s mark: update state & alert, but DO NOT overwrite active duration!
                     LastMaskedState = m
                     TriggerMaskAlert(m, true)
                 elseif m == "Richard" and LastMaskedState ~= "Richard" then
-                    MaskedActiveEnd = 0
-                    MaskedCooldownEnd = os.clock() + 30
                     local prevMask = LastMaskedState
                     LastMaskedState = "Richard"
+                    MaskedActiveEnd = 0
+                    MaskedCooldownEnd = os.clock() + 32.5
                     TriggerMaskAlert(prevMask, false)
                 end
             elseif (attrName == "overridelookscript" or attrName == "Aiming") and char:GetAttribute(attrName) == true then
@@ -1197,10 +1225,20 @@ local function SetupPlayerCooldownHooks(player)
             end
         end)
 
-        -- 4. Consumable Item Removal (Adrenaline Shot consumed on use)
+        -- 4. Consumable Item Removal (Adrenaline Shot consumed on use, Cure Flask thrown, Veil Spear thrown)
         table.insert(ScriptConnections, char.ChildRemoved:Connect(function(child)
             if child.Name == "Adrenaline Shot" and not IsPlayerDead(player) and not IsPlayerInLobby(player) then
                 SetItemCooldown(player, "Adrenaline Shot", 60)
+            elseif (child.Name == "Flask" or child.Name == "Curetool") and not IsPlayerDead(player) and not IsPlayerInLobby(player) then
+                CureFlaskCooldownEnd = os.clock() + 15
+            elseif (child.Name == "Spear1" or child.Name == "Spear2") and not IsPlayerDead(player) and not IsPlayerInLobby(player) then
+                if LastVeilWasCharged then
+                    VeilVoidCooldownEnd = os.clock() + 30
+                    LastVeilWasCharged = false
+                end
+                if (VeilSpearCooldownEnd - os.clock()) <= 0 then
+                    VeilSpearCooldownEnd = os.clock() + 15
+                end
             end
         end))
 
@@ -1234,9 +1272,9 @@ local function SetupPlayerCooldownHooks(player)
         task.spawn(onChar, player.Character)
     end
     table.insert(ScriptConnections, player.CharacterAdded:Connect(function(newChar)
-        PlayerItemCache[player] = nil
-        CachedPlayerData[player] = nil
-        local esp = ESP_Objects[player]
+        if PlayerItemCache then PlayerItemCache[player] = nil end
+        if CachedPlayerData then CachedPlayerData[player] = nil end
+        local esp = ESP_Objects and ESP_Objects[player]
         if esp and esp.Chams then
             pcall(function()
                 esp.Chams.Enabled = false
@@ -1248,9 +1286,9 @@ local function SetupPlayerCooldownHooks(player)
         onChar(newChar)
     end))
     table.insert(ScriptConnections, player.CharacterRemoving:Connect(function()
-        PlayerItemCache[player] = nil
-        CachedPlayerData[player] = nil
-        local esp = ESP_Objects[player]
+        if PlayerItemCache then PlayerItemCache[player] = nil end
+        if CachedPlayerData then CachedPlayerData[player] = nil end
+        local esp = ESP_Objects and ESP_Objects[player]
         if esp and esp.Chams then
             pcall(function()
                 esp.Chams.Enabled = false
@@ -1412,6 +1450,147 @@ pcall(function()
                     end
                 end
             end))
+        end
+    end
+end)
+
+-- Real-Time Killer Skill Remote Listeners (Fires from server or killer action)
+pcall(function()
+    local rem = ReplicatedStorage:WaitForChild("Remotes", 5)
+    local killers = rem and rem:WaitForChild("Killers", 5)
+    if killers then
+        -- 1. Cure: Plague Flask (15s CD)
+        local cureRem = killers:FindFirstChild("Cure")
+        if cureRem then
+            local visFlask = cureRem:FindFirstChild("VisualizeFlask")
+            if visFlask then
+                table.insert(ScriptConnections, visFlask.OnClientEvent:Connect(function(...)
+                    CureFlaskCooldownEnd = os.clock() + 15
+                end))
+            end
+        end
+
+        -- 2. Veil: Spears & Echo Void (15s recharge per spear, 30s Through the Veil CD)
+        local veilRem = killers:FindFirstChild("Veil")
+        if veilRem then
+            local visSpear = veilRem:FindFirstChild("visualize")
+            if visSpear then
+                table.insert(ScriptConnections, visSpear.OnClientEvent:Connect(function(...)
+                    if LastVeilWasCharged then
+                        VeilVoidCooldownEnd = os.clock() + 30
+                        LastVeilWasCharged = false
+                    end
+                    if (VeilSpearCooldownEnd - os.clock()) <= 0 then
+                        VeilSpearCooldownEnd = os.clock() + 15
+                    end
+                end))
+            end
+        end
+
+        -- 3. Abysswalker: Abyssal Burst (25s CD) & Dark Severance (15s CD)
+        local abyssRem = killers:FindFirstChild("Abysswalker")
+        if abyssRem then
+            local visAbyss = abyssRem:FindFirstChild("visualize")
+            if visAbyss then
+                table.insert(ScriptConnections, visAbyss.OnClientEvent:Connect(function(...)
+                    AbyssBurstCooldownEnd = os.clock() + 25
+                end))
+            end
+            local corruptRem = abyssRem:FindFirstChild("corrupt")
+            if corruptRem then
+                table.insert(ScriptConnections, corruptRem.OnClientEvent:Connect(function(...)
+                    AbyssSlashCooldownEnd = os.clock() + 15
+                end))
+            end
+        end
+
+        -- 4. Hidden: Leap (25s CD) & Mark (17s CD)
+        local hiddenRem = killers:FindFirstChild("Hidden")
+        if hiddenRem then
+            local leapRem = hiddenRem:FindFirstChild("Leap")
+            if leapRem then
+                table.insert(ScriptConnections, leapRem.OnClientEvent:Connect(function(...)
+                    HiddenLeapCooldownEnd = os.clock() + 25
+                end))
+            end
+            local m2Rem = hiddenRem:FindFirstChild("M2")
+            if m2Rem then
+                table.insert(ScriptConnections, m2Rem.OnClientEvent:Connect(function(...)
+                    HiddenMarkCooldownEnd = os.clock() + 17
+                end))
+            end
+        end
+
+        -- 5. Slasher (Jason): Lake Mist (80s CD) & Pursuit (20s active, 80s CD)
+        local jasonRem = killers:FindFirstChild("Jason")
+        if jasonRem then
+            local lmRem = jasonRem:FindFirstChild("LakeMist")
+            if lmRem then
+                table.insert(ScriptConnections, lmRem.OnClientEvent:Connect(function(...)
+                    SlasherMistCooldownEnd = os.clock() + 80
+                end))
+            end
+            local purRem = jasonRem:FindFirstChild("Pursuit")
+            if purRem then
+                table.insert(ScriptConnections, purRem.OnClientEvent:Connect(function(...)
+                    SlasherPursuitActiveEnd = os.clock() + 20
+                    SlasherPursuitCooldownEnd = os.clock() + 100
+                end))
+            end
+        end
+
+        -- 6. The Killer (Jeff): Frenzy (20s CD after active ends)
+        local killerRem = killers:FindFirstChild("Killer")
+        if killerRem then
+            local actP = killerRem:FindFirstChild("ActivatePower")
+            if actP then
+                table.insert(ScriptConnections, actP.OnClientEvent:Connect(function(...)
+                    KillerFrenzyActiveEnd = os.clock() + 15
+                end))
+            end
+            local cdEvt = killerRem:FindFirstChild("CooldownEvent") or killerRem:FindFirstChild("Deactivate")
+            if cdEvt then
+                table.insert(ScriptConnections, cdEvt.OnClientEvent:Connect(function(...)
+                    KillerFrenzyActiveEnd = 0
+                    KillerFrenzyCooldownEnd = os.clock() + 20
+                end))
+            end
+        end
+
+        -- 7. Stalker: Evil's Grasp (25s CD) & Hunter Mode (70s active)
+        local stalkerRem = killers:FindFirstChild("Stalker")
+        if stalkerRem then
+            local evolRem = stalkerRem:FindFirstChild("EvolveStage")
+            if evolRem then
+                table.insert(ScriptConnections, evolRem.OnClientEvent:Connect(function(...)
+                    StalkerHunterEnd = os.clock() + 70
+                end))
+            end
+            local grabRem = stalkerRem:FindFirstChild("grab") or stalkerRem:FindFirstChild("StartGrabHitbox")
+            if grabRem then
+                table.insert(ScriptConnections, grabRem.OnClientEvent:Connect(function(...)
+                    StalkerGraspCooldownEnd = os.clock() + 25
+                end))
+            end
+        end
+
+        -- 8. The Masked: Activatepower (68s active) & Deactivatepower (32.5s CD)
+        local maskedRem = killers:FindFirstChild("Masked")
+        if maskedRem then
+            local actM = maskedRem:FindFirstChild("Activatepower")
+            if actM then
+                table.insert(ScriptConnections, actM.OnClientEvent:Connect(function(maskName, ...)
+                    MaskedActiveEnd = os.clock() + 68
+                    MaskedCooldownEnd = 0
+                end))
+            end
+            local deactM = maskedRem:FindFirstChild("Deactivatepower")
+            if deactM then
+                table.insert(ScriptConnections, deactM.OnClientEvent:Connect(function(...)
+                    MaskedActiveEnd = 0
+                    MaskedCooldownEnd = os.clock() + 32.5
+                end))
+            end
         end
     end
 end)
@@ -2397,7 +2576,7 @@ GetPlayerPerks = function(player)
                     local res = getKiller:InvokeServer(kType)
                     if type(res) == "table" then
                         remoteDone = true
-                        for _, slot in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "Perk1", "Perk2", "Perk3", 1, 2, 3}) do
+                        for _, slot in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "Perk1", "Perk2", "Perk3", "1", "2", "3"}) do
                             if res[slot] then addPerk(res[slot]) end
                         end
                         for _, val in pairs(res) do
@@ -2414,7 +2593,7 @@ GetPlayerPerks = function(player)
                     local res = getSurv:InvokeServer()
                     if type(res) == "table" then
                         remoteDone = true
-                        for _, slot in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "Perk1", "Perk2", "Perk3", 1, 2, 3}) do
+                        for _, slot in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "Perk1", "Perk2", "Perk3", "1", "2", "3"}) do
                             if res[slot] then addPerk(res[slot]) end
                         end
                         for _, p in pairs(res) do
@@ -2635,20 +2814,28 @@ local function GetPlayerSkillInfo(player)
                 kName = "Stalker"
             elseif char:FindFirstChild("Katana") or char:FindFirstChild("Sword") then
                 kName = "Slasher"
+            elseif char:FindFirstChild("Abysswalker") or char:FindFirstChild("Wave") then
+                kName = "Abysswalker"
+            elseif char:GetAttribute("Mask") or char:GetAttribute("MaskExpired") then
+                kName = "Masked"
             end
         end
         local skillEntries = {}
         local extras = {}
+        local now = os.clock()
 
         if kName == "Cure" or char:FindFirstChild("Flask") or char:FindFirstChild("Curetool") then
-            -- Skill 1: Plague Flask (15s CD)
-            local flaskCD = math.max(0, math.ceil(CureFlaskCooldownEnd - os.clock()))
+            -- Skill 1: Plague Flask (Elucidation - 15s CD)
+            local flaskCD = math.max(0, math.ceil(CureFlaskCooldownEnd - now))
             local flaskStatus = flaskCD > 0 and ("CD " .. flaskCD .. "s") or "Ready"
+            if char:GetAttribute("prepareflask") then flaskStatus = "[CHARGING!]" end
             table.insert(skillEntries, "Plague Flask [" .. flaskStatus .. "]")
 
-            -- Skill 2: Corpse Syringe (0-3 zombies)
+            -- Skill 2: Corpse Syringe (I Am The Cure - 0-3 Zombies)
             local corpses = tonumber(char:GetAttribute("corpsecharge")) or 0
-            table.insert(skillEntries, "Corpse Syringe [" .. tostring(corpses) .. "/3 Zombies]")
+            local syringeStatus = tostring(corpses) .. "/3 Zombies"
+            if char:GetAttribute("injecting") or char:GetAttribute("cureinject") then syringeStatus = "[INJECTING]" end
+            table.insert(skillEntries, "Corpse Syringe [" .. syringeStatus .. "]")
 
         elseif kName == "Veil" or char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") then
             local isAiming = char:GetAttribute("spearmode") == true
@@ -2698,35 +2885,42 @@ local function GetPlayerSkillInfo(player)
             end
 
             local spears = tonumber(char:GetAttribute("Spears"))
-            if spears == nil then spears = 2 end
+            if spears == nil then
+                local spCount = 0
+                if char:FindFirstChild("Spear1") then spCount = spCount + 1 end
+                if char:FindFirstChild("Spear2") then spCount = spCount + 1 end
+                spears = spCount > 0 and spCount or 2
+            end
 
             -- Animation & Spear Drop State Machine (triggers instantly when charged spear leaves hand)
             if isFullyCharged then
                 LastVeilWasCharged = true
             end
-            if spears < LastVeilSpears then
-                if (VeilSpearCooldownEnd - os.clock()) <= 0 then
-                    VeilSpearCooldownEnd = os.clock() + 15
+            local spearsNum = tonumber(spears) or 2
+            local lastSpearsNum = tonumber(LastVeilSpears) or 2
+            if spearsNum < lastSpearsNum then
+                if (VeilSpearCooldownEnd - now) <= 0 then
+                    VeilSpearCooldownEnd = now + 15
                 end
                 if LastVeilWasCharged or isFullyCharged then
-                    VeilVoidCooldownEnd = os.clock() + 30
+                    VeilVoidCooldownEnd = now + 30
                     LastVeilWasCharged = false
                 end
-                LastVeilSpears = spears
-            elseif spears > LastVeilSpears then
-                LastVeilSpears = spears
-                if spears < 2 then
-                    VeilSpearCooldownEnd = os.clock() + 15
+                LastVeilSpears = spearsNum
+            elseif spearsNum > lastSpearsNum then
+                LastVeilSpears = spearsNum
+                if spearsNum < 2 then
+                    VeilSpearCooldownEnd = now + 15
                 else
                     VeilSpearCooldownEnd = 0
                 end
             end
-            if not isAiming and not isHoldingThrow and not isFullyCharged and (VeilVoidCooldownEnd - os.clock()) <= 0 then
+            if not isAiming and not isHoldingThrow and not isFullyCharged and (VeilVoidCooldownEnd - now) <= 0 then
                 LastVeilWasCharged = false
             end
 
-            -- Skill 1: Spear (2 max, 15s recharge per spear)
-            local spearCD = math.max(0, math.ceil(VeilSpearCooldownEnd - os.clock()))
+            -- Skill 1: Spear (Pierced Vow - 2 max, 15s recharge per spear)
+            local spearCD = math.max(0, math.ceil(VeilSpearCooldownEnd - now))
             local spearStatus = tostring(spears) .. "/2"
             if spears < 2 and spearCD > 0 then
                 spearStatus = tostring(spears) .. "/2 (CD " .. spearCD .. "s)"
@@ -2736,8 +2930,8 @@ local function GetPlayerSkillInfo(player)
             if isAiming then spearStatus = spearStatus .. " [Aiming]" end
             table.insert(skillEntries, "Spear [" .. spearStatus .. "]")
 
-            -- Skill 2: Echo Void / Through the Veil (30s cooldown, requires holding throw >= 2s)
-            local voidCD = math.max(0, math.ceil(VeilVoidCooldownEnd - os.clock()))
+            -- Skill 2: Echo Void (Through the Veil - 30s cooldown after throwing veiled spear)
+            local voidCD = math.max(0, math.ceil(VeilVoidCooldownEnd - now))
             local voidStatus = "Ready"
             if voidCD > 0 then
                 voidStatus = "CD " .. voidCD .. "s"
@@ -2781,24 +2975,24 @@ local function GetPlayerSkillInfo(player)
                 local vel = root.AssemblyLinearVelocity
                 local horizVel = Vector3.new(vel.X, 0, vel.Z).Magnitude
                 if (horizVel > 45 and vel.Y > 12) or isLeapingAnim then
-                    if (HiddenLeapCooldownEnd - os.clock()) <= 0 then
-                        HiddenLeapCooldownEnd = os.clock() + 25
+                    if (HiddenLeapCooldownEnd - now) <= 0 then
+                        HiddenLeapCooldownEnd = now + 25
                     end
                 end
                 if horizVel > 110 or isM2Anim or char:FindFirstChild("TempHitbox") then
-                    if (HiddenMarkCooldownEnd - os.clock()) <= 0 then
-                        HiddenMarkCooldownEnd = os.clock() + 17
+                    if (HiddenMarkCooldownEnd - now) <= 0 then
+                        HiddenMarkCooldownEnd = now + 17
                     end
                 end
             end
 
             -- Skill 1: Shadow Leap (25s CD)
-            local leapCD = math.max(0, math.ceil(HiddenLeapCooldownEnd - os.clock()))
+            local leapCD = math.max(0, math.ceil(HiddenLeapCooldownEnd - now))
             local leapStatus = leapCD > 0 and ("CD " .. leapCD .. "s") or "Ready"
             table.insert(skillEntries, "Shadow Leap [" .. leapStatus .. "]")
 
             -- Skill 2: Mark (17s CD)
-            local markCD = math.max(0, math.ceil(HiddenMarkCooldownEnd - os.clock()))
+            local markCD = math.max(0, math.ceil(HiddenMarkCooldownEnd - now))
             local markStatus = "Ready"
             if markCD > 0 then
                 markStatus = "CD " .. markCD .. "s"
@@ -2812,38 +3006,65 @@ local function GetPlayerSkillInfo(player)
             end
 
         elseif kName == "Slasher" then
-            -- Skill 1: Lake Mist (80s CD)
-            local mistCD = math.max(0, math.ceil(SlasherMistCooldownEnd - os.clock()))
-            table.insert(skillEntries, "Lake Mist [" .. (mistCD > 0 and ("CD " .. mistCD .. "s") or "Ready") .. "]")
+            -- Skill 1: Lake Mist (80s CD after deactivation)
+            local mistCD = math.max(0, math.ceil(SlasherMistCooldownEnd - now))
+            local mistStatus = "Ready"
+            if SlasherMistActiveEnd > now or char:GetAttribute("LakeMist") then
+                mistStatus = "[ACTIVE]"
+            elseif mistCD > 0 then
+                mistStatus = "CD " .. mistCD .. "s"
+            end
+            table.insert(skillEntries, "Lake Mist [" .. mistStatus .. "]")
 
-            -- Skill 2: Pursuit (80s CD)
-            local pursuitCD = math.max(0, math.ceil(SlasherPursuitCooldownEnd - os.clock()))
-            table.insert(skillEntries, "Pursuit [" .. (pursuitCD > 0 and ("CD " .. pursuitCD .. "s") or "Ready") .. "]")
+            -- Skill 2: Pursuit (20s active duration, 80s CD)
+            local pursuitCD = math.max(0, math.ceil(SlasherPursuitCooldownEnd - now))
+            local pursuitActive = math.max(0, math.ceil(SlasherPursuitActiveEnd - now))
+            local pursuitStatus = "Ready"
+            if pursuitActive > 0 then
+                pursuitStatus = "[ACTIVE (" .. pursuitActive .. "s)]"
+            elseif pursuitCD > 0 then
+                pursuitStatus = "CD " .. pursuitCD .. "s"
+            end
+            table.insert(skillEntries, "Pursuit [" .. pursuitStatus .. "]")
 
         elseif kName == "Stalker" then
-            -- Skill 1: Stalk Mode
+            -- Mode 1: Stalker Mode (Undetectable, 18.7 studs/s, 6 charges to unlock Grasp)
             local stage = char:GetAttribute("StalkStage") or char:GetAttribute("EvolveStage") or 1
-            local stalkStatus = char:GetAttribute("IsStalking") and "[STALKING]" or ("Stage " .. tostring(stage))
+            local charges = tonumber(char:GetAttribute("StalkCharges")) or (char:GetAttribute("IsStalking") and 6 or 0)
+            local stalkStatus = char:GetAttribute("IsStalking") and "[STALKING]" or ("Charges " .. tostring(charges) .. "/6")
             table.insert(skillEntries, "Stalk Mode [" .. stalkStatus .. "]")
 
-            -- Skill 2: Evil's Grasp (25s CD)
-            local graspCD = math.max(0, math.ceil(StalkerGraspCooldownEnd - os.clock()))
-            table.insert(skillEntries, "Evil's Grasp [" .. (graspCD > 0 and ("CD " .. graspCD .. "s") or "Ready") .. "]")
+            -- Mode 2 / Ability: Evil's Grasp / Hunter Mode (70s Hunter duration)
+            local hunterLeft = math.max(0, math.ceil(StalkerHunterEnd - now))
+            local graspCD = math.max(0, math.ceil(StalkerGraspCooldownEnd - now))
+            local graspStatus = "Ready"
+            if hunterLeft > 0 then
+                graspStatus = "[HUNTER MODE (" .. hunterLeft .. "s)]"
+            elseif graspCD > 0 then
+                graspStatus = "CD " .. graspCD .. "s"
+            elseif charges < 6 and not char:GetAttribute("IsStalking") then
+                graspStatus = "[Locked (Need 6 Charges)]"
+            else
+                graspStatus = "[UNLOCKED!]"
+            end
+            table.insert(skillEntries, "Evil's Grasp [" .. graspStatus .. "]")
 
         elseif kName == "Masked" then
-            -- Single Skill: Random Mask (68s active duration countdown, 30s cooldown)
+            -- Skill: Mask Up (Random Mask: 68s active duration countdown, swaps every 30s, 32.5s cooldown)
             local currentMask = char:GetAttribute("Mask") or "Richard"
-            local now = os.clock()
 
-            if currentMask ~= "Richard" and LastMaskedState ~= currentMask then
+            if currentMask ~= "Richard" and LastMaskedState == "Richard" then
                 MaskedActiveEnd = now + 68
                 MaskedCooldownEnd = 0
+                LastMaskedState = currentMask
+                TriggerMaskAlert(currentMask, true)
+            elseif currentMask ~= "Richard" and LastMaskedState ~= "Richard" and LastMaskedState ~= currentMask then
                 LastMaskedState = currentMask
                 TriggerMaskAlert(currentMask, true)
             elseif currentMask == "Richard" and LastMaskedState ~= "Richard" then
                 local prev = LastMaskedState
                 MaskedActiveEnd = 0
-                MaskedCooldownEnd = now + 30
+                MaskedCooldownEnd = now + 32.5
                 LastMaskedState = "Richard"
                 TriggerMaskAlert(prev, false)
             end
@@ -2861,22 +3082,29 @@ local function GetPlayerSkillInfo(player)
                 table.insert(skillEntries, "Mask [Ready]")
             end
 
-        elseif kName == "Abysswalker" then
-            -- Skill 1: Dark Severance (15s CD)
-            local slashCD = math.max(0, math.ceil(AbyssSlashCooldownEnd - os.clock()))
-            table.insert(skillEntries, "Dark Severance [" .. (slashCD > 0 and ("CD " .. slashCD .. "s") or "Ready") .. "]")
-
-            -- Skill 2: Abyssal Burst (25s CD)
-            local burstCD = math.max(0, math.ceil(AbyssBurstCooldownEnd - os.clock()))
-            table.insert(skillEntries, "Abyssal Burst [" .. (burstCD > 0 and ("CD " .. burstCD .. "s") or "Ready") .. "]")
-
         elseif kName == "Killer" or kName == "The Killer" then
-            -- Skill 1: Frenzy Sprint (20s CD)
-            local frenzyCD = math.max(0, math.ceil(KillerFrenzyCooldownEnd - os.clock()))
-            table.insert(skillEntries, "Frenzy Sprint [" .. (frenzyCD > 0 and ("CD " .. frenzyCD .. "s") or "Ready") .. "]")
+            -- Skill 1: Frenzy Sprint (Frenzy Buff - 20s CD after Frenzy ends)
+            local frenzyActive = math.max(0, math.ceil(KillerFrenzyActiveEnd - now))
+            local frenzyCD = math.max(0, math.ceil(KillerFrenzyCooldownEnd - now))
+            local frenzyStatus = "Ready"
+            if frenzyActive > 0 or char:GetAttribute("Frenzy") then
+                frenzyStatus = "[ACTIVE]"
+            elseif frenzyCD > 0 then
+                frenzyStatus = "CD " .. frenzyCD .. "s"
+            end
+            table.insert(skillEntries, "Frenzy Sprint [" .. frenzyStatus .. "]")
 
             -- Skill 2: Bear Trap
             table.insert(skillEntries, "Bear Trap [Ready]")
+
+        elseif kName == "Abysswalker" then
+            -- Skill 1: Dark Severance (Horizontal Slash - 15s CD)
+            local slashCD = math.max(0, math.ceil(AbyssSlashCooldownEnd - now))
+            table.insert(skillEntries, "Dark Severance [" .. (slashCD > 0 and ("CD " .. slashCD .. "s") or "Ready") .. "]")
+
+            -- Skill 2: Abyssal Burst (Corruption Wave - 25s CD)
+            local burstCD = math.max(0, math.ceil(AbyssBurstCooldownEnd - now))
+            table.insert(skillEntries, "Abyssal Burst [" .. (burstCD > 0 and ("CD " .. burstCD .. "s") or "Ready") .. "]")
 
         else
             table.insert(skillEntries, kName .. " Skill 1 [Ready]")
@@ -3039,7 +3267,7 @@ end
 
 -- ======== BACKGROUND DATA CACHING (PREVENTS ESP STUTTER & LAG) ========
 local PruneDeadDrawings = nil
-local CachedPlayerData = {}
+CachedPlayerData = {}
 local CachedGenerators = {}
 local CachedPallets = {}
 local CachedWindows = {}
@@ -3421,7 +3649,7 @@ task.spawn(function()
 end)
 
 -- ======== ESP DRAWING SYSTEM (SEPARATED SURVIVOR BOX & KILLER SKELETON) ========
-local ESP_Objects = {}
+ESP_Objects = {}
 local ChamsContainer = nil
 
 local function GetChamsContainer()
@@ -4972,20 +5200,6 @@ local KillerPowerIcons = {
     ["Killer"] = "rbxassetid://106695569058121",
 }
 
-local ItemIcons = {
-    ["Twist of Fate"] = "rbxassetid://132056840388397",
-    ["Motion Tracker"] = "rbxassetid://132463384683157",
-    ["Gate"] = "rbxassetid://125030248803938",
-    ["Flashlight"] = "rbxassetid://74098471049890",
-    ["Bandage"] = "rbxassetid://82212412764648",
-    ["Medkit"] = "rbxassetid://82212412764648",
-    ["Parrying Dagger"] = "rbxassetid://73125857028072",
-    ["Adrenaline Shot"] = "rbxassetid://18720210000",
-    ["Shadow Clone"] = "rbxassetid://134088840518889",
-    ["WaxBound Candle"] = "rbxassetid://106285555718658",
-    ["Holy Water"] = "rbxassetid://87891828424217",
-    ["Riot Shield"] = "rbxassetid://74132675904402",
-}
 
 local PerkIconCache = {}
 local function GetPerkIcon(perkName, desiredTier)
@@ -5258,7 +5472,7 @@ local function SetupKillerAvatar(row, kName, plr)
 end
 
 local KillerPowerIconCache = {}
-local function GetKillerPowerIcon(kName)
+local function _GetKillerPowerIcon(kName)
     if not kName then return nil end
     local clean = tostring(kName):lower():gsub("%s+", ""):gsub("[^%a]", "")
     if clean:sub(1, 3) == "the" and #clean > 3 then clean = clean:sub(4) end
@@ -5336,7 +5550,7 @@ RosterListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 RosterListLayout.Padding = UDim.new(0, 6)
 RosterListLayout.Parent = RosterListContainer
 
-local cachedRosterRows = {}
+cachedRosterRows = {}
 
 local function GetRosterSurvivorState(plr)
     if IsInLobby() or IsPlayerInLobby(plr) then
@@ -5828,7 +6042,6 @@ local function UpdateRoster(force)
             row.StatusText.Text = kState
             row.StatusText.TextColor3 = Color3.fromRGB(255, 120, 140)
 
-            local perks = GetPlayerPerks(plr) or {}
             row.PerksHeader.Text = "KILLER PERKS (3 SLOTS)"
             -- Killer Power Box (Hidden completely as requested: perks only)
             row.ItemHeader.Visible = false
@@ -5868,7 +6081,7 @@ local function UpdateRoster(force)
 
         -- Perks (Icons + Names pulled from game, independent of LocalPlayer's slots)
         local perks = GetPlayerPerks(plr) or {}
-        local maxDisplaySlots = 3
+        local _maxDisplaySlots = 3
         for i = 1, 3 do
             local pb = row.PerkBoxes and row.PerkBoxes[i]
             local pName = perks[i]
@@ -5990,9 +6203,10 @@ local function WrapConfigFlagsForAutoLoad()
                                 local ok, val = pcall(function() return debug.getupvalue(rawOpen, i) end)
                                 if not ok then break end
                                 if typeof(val) == "Instance" then
-                                    if val.Name == "Button" and val:IsA("TextButton") then
+                                    local valName = tostring(val.Name)
+                                    if valName == "Button" and val:IsA("TextButton") then
                                         btn = val
-                                    elseif val.Name == "DropdownPopup" and val:IsA("ScrollingFrame") then
+                                    elseif valName == "DropdownPopup" and val:IsA("ScrollingFrame") then
                                         popup = val
                                     end
                                 end
@@ -6188,7 +6402,7 @@ end))
 -- Mouse Cursor Management & First-Person Fix
 -- We bind at Enum.RenderPriority.Last so our unlock runs strictly AFTER CameraModule / game scripts
 local mouseUnlockBound = false
-local function UpdateMouseUnlockBinding()
+UpdateMouseUnlockBinding = function()
     if Window and Window.Visible then
         if not mouseUnlockBound then
             mouseUnlockBound = true
@@ -6237,7 +6451,7 @@ local function UpdateMouseUnlockBinding()
     end
 end
 
-local function SyncMouseState()
+local function _SyncMouseState()
     UpdateMouseUnlockBinding()
 end
 
@@ -6480,10 +6694,6 @@ function RenderESP()
         menuPos = (Window and Window.Visible and mainFrame and mainFrame.Visible) and mainFrame.AbsolutePosition or nil
         menuSize = menuPos and mainFrame.AbsoluteSize or nil
 
-        -- Top Screen Killer Skill (Suppressed so cooldown is rendered under feet per user request)
-        if TopKillerSkillText.Visible then
-            TopKillerSkillText.Visible = false
-        end
 
         -- 1. Player ESP (Separated: Killer ESP vs Survivor ESP vs Lobby Players)
         for player, esp in pairs(ESP_Objects) do
@@ -6526,8 +6736,8 @@ function RenderESP()
                         local footBottomY = rootPos.Y - (root.Size.Y * 0.5 + hipHeight + 0.1)
                         local btmWorld = Vector3.new(rootPos.X, footBottomY, rootPos.Z)
 
-                        local topScreen, topVis = Camera:WorldToViewportPoint(topWorld)
-                        local btmScreen, btmVis = Camera:WorldToViewportPoint(btmWorld)
+                        local topScreen, _topVis = Camera:WorldToViewportPoint(topWorld)
+                        local btmScreen, _btmVis = Camera:WorldToViewportPoint(btmWorld)
 
                         currentX = math.floor(rootScreen.X)
                         local topY = math.floor(topScreen.Y - 14)
@@ -6596,26 +6806,8 @@ function RenderESP()
                             esp.BottomText.Visible = false
                         end
 
-                        -- Skills & Charges Text (Directly below [KILLER] text under feet)
-                        if Config.ESP_KillerSkills then
-                            local kSkillStr = GetPlayerSkillInfo(player) or (data and data.SkillInfo)
-                            if type(kSkillStr) == "string" and #kSkillStr > 0 then
-                                if kSkillStr:find("^Skill:") then
-                                    kSkillStr = kSkillStr:gsub("^Skill:%s*", "[SKILL] ")
-                                elseif not kSkillStr:find("^%[SKILL%]") then
-                                    kSkillStr = "[SKILL] " .. kSkillStr
-                                end
-                                kSkillStr = kSkillStr:gsub("%s*|%s*CHASING", ""):gsub("%[CHASING%]", "")
-                                if esp.SkillText.Text ~= kSkillStr then esp.SkillText.Text = kSkillStr end
-                                esp.SkillText.Position = Vector2.new(currentX, currentY)
-                                esp.SkillText.Color = Config.Color_KillerSkills or Color3.fromRGB(80, 220, 255)
-                                if not esp.SkillText.Visible then esp.SkillText.Visible = true end
-                                currentY = currentY + 14
-                            elseif esp.SkillText.Visible then
-                                esp.SkillText.Visible = false
-                                esp.SkillText.Text = ""
-                            end
-                        elseif esp.SkillText.Visible then
+                        -- Skills & Charges Text (Suppressed under feet; rendered at top of screen under countdown timer)
+                        if esp.SkillText.Visible then
                             esp.SkillText.Visible = false
                             esp.SkillText.Text = ""
                         end
@@ -6765,7 +6957,7 @@ function RenderESP()
                             end
 
                             -- Bottom: Under the feet (Status [Injured] -> Item -> Perks)
-                            local currentY = boxY + boxHeight + 2
+                            currentY = boxY + boxHeight + 2
 
                             -- Status Text: Positioned directly under feet
                             if (not isBeingCarriedByMe) and statusText then
@@ -6831,6 +7023,40 @@ function RenderESP()
         else
             hidePlayerESP(esp)
         end
+    end
+    
+    -- Top Screen Killer Skill (Rendered directly under game countdown timer per user request)
+    local activeKillerSkillStr = nil
+    if Config.ESP_KillerSkills and not inCutscene and (not inLobby or Config.ESP_LobbyEnabled) then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and IsKiller(p) and not IsPlayerDead(p) and (inLobby or not IsPlayerInLobby(p)) then
+                local data = CachedPlayerData[p]
+                activeKillerSkillStr = GetPlayerSkillInfo(p) or (data and data.SkillInfo)
+                if activeKillerSkillStr then break end
+            end
+        end
+        if not activeKillerSkillStr and IsKiller(LocalPlayer) and not IsPlayerDead(LocalPlayer) then
+            local data = CachedPlayerData[LocalPlayer]
+            activeKillerSkillStr = GetPlayerSkillInfo(LocalPlayer) or (data and data.SkillInfo)
+        end
+    end
+
+    if Config.ESP_KillerSkills and activeKillerSkillStr and type(activeKillerSkillStr) == "string" and #activeKillerSkillStr > 0 and not inCutscene and (not inLobby or Config.ESP_LobbyEnabled) then
+        if activeKillerSkillStr:find("^Skill:") then
+            activeKillerSkillStr = activeKillerSkillStr:gsub("^Skill:%s*", "[SKILL] ")
+        elseif not activeKillerSkillStr:find("^%[SKILL%]") then
+            activeKillerSkillStr = "[SKILL] " .. activeKillerSkillStr
+        end
+        activeKillerSkillStr = activeKillerSkillStr:gsub("%s*|%s*CHASING", ""):gsub("%[CHASING%]", "")
+
+        if TopKillerSkillText.Text ~= activeKillerSkillStr then TopKillerSkillText.Text = activeKillerSkillStr end
+        TopKillerSkillText.Position = Vector2.new(Camera.ViewportSize.X * 0.5, Config.TopKillerSkillYOffset or 58)
+        TopKillerSkillText.Color = Config.Color_KillerSkills or Color3.fromRGB(80, 220, 255)
+        TopKillerSkillText.Size = Config.TopKillerSkillSize or 16
+        if not TopKillerSkillText.Visible then TopKillerSkillText.Visible = true end
+    elseif TopKillerSkillText.Visible then
+        TopKillerSkillText.Visible = false
+        TopKillerSkillText.Text = ""
     end
 
     -- 2. Generator ESP
