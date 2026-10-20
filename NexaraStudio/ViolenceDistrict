@@ -2980,11 +2980,6 @@ local function IsPalletBroken(model, prim)
         BrokenPallets[model] = true
         return true
     end
-    local pPart = prim or model.PrimaryPart or model:FindFirstChild("PrimaryPartPallet") or model:FindFirstChildWhichIsA("BasePart")
-    if not pPart or not pPart.Parent or not pPart:IsDescendantOf(model) or pPart.Transparency >= 0.99 then
-        BrokenPallets[model] = true
-        return true
-    end
     return false
 end
 
@@ -3039,6 +3034,12 @@ local function UpdateBackgroundCache()
             if #CachedPallets > 0 then table.clear(CachedPallets) end
             if #CachedWindows > 0 then table.clear(CachedWindows) end
             if #CachedGates > 0 then table.clear(CachedGates) end
+            table.clear(BrokenPallets)
+            table.clear(DroppedPallets)
+            for _, hl in pairs(PalletAuras) do pcall(function() hl:Destroy() end) end
+            table.clear(PalletAuras)
+            for _, txt in pairs(PalletDrawings) do pcall(function() txt:Remove() end) end
+            table.clear(PalletDrawings)
             if PruneDeadDrawings then PruneDeadDrawings() end
             return
         end
@@ -3162,13 +3163,31 @@ local function UpdateBackgroundCache()
             end
 
             -- Universal Multi-Map Pallet Detection: CollectionService tags
-            for _, tag in ipairs({"Pallet", "Pallets", "DroppablePallet", "InteractablePallet"}) do
+            for _, tag in ipairs({"PalletPoint", "PalletPointSlide", "Pallet", "Pallets", "DroppablePallet", "InteractablePallet"}) do
                 for _, p in ipairs(CollectionService:GetTagged(tag)) do
-                    local model = p:IsA("Model") and p or p:FindFirstAncestorOfClass("Model") or p.Parent
-                    if model and model:IsA("Model") and not palletSeen[model] and not IsPalletBroken(model) then
+                    local model = p:IsA("Model") and p or p:FindFirstAncestorOfClass("Model") or (p.Parent and p.Parent:IsA("Model") and p.Parent)
+                    if model and not palletSeen[model] and not IsPalletBroken(model) then
                         palletSeen[model] = true
-                        local part = model:FindFirstChild("PrimaryPartPallet") or model:FindFirstChild("Wood") or model:FindFirstChild("PalletWood") or model:FindFirstChild("Hitbox") or model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
-                        if part and not IsPalletBroken(model, part) then table.insert(pallets, { Model = model, Part = part, PalletWood = model }) end
+                        local bestPart = model:FindFirstChild("PrimaryPartPallet")
+                                      or model:FindFirstChild("Wood")
+                                      or model:FindFirstChild("PalletWood")
+                                      or model:FindFirstChild("Plank")
+                                      or model.PrimaryPart
+                        if not bestPart then
+                            for _, c in ipairs(model:GetChildren()) do
+                                if c:IsA("BasePart") and c.Transparency < 0.95 then
+                                    bestPart = c
+                                    break
+                                end
+                            end
+                        end
+                        if not bestPart then
+                            bestPart = p:IsA("BasePart") and p or model:FindFirstChildWhichIsA("BasePart")
+                        end
+                        if bestPart then
+                            local woodTarget = model:FindFirstChild("Wood") or model:FindFirstChild("PalletWood") or model
+                            table.insert(pallets, { Model = model, Part = bestPart, PalletWood = woodTarget })
+                        end
                     end
                 end
             end
@@ -3208,11 +3227,31 @@ local function UpdateBackgroundCache()
                         local isPallet = (pName == "pallets" or pName == "pallet") or
                                          (dName:find("pallet") ~= nil) or
                                          (d:FindFirstChild("PrimaryPartPallet") ~= nil) or
-                                         (d:FindFirstChild("DropPrompt", true) ~= nil)
+                                         (d:FindFirstChild("DropPrompt", true) ~= nil) or
+                                         (d:FindFirstChild("PalletPoint") ~= nil) or
+                                         (d:FindFirstChild("PalletPointSlide") ~= nil)
                         if isPallet and not IsPalletBroken(d) then
                             palletSeen[d] = true
-                            local part = d:FindFirstChild("PrimaryPartPallet") or d:FindFirstChild("Wood") or d:FindFirstChild("PalletWood") or d:FindFirstChild("Hitbox") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                            if part and not IsPalletBroken(d, part) then table.insert(pallets, { Model = d, Part = part, PalletWood = d }) end
+                            local bestPart = d:FindFirstChild("PrimaryPartPallet")
+                                          or d:FindFirstChild("Wood")
+                                          or d:FindFirstChild("PalletWood")
+                                          or d:FindFirstChild("Plank")
+                                          or d.PrimaryPart
+                            if not bestPart then
+                                for _, c in ipairs(d:GetChildren()) do
+                                    if c:IsA("BasePart") and c.Transparency < 0.95 then
+                                        bestPart = c
+                                        break
+                                    end
+                                end
+                            end
+                            if not bestPart then
+                                bestPart = d:FindFirstChildWhichIsA("BasePart")
+                            end
+                            if bestPart then
+                                local woodTarget = d:FindFirstChild("Wood") or d:FindFirstChild("PalletWood") or d
+                                table.insert(pallets, { Model = d, Part = bestPart, PalletWood = woodTarget })
+                            end
                         end
                     end
                 end
@@ -6707,7 +6746,6 @@ function RenderESP()
                     if kChar then
                         local isBreaking = kChar:GetAttribute("isBreakingPallet") == true
                                         or kChar:GetAttribute("isBreaking") == true
-                                        or (kChar:GetAttribute("action") == true and kChar:GetAttribute("Immobile") == true)
                         if isBreaking then
                             local kRoot = kChar:FindFirstChild("HumanoidRootPart")
                             if kRoot then
@@ -6756,7 +6794,9 @@ function RenderESP()
                         entry.Dist = dist
                     end
                 else
-                    if pallet then MarkPalletBroken(pallet) end
+                    if pallet and (not pallet.Parent or not pallet:IsDescendantOf(Workspace)) then
+                        MarkPalletBroken(pallet)
+                    end
                 end
             end
             for i = #cachedPalletEntries, validCount + 1, -1 do
@@ -6783,11 +6823,12 @@ function RenderESP()
                         hl.Name = "Nexara_PalletAura"
                         hl.FillColor = aCol
                         hl.OutlineColor = aCol
-                        hl.FillTransparency = 0.82
-                        hl.OutlineTransparency = 0.5
+                        hl.FillTransparency = 0.72
+                        hl.OutlineTransparency = 0.4
                         hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                         hl.Adornee = targetAdornee
-                        pcall(function() hl.Parent = targetAdornee end)
+                        local hlParent = (gethui and gethui()) or game:GetService("CoreGui") or targetAdornee
+                        pcall(function() hl.Parent = hlParent end)
                         PalletAuras[pallet] = hl
                     else
                         if hl.Adornee ~= targetAdornee then hl.Adornee = targetAdornee end
