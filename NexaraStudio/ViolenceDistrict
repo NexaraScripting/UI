@@ -480,10 +480,36 @@ local function IsKiller(player)
     end
     local char = player.Character
     if char then
-        if char:FindFirstChild("spearmanager") or char:FindFirstChild("Curetool") or char:FindFirstChild("Flask") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") then
+        -- Veil
+        if char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") or char:GetAttribute("spearmode") or char:GetAttribute("Spears") then
             return true
         end
-        if char:GetAttribute("corpsecharge") or char:GetAttribute("Spears") or char:GetAttribute("BloodLust") then
+        -- Cure
+        if char:FindFirstChild("Curetool") or char:FindFirstChild("Flask") or char:GetAttribute("corpsecharge") then
+            return true
+        end
+        -- Stalker
+        if char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") or char:GetAttribute("StalkStage") or char:GetAttribute("IsStalking") then
+            return true
+        end
+        -- Hidden
+        if char:FindFirstChild("Knide") or char:FindFirstChild("Knife") or char:GetAttribute("preparem2") or char:GetAttribute("invisible") then
+            return true
+        end
+        -- Slasher
+        if char:FindFirstChild("Katana") or char:FindFirstChild("Sword") then
+            return true
+        end
+        -- Masked
+        if char:GetAttribute("Mask") or char:GetAttribute("MaskExpired") then
+            return true
+        end
+        -- Abysswalker
+        if char:FindFirstChild("Abysswalker") then
+            return true
+        end
+        -- Generic Killer attributes
+        if char:GetAttribute("BloodLust") or char:GetAttribute("IsCarrying") or char:GetAttribute("Carrying") then
             return true
         end
         if char:GetAttribute("SelectedKiller") then
@@ -657,30 +683,45 @@ local function SetupMaskViewport(vpf, maskName)
         local targetAcc = nil
         local clean = tostring(maskName or ""):lower():gsub("%s+", ""):gsub("[^%a]", "")
         for _, c in ipairs(mModel:GetChildren()) do
-            if c:IsA("Accessory") and c.Name:lower():gsub("%s+", ""):gsub("[^%a]", "") == clean then
+            local cName = c.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if cName == clean or cName:find(clean, 1, true) or clean:find(cName, 1, true) then
                 targetAcc = c
                 break
             end
         end
         if not targetAcc then
-            if clean == "jake" then targetAcc = mModel:FindFirstChild("Cobra") end
-            if clean == "graham" then targetAcc = mModel:FindFirstChild("rabbit") end
+            if clean:find("jake") or clean:find("cobra") then targetAcc = mModel:FindFirstChild("Cobra")
+            elseif clean:find("graham") or clean:find("rabbit") then targetAcc = mModel:FindFirstChild("rabbit")
+            elseif clean:find("swan") or clean:find("alex") then targetAcc = mModel:FindFirstChild("alex")
+            elseif clean:find("tony") or clean:find("tiger") then targetAcc = mModel:FindFirstChild("Tony")
+            elseif clean:find("richter") or clean:find("rat") then targetAcc = mModel:FindFirstChild("Richter")
+            elseif clean:find("brandon") or clean:find("panther") then targetAcc = mModel:FindFirstChild("Brandon")
+            elseif clean:find("richard") or clean:find("rooster") then targetAcc = mModel:FindFirstChild("Richard")
+            end
         end
 
         if targetAcc then
-            local mp = targetAcc:FindFirstChildWhichIsA("MeshPart") or targetAcc:FindFirstChild("Handle")
+            local mp = targetAcc:FindFirstChildWhichIsA("MeshPart", true) or targetAcc:FindFirstChild("Handle") or targetAcc:FindFirstChildWhichIsA("BasePart", true)
             if mp then
                 local clone = mp:Clone()
-                clone.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(0, math.rad(180), 0)
+                clone.Transparency = 0
+                for _, part in ipairs(clone:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.Transparency = 0
+                    end
+                end
+                clone.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(math.rad(-6), math.rad(165), 0)
                 clone.Parent = vpf
 
                 local cam = Instance.new("Camera")
-                cam.FieldOfView = 36
+                cam.FieldOfView = 34
                 local sz = mp.Size.Magnitude
-                cam.CFrame = CFrame.new(Vector3.new(0, 0, sz * 1.35), Vector3.new(0, 0, 0))
+                cam.CFrame = CFrame.new(Vector3.new(0, 0.05, sz * 1.35), Vector3.new(0, 0, 0))
                 cam.Parent = vpf
                 vpf.CurrentCamera = cam
-                vpf.LightDirection = Vector3.new(0.4, 0.8, -1).Unit
+                vpf.Ambient = Color3.fromRGB(220, 220, 220)
+                vpf.LightColor = Color3.fromRGB(255, 255, 255)
+                vpf.LightDirection = Vector3.new(-0.3, 0.6, -1).Unit
                 return true
             end
         end
@@ -825,12 +866,22 @@ local function TriggerMaskAlert(maskName, isActivated)
     lastMaskAlertKey = cacheKey
     lastMaskAlertTime = now
 
-    local info = ResolveMaskInfo(maskName) or {
+    local isMaskActive = (isActivated == true)
+    local info = isMaskActive and (ResolveMaskInfo(maskName) or {
         Name = maskName or "Mask",
         Title = "THE MASKED: " .. tostring(maskName):upper(),
         Effect = "MASK POWER ACTIVE",
         Tip = "Beware killer ability!",
         Color = Color3.fromRGB(255, 120, 50),
+        Icon = "rbxassetid://110441838520158"
+    }) or ResolveMaskInfo("Richard") or {
+        Name = "Richard",
+        Animal = "Rooster",
+        ModelName = "Richard",
+        Title = "RICHARD (ROOSTER)",
+        Effect = "MASK INACTIVE (30s COOLDOWN)",
+        Tip = "Killer power is on cooldown for 30 seconds.",
+        Color = Color3.fromRGB(150, 160, 175),
         Icon = "rbxassetid://110441838520158"
     }
 
@@ -840,10 +891,10 @@ local function TriggerMaskAlert(maskName, isActivated)
     MaskAlertToken = MaskAlertToken + 1
     local currentToken = MaskAlertToken
 
-    local accentCol = isActivated and (info.Color or Color3.fromRGB(50, 220, 80)) or Color3.fromRGB(150, 160, 175)
-    local subText = isActivated and ("[THE MASKED] " .. (info.Title or info.Name:upper())) or "[THE MASKED] POWER EXPIRED"
-    local titleText = isActivated and info.Effect or "MASK INACTIVE (30s COOLDOWN)"
-    local tipText = isActivated and ("⚠️ " .. (info.Tip or "Beware killer ability!")) or "Killer power is on cooldown for 30 seconds."
+    local accentCol = isMaskActive and (info.Color or Color3.fromRGB(50, 220, 80)) or Color3.fromRGB(150, 160, 175)
+    local subText = isMaskActive and ("[THE MASKED] " .. (info.Title or info.Name:upper())) or "[THE MASKED] POWER EXPIRED"
+    local titleText = isMaskActive and info.Effect or "MASK INACTIVE (30s COOLDOWN)"
+    local tipText = isMaskActive and ("⚠️ " .. (info.Tip or "Beware killer ability!")) or "Switched to Richard. Killer power on cooldown (30s)."
 
     MaskAlertSub.Text = subText
     MaskAlertSub.TextColor3 = accentCol
@@ -851,15 +902,17 @@ local function TriggerMaskAlert(maskName, isActivated)
     MaskAlertTip.Text = tipText
     MaskAlertStroke.Color = accentCol
 
-    -- Render 3D Mask model in ViewportFrame, fallback to portrait icon
-    local has3d = SetupMaskViewport(MaskAlertVPF, info.ModelName or info.Name)
+    -- Render 3D Mask model in ViewportFrame: when inactive/expired, ALWAYS switch to Richard (Rooster / ไก่)!
+    local targetModelName = isMaskActive and (info.ModelName or info.Name) or "Richard"
+    local has3d = SetupMaskViewport(MaskAlertVPF, targetModelName)
     if has3d and MaskAlertVPF then
         MaskAlertVPF.Visible = true
         if MaskAlertIcon then MaskAlertIcon.Visible = false end
     else
         if MaskAlertVPF then MaskAlertVPF.Visible = false end
         if MaskAlertIcon then
-            MaskAlertIcon.Image = info.Icon or "rbxassetid://110441838520158"
+            local fallbackIcon = isMaskActive and (info.Icon or "rbxassetid://110441838520158") or "rbxassetid://110441838520158"
+            MaskAlertIcon.Image = fallbackIcon
             MaskAlertIcon.Visible = true
         end
     end
@@ -1165,7 +1218,33 @@ local function SetupPlayerCooldownHooks(player)
     if player.Character then
         task.spawn(onChar, player.Character)
     end
-    table.insert(ScriptConnections, player.CharacterAdded:Connect(onChar))
+    table.insert(ScriptConnections, player.CharacterAdded:Connect(function(newChar)
+        PlayerItemCache[player] = nil
+        CachedPlayerData[player] = nil
+        local esp = ESP_Objects[player]
+        if esp and esp.Chams then
+            pcall(function()
+                esp.Chams.Enabled = false
+                esp.Chams.Adornee = nil
+                esp.Chams:Destroy()
+            end)
+            esp.Chams = nil
+        end
+        onChar(newChar)
+    end))
+    table.insert(ScriptConnections, player.CharacterRemoving:Connect(function()
+        PlayerItemCache[player] = nil
+        CachedPlayerData[player] = nil
+        local esp = ESP_Objects[player]
+        if esp and esp.Chams then
+            pcall(function()
+                esp.Chams.Enabled = false
+                esp.Chams.Adornee = nil
+                esp.Chams:Destroy()
+            end)
+            esp.Chams = nil
+        end
+    end))
     table.insert(ScriptConnections, player.AttributeChanged:Connect(function(attrName)
         pcall(function()
             if GetPlayerPerks then GetPlayerPerks(player) end
@@ -2528,6 +2607,7 @@ local function GetPlayerSkillInfo(player)
     if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return nil end
     local char = player.Character
     if IsKiller(player) then
+        PlayerItemCache[player] = nil
         local kName = player:GetAttribute("SelectedKiller") or (char and char:GetAttribute("SelectedKiller")) or "Killer"
         if char then
             if char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") or char:GetAttribute("spearmode") then
@@ -2800,6 +2880,7 @@ local function GetPlayerSkillInfo(player)
         end
         return str
     else
+        if IsKiller(player) then return nil end
         -- Survivor item, charges, cooldowns, status
         local details = {}
         
@@ -2839,8 +2920,10 @@ local function GetPlayerSkillInfo(player)
         end
         if item and item ~= "None" and item ~= "" then
             PlayerItemCache[player] = item
-        elseif not IsInLobby() and PlayerItemCache[player] then
+        elseif not IsInLobby() and PlayerItemCache[player] and not IsKiller(player) then
             item = PlayerItemCache[player]
+        else
+            item = nil
         end
 
         local isItemReady = true
@@ -2993,9 +3076,13 @@ local function UpdateBackgroundCache()
             if p ~= LocalPlayer and p.Character then
                 if not inLobby and (IsPlayerDead(p) or IsPlayerInLobby(p)) then
                     CachedPlayerData[p] = nil
+                    PlayerItemCache[p] = nil
                     ClearPlayerCooldowns(p)
                 else
                     local isK = IsKiller(p)
+                    if isK then
+                        PlayerItemCache[p] = nil
+                    end
                     local perks = GetPlayerPerks(p)
                     local skill, isReady = GetPlayerSkillInfo(p)
                     if isK and type(skill) == "string" then
@@ -3014,8 +3101,8 @@ local function UpdateBackgroundCache()
                     entry.IsKiller = isK
                     entry.Perks = perks or {}
                     entry.PerksFormatted = (perks and #perks > 0) and table.concat(perks, " | ") or ""
-                    entry.SkillInfo = skill or false
-                    entry.ItemReady = isReady
+                    entry.SkillInfo = (not isK) and skill or false
+                    entry.ItemReady = (not isK) and isReady or false
                     entry.DisplayName = p.DisplayName
                 end
             end
@@ -3025,6 +3112,7 @@ local function UpdateBackgroundCache()
         for p in pairs(CachedPlayerData) do
             if not p or not p.Parent or (not inLobby and (IsPlayerDead(p) or IsPlayerInLobby(p))) then
                 CachedPlayerData[p] = nil
+                PlayerItemCache[p] = nil
             end
         end
 
@@ -3307,21 +3395,42 @@ end)
 
 -- ======== ESP DRAWING SYSTEM (SEPARATED SURVIVOR BOX & KILLER SKELETON) ========
 local ESP_Objects = {}
+local ChamsContainer = nil
+
+local function GetChamsContainer()
+    if ChamsContainer and ChamsContainer.Parent then return ChamsContainer end
+    local parentGui = (gethui and gethui()) or game:GetService("CoreGui")
+    local existing = parentGui:FindFirstChild("Nexara_ChamsContainer")
+    if existing then
+        ChamsContainer = existing
+        return ChamsContainer
+    end
+    local f = Instance.new("Folder")
+    f.Name = "Nexara_ChamsContainer"
+    pcall(function() f.Parent = parentGui end)
+    ChamsContainer = f
+    return f
+end
 
 local function hidePlayerESP(esp)
-    if esp.IsHidden then return end
     esp.IsHidden = true
     if esp.BoxOutline.Visible then esp.BoxOutline.Visible = false end
     if esp.Box.Visible then esp.Box.Visible = false end
     if esp.TopText.Visible then esp.TopText.Visible = false end
     if esp.BottomText.Visible then esp.BottomText.Visible = false end
     if esp.PerkText.Visible then esp.PerkText.Visible = false end
-    if esp.SkillText.Visible then esp.SkillText.Visible = false end
+    if esp.SkillText.Visible then
+        esp.SkillText.Visible = false
+        esp.SkillText.Text = ""
+    end
     for _, l in pairs(esp.Skeleton) do
         if l.Visible then l.Visible = false end
     end
-    if esp.Chams and esp.Chams.Enabled then
-        esp.Chams.Enabled = false
+    if esp.Chams then
+        pcall(function()
+            esp.Chams.Enabled = false
+            esp.Chams.Adornee = nil
+        end)
     end
 end
 
@@ -3389,6 +3498,8 @@ local function CreatePlayerESP(player)
                 line:Remove()
             end
             if self.Chams then
+                self.Chams.Enabled = false
+                self.Chams.Adornee = nil
                 self.Chams:Destroy()
                 self.Chams = nil
             end
@@ -3892,6 +4003,10 @@ local function UnloadScript()
     table.clear(PalletAuras)
     table.clear(WindowAuras)
     table.clear(WindowAdornments)
+    if ChamsContainer then
+        pcall(function() ChamsContainer:Destroy() end)
+        ChamsContainer = nil
+    end
     
     pcall(function()
         for _, d in ipairs(workspace:GetDescendants()) do
@@ -6441,7 +6556,7 @@ function RenderESP()
                                 hl.OutlineTransparency = 0.45
                                 hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                                 hl.Adornee = char
-                                pcall(function() hl.Parent = char end)
+                                pcall(function() hl.Parent = GetChamsContainer() end)
                                 esp.Chams = hl
                             else
                                 if hl.Adornee ~= char then hl.Adornee = char end
@@ -6453,6 +6568,7 @@ function RenderESP()
                             if not hl.Enabled then hl.Enabled = true end
                         elseif esp.Chams and esp.Chams.Enabled then
                             esp.Chams.Enabled = false
+                            esp.Chams.Adornee = nil
                         end
 
                         -- Top Text: Player Name [Distance] (Clean, no [KILLER] prefix)
@@ -6501,7 +6617,10 @@ function RenderESP()
                         end
 
                         -- Skills & Charges Text (Moved under top match timer)
-                        if esp.SkillText.Visible then esp.SkillText.Visible = false end
+                        if esp.SkillText.Visible then
+                            esp.SkillText.Visible = false
+                            esp.SkillText.Text = ""
+                        end
                     else
                         hidePlayerESP(esp)
                     end
@@ -6542,7 +6661,7 @@ function RenderESP()
                                 hl.OutlineTransparency = 0.45
                                 hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                                 hl.Adornee = char
-                                pcall(function() hl.Parent = char end)
+                                pcall(function() hl.Parent = GetChamsContainer() end)
                                 esp.Chams = hl
                             else
                                 if hl.Adornee ~= char then hl.Adornee = char end
@@ -6554,6 +6673,7 @@ function RenderESP()
                             if not hl.Enabled then hl.Enabled = true end
                         elseif esp.Chams and esp.Chams.Enabled then
                             esp.Chams.Enabled = false
+                            esp.Chams.Adornee = nil
                         end
 
                         local head = char:FindFirstChild("Head")
@@ -6644,7 +6764,7 @@ function RenderESP()
                             -- Survivor Item & Status
                             local sSkillStr = data and data.SkillInfo
                             local isItemReady = data and data.ItemReady
-                            if (not isBeingCarriedByMe) and Config.ESP_SurvivorSkills and not inLobby and type(sSkillStr) == "string" and #sSkillStr > 0 then
+                            if (not isBeingCarriedByMe) and Config.ESP_SurvivorSkills and not inLobby and not isK and type(sSkillStr) == "string" and #sSkillStr > 0 then
                                 if esp.SkillText.Text ~= sSkillStr then esp.SkillText.Text = sSkillStr end
                                 esp.SkillText.Position = Vector2.new(rootScreen.X, currentY)
                                 local sCol = (isItemReady == false and Color3.fromRGB(255, 75, 75)) or (isItemReady == true and Color3.fromRGB(80, 255, 80)) or Color3.fromRGB(80, 220, 255)
@@ -6653,6 +6773,7 @@ function RenderESP()
                                 currentY = currentY + 14
                             elseif esp.SkillText.Visible then
                                 esp.SkillText.Visible = false
+                                esp.SkillText.Text = ""
                             end
 
                             -- Survivor Perks
