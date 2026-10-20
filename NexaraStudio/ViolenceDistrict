@@ -614,6 +614,26 @@ local MaskDatabase = {
         Icon = "rbxassetid://110441838520158",
     },
     -- Aliases for alternate naming
+    ["duck"] = {
+        Name = "Alex",
+        Animal = "Swans",
+        ModelName = "alex",
+        Title = "ALEX (SWANS / DUCK)",
+        Effect = "CHAINSAW DASH ATTACK",
+        Tip = "Killer rushes forward with a chainsaw dash! Dodge sideways to force a wall-stun!",
+        Color = Color3.fromRGB(245, 245, 255),
+        Icon = "rbxassetid://110441838520158",
+    },
+    ["swan"] = {
+        Name = "Alex",
+        Animal = "Swans",
+        ModelName = "alex",
+        Title = "ALEX (SWANS)",
+        Effect = "CHAINSAW DASH ATTACK",
+        Tip = "Killer rushes forward with a chainsaw dash! Dodge sideways to force a wall-stun!",
+        Color = Color3.fromRGB(245, 245, 255),
+        Icon = "rbxassetid://110441838520158",
+    },
     ["jake"] = {
         Name = "Cobra",
         Animal = "Cobra",
@@ -690,13 +710,13 @@ local function SetupMaskViewport(vpf, maskName)
             end
         end
         if not targetAcc then
-            if clean:find("jake") or clean:find("cobra") then targetAcc = mModel:FindFirstChild("Cobra")
-            elseif clean:find("graham") or clean:find("rabbit") then targetAcc = mModel:FindFirstChild("rabbit")
-            elseif clean:find("swan") or clean:find("alex") then targetAcc = mModel:FindFirstChild("alex")
+            if clean:find("jake") or clean:find("cobra") or clean:find("snake") then targetAcc = mModel:FindFirstChild("Cobra")
+            elseif clean:find("graham") or clean:find("rabbit") or clean:find("hare") then targetAcc = mModel:FindFirstChild("rabbit")
+            elseif clean:find("swan") or clean:find("alex") or clean:find("duck") then targetAcc = mModel:FindFirstChild("alex")
             elseif clean:find("tony") or clean:find("tiger") then targetAcc = mModel:FindFirstChild("Tony")
             elseif clean:find("richter") or clean:find("rat") then targetAcc = mModel:FindFirstChild("Richter")
             elseif clean:find("brandon") or clean:find("panther") then targetAcc = mModel:FindFirstChild("Brandon")
-            elseif clean:find("richard") or clean:find("rooster") then targetAcc = mModel:FindFirstChild("Richard")
+            elseif clean:find("richard") or clean:find("rooster") or clean:find("chicken") then targetAcc = mModel:FindFirstChild("Richard")
             end
         end
 
@@ -710,7 +730,10 @@ local function SetupMaskViewport(vpf, maskName)
                         part.Transparency = 0
                     end
                 end
-                clone.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(math.rad(-6), math.rad(165), 0)
+                -- Alex/Swan/Duck model coordinates are inverted 180 degrees in ReplicatedStorage compared to other masks
+                local isAlex = (targetAcc.Name:lower() == "alex") or clean:find("alex") or clean:find("duck") or clean:find("swan")
+                local rotY = isAlex and math.rad(-15) or math.rad(165)
+                clone.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(math.rad(-6), rotY, 0)
                 clone.Parent = vpf
 
                 local cam = Instance.new("Camera")
@@ -719,9 +742,9 @@ local function SetupMaskViewport(vpf, maskName)
                 cam.CFrame = CFrame.new(Vector3.new(0, 0.05, sz * 1.35), Vector3.new(0, 0, 0))
                 cam.Parent = vpf
                 vpf.CurrentCamera = cam
-                vpf.Ambient = Color3.fromRGB(220, 220, 220)
+                vpf.Ambient = Color3.fromRGB(240, 240, 240)
                 vpf.LightColor = Color3.fromRGB(255, 255, 255)
-                vpf.LightDirection = Vector3.new(-0.3, 0.6, -1).Unit
+                vpf.LightDirection = Vector3.new(0, 0.5, -1).Unit
                 return true
             end
         end
@@ -1088,14 +1111,6 @@ local function SetupPlayerCooldownHooks(player)
                     MaskedActiveEnd = 0
                     MaskedCooldownEnd = os.clock() + 30
                     local prevMask = LastMaskedState
-                    LastMaskedState = "Richard"
-                    TriggerMaskAlert(prevMask, false)
-                end
-            elseif attrName == "MaskExpired" and char:GetAttribute("MaskExpired") == true then
-                if LastMaskedState ~= "Richard" then
-                    local prevMask = LastMaskedState
-                    MaskedActiveEnd = 0
-                    MaskedCooldownEnd = os.clock() + 30
                     LastMaskedState = "Richard"
                     TriggerMaskAlert(prevMask, false)
                 end
@@ -2987,10 +3002,14 @@ local function GetPlayerSkillInfo(player)
             isItemReady = nil
         end
 
+        local otherDetails = {}
         if player == LocalPlayer then
             local debuff = player.PlayerGui:FindFirstChild("Survivor") and player.PlayerGui.Survivor:FindFirstChild("statuseffects") and player.PlayerGui.Survivor.statuseffects:FindFirstChild("Debuff")
             local winded = debuff and debuff:FindFirstChild("Winded")
-            if winded and winded.Visible then table.insert(details, "Exhausted") end
+            if winded and winded.Visible then
+                table.insert(details, "Exhausted")
+                table.insert(otherDetails, "Exhausted")
+            end
         end
 
         -- Only show Wiggle if they are ACTUALLY being carried by the killer!
@@ -2998,7 +3017,9 @@ local function GetPlayerSkillInfo(player)
         if isCarried then
             local carryTime = tonumber(char:GetAttribute("RemainingCarryTime"))
             if carryTime and carryTime > 0 then
-                table.insert(details, string.format("Wiggling: %.1fs", carryTime))
+                local wStr = string.format("Wiggling: %.1fs", carryTime)
+                table.insert(details, wStr)
+                table.insert(otherDetails, wStr)
             end
         end
 
@@ -3006,10 +3027,13 @@ local function GetPlayerSkillInfo(player)
         local isHooked = char:GetAttribute("IsHooked") or char:GetAttribute("HookProgressDepleting")
         local hookProg = tonumber(char:GetAttribute("HookedProgress"))
         if isHooked and hookProg and hookProg < 100 then
-            table.insert(details, string.format("Hook: %d%%", math.floor(hookProg)))
+            local hStr = string.format("Hook: %d%%", math.floor(hookProg))
+            table.insert(details, hStr)
+            table.insert(otherDetails, hStr)
         end
 
-        return (#details > 0 and table.concat(details, " | ") or nil), isItemReady
+        local otherStr = #otherDetails > 0 and table.concat(otherDetails, " | ") or nil
+        return (#details > 0 and table.concat(details, " | ") or nil), isItemReady, item, qtyStr, otherStr
     end
 end
 
@@ -3084,7 +3108,7 @@ local function UpdateBackgroundCache()
                         PlayerItemCache[p] = nil
                     end
                     local perks = GetPlayerPerks(p)
-                    local skill, isReady = GetPlayerSkillInfo(p)
+                    local skill, isReady, itemNm, itemQty, otherDet = GetPlayerSkillInfo(p)
                     if isK and type(skill) == "string" then
                         if skill:find("^Skill:") then
                             skill = skill:gsub("^Skill:%s*", "[SKILL] ")
@@ -3101,8 +3125,11 @@ local function UpdateBackgroundCache()
                     entry.IsKiller = isK
                     entry.Perks = perks or {}
                     entry.PerksFormatted = (perks and #perks > 0) and table.concat(perks, " | ") or ""
-                    entry.SkillInfo = (not isK) and skill or false
-                    entry.ItemReady = (not isK) and isReady or false
+                    entry.SkillInfo = skill or false
+                    entry.ItemReady = isReady
+                    entry.ItemName = itemNm
+                    entry.ItemQtyStr = itemQty
+                    entry.OtherDetails = otherDet
                     entry.DisplayName = p.DisplayName
                 end
             end
@@ -3388,7 +3415,7 @@ end)
 UpdateBackgroundCache()
 task.spawn(function()
     while ScriptRunning do
-        task.wait(1.0)
+        task.wait(0.4)
         UpdateBackgroundCache()
     end
 end)
@@ -6289,19 +6316,7 @@ table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
     end
 end))
 
--- ======== SKELETON DRAWER (R6 ANATOMICAL BONES - MODEL ACCURATE) ========
-local SKEL_HEAD = Vector3.new(0, 0.4, 0)
-local SKEL_NECK = Vector3.new(0, 0.9, 0)
-local SKEL_PELVIS = Vector3.new(0, -0.9, 0)
-local SKEL_L_SHOULDER = Vector3.new(-1.0, 0.65, 0)
-local SKEL_R_SHOULDER = Vector3.new(1.0, 0.65, 0)
-local SKEL_ELBOW = Vector3.new(0, 0.05, 0)
-local SKEL_HAND = Vector3.new(0, -0.9, 0)
-local SKEL_L_HIP = Vector3.new(-0.5, -0.95, 0)
-local SKEL_R_HIP = Vector3.new(0.5, -0.95, 0)
-local SKEL_KNEE = Vector3.new(0, 0.05, 0)
-local SKEL_FOOT = Vector3.new(0, -0.95, 0)
-
+-- ======== SKELETON DRAWER (DYNAMIC MODEL-ACCURATE BONES) ========
 local function getSkelPoint(cf, offset)
     local p = cf:PointToWorldSpace(offset)
     local sp, vis = Camera:WorldToViewportPoint(p)
@@ -6331,25 +6346,28 @@ local function UpdateSkeleton(char, lines, color, thickness)
 
     if not (head and torso) then
         for _, l in pairs(lines) do if l.Visible then l.Visible = false end end
-        return false, nil, nil
+        return false
     end
 
     local th = thickness or 1.3
+    local tS = torso.Size
+    local hS = head.Size
 
-    -- Core Spine
-    local headPos, hVis = getSkelPoint(head.CFrame, SKEL_HEAD)
-    local neckPos, nVis = getSkelPoint(torso.CFrame, SKEL_NECK)
-    local pelvisPos, pVis = getSkelPoint(torso.CFrame, SKEL_PELVIS)
+    -- Dynamic joints based on actual model proportions (fits R6, scaled killers, Stalker, Slasher, Cure, etc.)
+    local headPos, hVis = getSkelPoint(head.CFrame, Vector3.new(0, hS.Y * 0.45, 0))
+    local neckPos, nVis = getSkelPoint(torso.CFrame, Vector3.new(0, tS.Y * 0.5, 0))
+    local pelvisPos, pVis = getSkelPoint(torso.CFrame, Vector3.new(0, -tS.Y * 0.5, 0))
 
     drawSkelLine(lines.Head, headPos, hVis, neckPos, nVis, color, th)
     drawSkelLine(lines.Spine, neckPos, nVis, pelvisPos, pVis, color, th)
 
-    -- Left Arm (Anatomical: Neck -> Left Shoulder -> Left Elbow -> Left Hand)
-    local lShoulderPos, lsVis = getSkelPoint(torso.CFrame, SKEL_L_SHOULDER)
+    -- Left Arm (Anatomical: Neck -> Shoulder -> Elbow -> Hand)
+    local lShoulderPos, lsVis = getSkelPoint(torso.CFrame, Vector3.new(-tS.X * 0.5, tS.Y * 0.35, 0))
     drawSkelLine(lines.LeftCollar, neckPos, nVis, lShoulderPos, lsVis, color, th)
     if leftArm then
-        local lElbowPos, leVis = getSkelPoint(leftArm.CFrame, SKEL_ELBOW)
-        local lHandPos, lhVis = getSkelPoint(leftArm.CFrame, SKEL_HAND)
+        local laS = leftArm.Size
+        local lElbowPos, leVis = getSkelPoint(leftArm.CFrame, Vector3.new(0, 0, 0))
+        local lHandPos, lhVis = getSkelPoint(leftArm.CFrame, Vector3.new(0, -laS.Y * 0.48, 0))
         drawSkelLine(lines.LeftArmUpper, lShoulderPos, lsVis, lElbowPos, leVis, color, th)
         drawSkelLine(lines.LeftArmLower, lElbowPos, leVis, lHandPos, lhVis, color, th)
     else
@@ -6357,12 +6375,13 @@ local function UpdateSkeleton(char, lines, color, thickness)
         if lines.LeftArmLower and lines.LeftArmLower.Visible then lines.LeftArmLower.Visible = false end
     end
 
-    -- Right Arm (Anatomical: Neck -> Right Shoulder -> Right Elbow -> Right Hand)
-    local rShoulderPos, rsVis = getSkelPoint(torso.CFrame, SKEL_R_SHOULDER)
+    -- Right Arm (Anatomical: Neck -> Shoulder -> Elbow -> Hand)
+    local rShoulderPos, rsVis = getSkelPoint(torso.CFrame, Vector3.new(tS.X * 0.5, tS.Y * 0.35, 0))
     drawSkelLine(lines.RightCollar, neckPos, nVis, rShoulderPos, rsVis, color, th)
     if rightArm then
-        local rElbowPos, reVis = getSkelPoint(rightArm.CFrame, SKEL_ELBOW)
-        local rHandPos, rhVis = getSkelPoint(rightArm.CFrame, SKEL_HAND)
+        local raS = rightArm.Size
+        local rElbowPos, reVis = getSkelPoint(rightArm.CFrame, Vector3.new(0, 0, 0))
+        local rHandPos, rhVis = getSkelPoint(rightArm.CFrame, Vector3.new(0, -raS.Y * 0.48, 0))
         drawSkelLine(lines.RightArmUpper, rShoulderPos, rsVis, rElbowPos, reVis, color, th)
         drawSkelLine(lines.RightArmLower, rElbowPos, reVis, rHandPos, rhVis, color, th)
     else
@@ -6370,36 +6389,35 @@ local function UpdateSkeleton(char, lines, color, thickness)
         if lines.RightArmLower and lines.RightArmLower.Visible then lines.RightArmLower.Visible = false end
     end
 
-    -- Left Leg (Anatomical: Pelvis -> Left Hip -> Left Knee -> Left Foot)
-    local lHipPos, lhipVis = getSkelPoint(torso.CFrame, SKEL_L_HIP)
+    -- Left Leg (Anatomical: Pelvis -> Hip -> Knee -> Foot)
+    local lHipPos, lhipVis = getSkelPoint(torso.CFrame, Vector3.new(-tS.X * 0.38, -tS.Y * 0.5, 0))
     drawSkelLine(lines.LeftPelvis, pelvisPos, pVis, lHipPos, lhipVis, color, th)
-    local lowestLegPos = pelvisPos
     if leftLeg then
-        local lKneePos, lkVis = getSkelPoint(leftLeg.CFrame, SKEL_KNEE)
-        local lFootPos, lfVis = getSkelPoint(leftLeg.CFrame, SKEL_FOOT)
+        local llS = leftLeg.Size
+        local lKneePos, lkVis = getSkelPoint(leftLeg.CFrame, Vector3.new(0, 0, 0))
+        local lFootPos, lfVis = getSkelPoint(leftLeg.CFrame, Vector3.new(0, -llS.Y * 0.5, 0))
         drawSkelLine(lines.LeftLegUpper, lHipPos, lhipVis, lKneePos, lkVis, color, th)
         drawSkelLine(lines.LeftLegLower, lKneePos, lkVis, lFootPos, lfVis, color, th)
-        if lfVis then lowestLegPos = lFootPos end
     else
         if lines.LeftLegUpper and lines.LeftLegUpper.Visible then lines.LeftLegUpper.Visible = false end
         if lines.LeftLegLower and lines.LeftLegLower.Visible then lines.LeftLegLower.Visible = false end
     end
 
-    -- Right Leg (Anatomical: Pelvis -> Right Hip -> Right Knee -> Right Foot)
-    local rHipPos, rhipVis = getSkelPoint(torso.CFrame, SKEL_R_HIP)
+    -- Right Leg (Anatomical: Pelvis -> Hip -> Knee -> Foot)
+    local rHipPos, rhipVis = getSkelPoint(torso.CFrame, Vector3.new(tS.X * 0.38, -tS.Y * 0.5, 0))
     drawSkelLine(lines.RightPelvis, pelvisPos, pVis, rHipPos, rhipVis, color, th)
     if rightLeg then
-        local rKneePos, rkVis = getSkelPoint(rightLeg.CFrame, SKEL_KNEE)
-        local rFootPos, rfVis = getSkelPoint(rightLeg.CFrame, SKEL_FOOT)
+        local rlS = rightLeg.Size
+        local rKneePos, rkVis = getSkelPoint(rightLeg.CFrame, Vector3.new(0, 0, 0))
+        local rFootPos, rfVis = getSkelPoint(rightLeg.CFrame, Vector3.new(0, -rlS.Y * 0.5, 0))
         drawSkelLine(lines.RightLegUpper, rHipPos, rhipVis, rKneePos, rkVis, color, th)
         drawSkelLine(lines.RightLegLower, rKneePos, rkVis, rFootPos, rfVis, color, th)
-        if rfVis and not lowestLegPos then lowestLegPos = rFootPos end
     else
         if lines.RightLegUpper and lines.RightLegUpper.Visible then lines.RightLegUpper.Visible = false end
         if lines.RightLegLower and lines.RightLegLower.Visible then lines.RightLegLower.Visible = false end
     end
 
-    return (hVis or pVis), headPos, lowestLegPos
+    return (hVis or pVis)
 end
 
 -- ======== ESP RENDERING (CAMERA POST-UPDATE) ========
@@ -6467,10 +6485,25 @@ function RenderESP()
                     break
                 end
             end
+            if not killerPlr then
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if p ~= LocalPlayer and IsKiller(p) then
+                        killerPlr = p
+                        killerData = CachedPlayerData[p]
+                        break
+                    end
+                end
+            end
 
             if killerPlr and killerPlr.Character and killerPlr ~= LocalPlayer then
-                local kSkillStr = killerData and killerData.SkillInfo
+                local kSkillStr = GetPlayerSkillInfo(killerPlr) or (killerData and killerData.SkillInfo)
                 if type(kSkillStr) == "string" and #kSkillStr > 0 then
+                    if kSkillStr:find("^Skill:") then
+                        kSkillStr = kSkillStr:gsub("^Skill:%s*", "[SKILL] ")
+                    elseif not kSkillStr:find("^%[SKILL%]") then
+                        kSkillStr = "[SKILL] " .. kSkillStr
+                    end
+                    kSkillStr = kSkillStr:gsub("%s*|%s*CHASING", ""):gsub("%[CHASING%]", "")
                     local posX = math.floor(Camera.ViewportSize.X / 2)
                     local posY = math.max(tonumber(Config.TopKillerSkillYOffset) or 58, 54)
                     local timerEnded = false
@@ -6531,14 +6564,31 @@ function RenderESP()
                         if esp.BoxOutline.Visible then esp.BoxOutline.Visible = false end
                         if esp.Box.Visible then esp.Box.Visible = false end
 
+                        -- Rock-solid 3D World Space Top (Above Head) and Bottom (Under Feet)
+                        local head = char.Head
+                        local leftLeg = char:FindFirstChild("Left Leg") or char:FindFirstChild("leftleg")
+                        local rightLeg = char:FindFirstChild("Right Leg") or char:FindFirstChild("rightleg")
+                        local topWorld = head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.35, 0)
+                        local footBottomY = rootPos.Y - (root.Size.Y * 0.5 + 2.0)
+                        if leftLeg and rightLeg then
+                            footBottomY = math.min(leftLeg.Position.Y - leftLeg.Size.Y * 0.5, rightLeg.Position.Y - rightLeg.Size.Y * 0.5)
+                        elseif leftLeg then
+                            footBottomY = leftLeg.Position.Y - leftLeg.Size.Y * 0.5
+                        elseif rightLeg then
+                            footBottomY = rightLeg.Position.Y - rightLeg.Size.Y * 0.5
+                        end
+                        local btmWorld = Vector3.new(rootPos.X, footBottomY, rootPos.Z)
+
+                        local topScreen, topVis = Camera:WorldToViewportPoint(topWorld)
+                        local btmScreen, btmVis = Camera:WorldToViewportPoint(btmWorld)
+
+                        currentX = math.floor(rootScreen.X)
+                        local topY = math.floor(topScreen.Y - 14)
+                        local btmY = math.floor(btmScreen.Y + 4)
+
                         -- Render Hot Pink Skeleton (Thin & sleek, model-accurate)
-                        local topY = headScreen.Y - 14
-                        local btmY = rootScreen.Y + 18
                         if Config.ESP_KillerSkeleton then
-                            local anyVis, hPoint, fPoint = UpdateSkeleton(char, esp.Skeleton, Config.Color_KillerSkeleton or Color3.fromRGB(240, 60, 160), Config.KillerSkeletonThickness or 1.3)
-                            currentX = hPoint and hPoint.X or currentX
-                            topY = hPoint and (hPoint.Y - 14) or (headScreen.Y - 14)
-                            btmY = fPoint and (fPoint.Y + 4) or (rootScreen.Y + 18)
+                            UpdateSkeleton(char, esp.Skeleton, Config.Color_KillerSkeleton or Color3.fromRGB(240, 60, 160), Config.KillerSkeletonThickness or 1.3)
                         else
                             for _, l in pairs(esp.Skeleton) do if l.Visible then l.Visible = false end end
                         end
@@ -6677,8 +6727,18 @@ function RenderESP()
                         end
 
                         local head = char:FindFirstChild("Head")
-                        local topWorld = head and (head.Position + Vector3.new(0, 0.6, 0)) or (rootPos + Vector3.new(0, 1.9, 0))
-                        local btmWorld = rootPos - Vector3.new(0, 2.5, 0)
+                        local leftLeg = char:FindFirstChild("Left Leg") or char:FindFirstChild("leftleg")
+                        local rightLeg = char:FindFirstChild("Right Leg") or char:FindFirstChild("rightleg")
+                        local topWorld = head and (head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.35, 0)) or (rootPos + Vector3.new(0, 1.9, 0))
+                        local footBottomY = rootPos.Y - (root.Size.Y * 0.5 + 2.0)
+                        if leftLeg and rightLeg then
+                            footBottomY = math.min(leftLeg.Position.Y - leftLeg.Size.Y * 0.5, rightLeg.Position.Y - rightLeg.Size.Y * 0.5)
+                        elseif leftLeg then
+                            footBottomY = leftLeg.Position.Y - leftLeg.Size.Y * 0.5
+                        elseif rightLeg then
+                            footBottomY = rightLeg.Position.Y - rightLeg.Size.Y * 0.5
+                        end
+                        local btmWorld = Vector3.new(rootPos.X, footBottomY, rootPos.Z)
                         local topScreen, topVis = Camera:WorldToViewportPoint(topWorld)
                         local btmScreen, btmVis = Camera:WorldToViewportPoint(btmWorld)
 
@@ -6764,6 +6824,16 @@ function RenderESP()
                             -- Survivor Item & Status
                             local sSkillStr = data and data.SkillInfo
                             local isItemReady = data and data.ItemReady
+                            if data and data.ItemName then
+                                local liveCD = GetItemCooldown(p, data.ItemName)
+                                if liveCD > 0 then
+                                    isItemReady = false
+                                    sSkillStr = "Item: " .. data.ItemName .. (data.ItemQtyStr or "") .. string.format(" (CD %ds)", liveCD)
+                                    if data.OtherDetails and #data.OtherDetails > 0 then
+                                        sSkillStr = sSkillStr .. " | " .. data.OtherDetails
+                                    end
+                                end
+                            end
                             if (not isBeingCarriedByMe) and Config.ESP_SurvivorSkills and not inLobby and not isK and type(sSkillStr) == "string" and #sSkillStr > 0 then
                                 if esp.SkillText.Text ~= sSkillStr then esp.SkillText.Text = sSkillStr end
                                 esp.SkillText.Position = Vector2.new(rootScreen.X, currentY)
