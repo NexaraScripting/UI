@@ -69,16 +69,21 @@ local Config = {
     ESP_KillerEnabled = false,
     ESP_KillerSkeleton = false,
     KillerSkeletonThickness = 1.3,
+    ESP_KillerChams = false,
     ESP_KillerNames = false,
     ESP_KillerDistance = false,
     ESP_KillerSkills = false,
     ESP_KillerPerks = false,
     TopKillerSkillSize = 16,
     TopKillerSkillYOffset = 58,
+    Alert_MaskChange = true,
 
     -- ESP Survivor (Separated Menu)
     ESP_SurvivorEnabled = false,
     ESP_SurvivorBoxes = false,
+    ESP_SurvivorSkeleton = false,
+    SurvivorSkeletonThickness = 1.3,
+    ESP_SurvivorChams = false,
     ESP_SurvivorNames = false,
     ESP_SurvivorDistance = false,
     ESP_SurvivorStatus = false,
@@ -101,14 +106,17 @@ local Config = {
 
     -- Custom ESP Colors
     Color_SurvivorBox = Color3.fromRGB(80, 255, 120),
+    Color_SurvivorSkeleton = Color3.fromRGB(80, 255, 160),
+    Color_SurvivorChams = Color3.fromRGB(80, 255, 120),
     Color_SurvivorNames = Color3.fromRGB(80, 255, 120),
     Color_KillerSkeleton = Color3.fromRGB(255, 60, 140),
+    Color_KillerChams = Color3.fromRGB(255, 60, 60),
     Color_KillerNames = Color3.fromRGB(255, 60, 60),
     Color_KillerSkills = Color3.fromRGB(80, 220, 255),
     Color_Generators = Color3.fromRGB(0, 240, 255),
-    Color_PalletAura = Color3.fromRGB(255, 170, 0),
+    Color_PalletAura = Color3.fromRGB(255, 205, 90),
     Color_PalletNames = Color3.fromRGB(255, 180, 50),
-    Color_WindowAura = Color3.fromRGB(0, 210, 255),
+    Color_WindowAura = Color3.fromRGB(60, 200, 240),
     Color_WindowNames = Color3.fromRGB(80, 210, 255),
     Color_ExitGates = Color3.fromRGB(50, 255, 120),
     
@@ -231,54 +239,69 @@ local function GetLobbyPart()
     return cachedLobbyPart
 end
 
-local function IsMatchTimerZero()
+local CachedTimerLabel = nil
+local function GetMatchTimerLabel()
+    if CachedTimerLabel and CachedTimerLabel.Parent then
+        return CachedTimerLabel
+    end
     local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if not pg then return false end
-    for _, guiName in ipairs({"Survivor", "Killer", "Spectator", "HUD", "InGame"}) do
+    if not pg then return nil end
+    for _, guiName in ipairs({"Spectator", "InGame", "HUD", "Survivor", "Killer"}) do
         local g = pg:FindFirstChild(guiName)
         if g then
             local tf = g:FindFirstChild("time") or g:FindFirstChild("Time") or g:FindFirstChild("Timer")
             if tf then
                 local tl = tf:FindFirstChild("TimerLabel") or tf:FindFirstChildOfClass("TextLabel")
-                if tl and (tl.Text == "00:00" or tl.Text == "0:00") then
-                    return true
+                if tl then
+                    CachedTimerLabel = tl
+                    return tl
                 end
             end
         end
     end
-    for _, gui in ipairs(pg:GetChildren()) do
-        if gui:IsA("ScreenGui") and gui.Name ~= "NexaraStudio" and gui.Name ~= "Nexara_ScreenGui" then
-            local tf = gui:FindFirstChild("time", true)
-            if tf then
-                local tl = tf:FindFirstChild("TimerLabel") or tf:FindFirstChildOfClass("TextLabel")
-                if tl and (tl.Text == "00:00" or tl.Text == "0:00") then
-                    return true
-                end
-            end
-        end
+    return nil
+end
+
+local function IsMatchTimerZero()
+    local tl = GetMatchTimerLabel()
+    if tl and tl.Parent then
+        local txt = tl.Text
+        return (txt == "00:00" or txt == "0:00")
     end
     return false
 end
 
+local cachedInLobby = false
+local lastInLobbyCheck = 0
+
 local function IsInLobby()
+    local now = os.clock()
+    if now - lastInLobbyCheck < 0.2 then
+        return cachedInLobby
+    end
+    lastInLobbyCheck = now
+
     -- 1. Check physical proximity to Lobby (Fastest & 100% reliable - 0ms delay on round end teleport)
     local myRoot = GetRoot(LocalPlayer)
     local lobbyPart = GetLobbyPart()
     if myRoot and lobbyPart then
         local distToLobby = (myRoot.Position - lobbyPart.Position).Magnitude
         if distToLobby <= 350 then
+            cachedInLobby = true
             return true
         end
     end
 
     -- 2. Check Match Timer: 00:00 means match has completed
     if IsMatchTimerZero() then
+        cachedInLobby = true
         return true
     end
 
-    -- 3. Check Map folder contents (In match, Map has hundreds of children; in lobby, #Map:GetChildren() == 0 or missing)
+    -- 3. Check Map folder contents (In match, Map has children; in lobby, map is missing or empty)
     local map = Workspace:FindFirstChild("Map")
-    if not map or #map:GetChildren() < 10 then
+    if not map or not map:FindFirstChildWhichIsA("Instance") then
+        cachedInLobby = true
         return true
     end
 
@@ -286,10 +309,12 @@ local function IsInLobby()
     local team = LocalPlayer.Team
     if team then
         if team.Name == "Killer" or team.Name == "Survivors" then
+            cachedInLobby = false
             return false
         end
     end
 
+    cachedInLobby = false
     return false
 end
 
@@ -316,12 +341,9 @@ local function IsPlayerDead(player)
         return true
     end
 
-    pcall(function()
-        local CollectionService = game:GetService("CollectionService")
-        if CollectionService and (CollectionService:HasTag(char, "Dead") or CollectionService:HasTag(char, "Sacrificed")) then
-            return true
-        end
-    end)
+    if CollectionService and (CollectionService:HasTag(char, "Dead") or CollectionService:HasTag(char, "Sacrificed")) then
+        return true
+    end
 
     return false
 end
@@ -492,6 +514,424 @@ local StalkerGraspCooldownEnd = 0
 local MaskedActiveEnd = 0
 local MaskedCooldownEnd = 0
 local LastMaskedState = "Richard"
+
+-- THE MASKED: REAL-TIME MASK POWER DATABASE & SURVIVOR HUD ALERTS
+local MaskDatabase = {
+    ["alex"] = {
+        Name = "Alex",
+        Animal = "Swans",
+        ModelName = "alex",
+        Title = "ALEX (SWANS)",
+        Effect = "CHAINSAW DASH ATTACK",
+        Tip = "Killer rushes forward with a chainsaw dash! Dodge sideways to force a wall-stun!",
+        Color = Color3.fromRGB(245, 245, 255),
+        Icon = "rbxassetid://110441838520158",
+    },
+    ["brandon"] = {
+        Name = "Brandon",
+        Animal = "Panther",
+        ModelName = "Brandon",
+        Title = "BRANDON (PANTHER)",
+        Effect = "EXTREME MOVEMENT SPEED",
+        Tip = "Killer gains massive movement speed! Pre-run early, do not run in straight lines!",
+        Color = Color3.fromRGB(255, 215, 0),
+        Icon = "rbxassetid://110441838520158",
+    },
+    ["cobra"] = {
+        Name = "Cobra",
+        Animal = "Cobra",
+        ModelName = "Cobra",
+        Title = "COBRA (SNAKE)",
+        Effect = "EXTENDED LUNGE REACH",
+        Tip = "Killer basic attacks lunge significantly further! Drop pallets early, do not greed loops!",
+        Color = Color3.fromRGB(50, 220, 80),
+        Icon = "rbxassetid://110441838520158",
+    },
+    ["rabbit"] = {
+        Name = "Rabbit",
+        Animal = "Rabbit",
+        ModelName = "rabbit",
+        Title = "RABBIT (HARE)",
+        Effect = "RUNNING FAST VAULT",
+        Tip = "Killer vaults pallets & windows at full sprint speed! Do not loop tight windows!",
+        Color = Color3.fromRGB(255, 140, 40),
+        Icon = "rbxassetid://110441838520158",
+    },
+    ["richter"] = {
+        Name = "Richter",
+        Animal = "Rat",
+        ModelName = "Richter",
+        Title = "RICHTER (RAT)",
+        Effect = "SILENT ASSAULT & STEALTH",
+        Tip = "Reduced terror radius and quiet approach! Keep high visual awareness!",
+        Color = Color3.fromRGB(160, 140, 220),
+        Icon = "rbxassetid://110441838520158",
+    },
+    ["tony"] = {
+        Name = "Tony",
+        Animal = "Tiger",
+        ModelName = "Tony",
+        Title = "TONY (TIGER)",
+        Effect = "LETHAL PUNCHES (INSTADOWN)",
+        Tip = "Killer attacks with bare fists for INSTANT KNOCKDOWN! Keep maximum distance!",
+        Color = Color3.fromRGB(255, 60, 60),
+        Icon = "rbxassetid://110441838520158",
+    },
+    ["richard"] = {
+        Name = "Richard",
+        Animal = "Rooster",
+        ModelName = "Richard",
+        Title = "RICHARD (ROOSTER)",
+        Effect = "MASK EXPIRED (30s COOLDOWN)",
+        Tip = "Killer power has expired and is on cooldown for 30 seconds.",
+        Color = Color3.fromRGB(170, 175, 185),
+        Icon = "rbxassetid://110441838520158",
+    },
+    -- Aliases for alternate naming
+    ["jake"] = {
+        Name = "Cobra",
+        Animal = "Cobra",
+        ModelName = "Cobra",
+        Title = "COBRA (SNAKE)",
+        Effect = "EXTENDED LUNGE REACH",
+        Tip = "Killer basic attacks lunge significantly further! Drop pallets early, do not greed loops!",
+        Color = Color3.fromRGB(50, 220, 80),
+        Icon = "rbxassetid://110441838520158",
+    },
+    ["graham"] = {
+        Name = "Rabbit",
+        Animal = "Rabbit",
+        ModelName = "rabbit",
+        Title = "RABBIT (HARE)",
+        Effect = "RUNNING FAST VAULT",
+        Tip = "Killer vaults pallets & windows at full sprint speed! Do not loop tight windows!",
+        Color = Color3.fromRGB(255, 140, 40),
+        Icon = "rbxassetid://110441838520158",
+    },
+}
+
+local MaskAssetCache = {}
+local function ResolveMaskInfo(maskName)
+    if not maskName or maskName == "" then return nil end
+    local clean = tostring(maskName):lower():gsub("%s+", ""):gsub("[^%a]", "")
+    if MaskDatabase[clean] then
+        return MaskDatabase[clean]
+    end
+    for k, v in pairs(MaskDatabase) do
+        if clean:find(k, 1, true) or k:find(clean, 1, true) then
+            return v
+        end
+    end
+
+    return {
+        Name = maskName,
+        Animal = maskName,
+        ModelName = maskName,
+        Title = "THE MASKED: " .. maskName:upper(),
+        Effect = maskName:upper() .. " POWER ACTIVE",
+        Tip = "The Masked has activated a special mask power!",
+        Color = Color3.fromRGB(255, 120, 50),
+        Icon = "rbxassetid://110441838520158",
+    }
+end
+
+local MaskAlertGui = nil
+local MaskAlertBanner = nil
+local MaskAlertIcon = nil
+local MaskAlertVPF = nil
+local MaskAlertSub = nil
+local MaskAlertTitle = nil
+local MaskAlertTip = nil
+local MaskAlertStroke = nil
+local MaskAlertToken = 0
+
+local function SetupMaskViewport(vpf, maskName)
+    if not vpf then return false end
+    local ok, success = pcall(function()
+        vpf:ClearAllChildren()
+        local rs = game:GetService("ReplicatedStorage")
+        local kFolder = rs:FindFirstChild("Killers") and rs.Killers:FindFirstChild("Masked")
+        local mModel = kFolder and kFolder:FindFirstChild("Model")
+        if not mModel then return false end
+
+        local targetAcc = nil
+        local clean = tostring(maskName or ""):lower():gsub("%s+", ""):gsub("[^%a]", "")
+        for _, c in ipairs(mModel:GetChildren()) do
+            if c:IsA("Accessory") and c.Name:lower():gsub("%s+", ""):gsub("[^%a]", "") == clean then
+                targetAcc = c
+                break
+            end
+        end
+        if not targetAcc then
+            if clean == "jake" then targetAcc = mModel:FindFirstChild("Cobra") end
+            if clean == "graham" then targetAcc = mModel:FindFirstChild("rabbit") end
+        end
+
+        if targetAcc then
+            local mp = targetAcc:FindFirstChildWhichIsA("MeshPart") or targetAcc:FindFirstChild("Handle")
+            if mp then
+                local clone = mp:Clone()
+                clone.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(0, math.rad(180), 0)
+                clone.Parent = vpf
+
+                local cam = Instance.new("Camera")
+                cam.FieldOfView = 36
+                local sz = mp.Size.Magnitude
+                cam.CFrame = CFrame.new(Vector3.new(0, 0, sz * 1.35), Vector3.new(0, 0, 0))
+                cam.Parent = vpf
+                vpf.CurrentCamera = cam
+                vpf.LightDirection = Vector3.new(0.4, 0.8, -1).Unit
+                return true
+            end
+        end
+        return false
+    end)
+    return ok and success
+end
+
+local function EnsureMaskAlertUI()
+    if MaskAlertGui and MaskAlertBanner and MaskAlertBanner.Parent then return end
+    pcall(function()
+        local parentGui = (gethui and gethui()) or LocalPlayer:FindFirstChild("PlayerGui") or game:GetService("CoreGui")
+        local existing = parentGui:FindFirstChild("Nexara_MaskAlertGui")
+        if existing then existing:Destroy() end
+
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "Nexara_MaskAlertGui"
+        sg.ResetOnSpawn = false
+        sg.DisplayOrder = 100
+        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        sg.Parent = parentGui
+        MaskAlertGui = sg
+
+        local banner = Instance.new("Frame")
+        banner.Name = "MaskAlertBanner"
+        banner.AnchorPoint = Vector2.new(0.5, 0)
+        banner.Size = UDim2.fromOffset(360, 56)
+        banner.Position = UDim2.new(0.5, 0, 0, 18)
+        banner.BackgroundColor3 = Color3.fromRGB(14, 15, 20)
+        banner.BackgroundTransparency = 1
+        banner.BorderSizePixel = 0
+        banner.Visible = false
+        banner.Parent = sg
+        MaskAlertBanner = banner
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = banner
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1.5
+        stroke.Color = Color3.fromRGB(50, 220, 80)
+        stroke.Transparency = 1
+        stroke.Parent = banner
+        MaskAlertStroke = stroke
+
+        local iconBox = Instance.new("Frame")
+        iconBox.Name = "IconContainer"
+        iconBox.Size = UDim2.fromOffset(42, 42)
+        iconBox.Position = UDim2.fromOffset(7, 7)
+        iconBox.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
+        iconBox.BorderSizePixel = 0
+        iconBox.Parent = banner
+        Instance.new("UICorner", iconBox).CornerRadius = UDim.new(0, 6)
+
+        local maskVpf = Instance.new("ViewportFrame")
+        maskVpf.Name = "MaskVPF"
+        maskVpf.Size = UDim2.new(1, 0, 1, 0)
+        maskVpf.BackgroundTransparency = 1
+        maskVpf.BorderSizePixel = 0
+        maskVpf.Visible = false
+        maskVpf.Parent = iconBox
+        MaskAlertVPF = maskVpf
+
+        local icon = Instance.new("ImageLabel")
+        icon.Name = "MaskIcon"
+        icon.Size = UDim2.new(1, -4, 1, -4)
+        icon.Position = UDim2.fromOffset(2, 2)
+        icon.BackgroundTransparency = 1
+        icon.Image = "rbxassetid://110441838520158"
+        icon.ImageTransparency = 1
+        icon.ScaleType = Enum.ScaleType.Fit
+        icon.Parent = iconBox
+        MaskAlertIcon = icon
+
+        local textCol = Instance.new("Frame")
+        textCol.Name = "TextContainer"
+        textCol.Size = UDim2.new(1, -58, 1, -10)
+        textCol.Position = UDim2.fromOffset(54, 5)
+        textCol.BackgroundTransparency = 1
+        textCol.BorderSizePixel = 0
+        textCol.Parent = banner
+
+        local subLbl = Instance.new("TextLabel")
+        subLbl.Name = "Subtitle"
+        subLbl.Size = UDim2.new(1, 0, 0, 13)
+        subLbl.Position = UDim2.fromOffset(0, 0)
+        subLbl.BackgroundTransparency = 1
+        subLbl.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+        subLbl.TextSize = 10
+        subLbl.TextColor3 = Color3.fromRGB(50, 220, 80)
+        subLbl.TextTransparency = 1
+        subLbl.TextXAlignment = Enum.TextXAlignment.Left
+        subLbl.Text = "[THE MASKED] COBRA (SNAKE)"
+        subLbl.Parent = textCol
+        MaskAlertSub = subLbl
+
+        local titleLbl = Instance.new("TextLabel")
+        titleLbl.Name = "Title"
+        titleLbl.Size = UDim2.new(1, 0, 0, 18)
+        titleLbl.Position = UDim2.fromOffset(0, 13)
+        titleLbl.BackgroundTransparency = 1
+        titleLbl.FontFace = Font.fromEnum(Enum.Font.Arcade)
+        titleLbl.TextSize = 16
+        titleLbl.TextColor3 = Color3.new(1, 1, 1)
+        titleLbl.TextTransparency = 1
+        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+        titleLbl.Text = "EXTENDED LUNGE REACH"
+        titleLbl.Parent = textCol
+        MaskAlertTitle = titleLbl
+
+        local tipLbl = Instance.new("TextLabel")
+        tipLbl.Name = "Tip"
+        tipLbl.Size = UDim2.new(1, 0, 0, 13)
+        tipLbl.Position = UDim2.fromOffset(0, 31)
+        tipLbl.BackgroundTransparency = 1
+        tipLbl.FontFace = Font.fromEnum(Enum.Font.Gotham)
+        tipLbl.TextSize = 9.5
+        tipLbl.TextColor3 = Color3.fromRGB(205, 215, 225)
+        tipLbl.TextTransparency = 1
+        tipLbl.TextXAlignment = Enum.TextXAlignment.Left
+        tipLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        tipLbl.Text = "Killer lunges significantly further! Drop pallets early!"
+        tipLbl.Parent = textCol
+        MaskAlertTip = tipLbl
+    end)
+end
+
+local lastMaskAlertKey = ""
+local lastMaskAlertTime = 0
+
+local function TriggerMaskAlert(maskName, isActivated)
+    if not Config.Alert_MaskChange then return end
+    if IsInLobby() then return end
+    if IsKiller(LocalPlayer) then return end
+
+    local now = os.clock()
+    local cacheKey = tostring(maskName) .. "_" .. tostring(isActivated)
+    if lastMaskAlertKey == cacheKey and (now - lastMaskAlertTime) < 2.5 then
+        return
+    end
+    lastMaskAlertKey = cacheKey
+    lastMaskAlertTime = now
+
+    local info = ResolveMaskInfo(maskName) or {
+        Name = maskName or "Mask",
+        Title = "THE MASKED: " .. tostring(maskName):upper(),
+        Effect = "MASK POWER ACTIVE",
+        Tip = "Beware killer ability!",
+        Color = Color3.fromRGB(255, 120, 50),
+        Icon = "rbxassetid://110441838520158"
+    }
+
+    EnsureMaskAlertUI()
+    if not MaskAlertBanner then return end
+
+    MaskAlertToken = MaskAlertToken + 1
+    local currentToken = MaskAlertToken
+
+    local accentCol = isActivated and (info.Color or Color3.fromRGB(50, 220, 80)) or Color3.fromRGB(150, 160, 175)
+    local subText = isActivated and ("[THE MASKED] " .. (info.Title or info.Name:upper())) or "[THE MASKED] POWER EXPIRED"
+    local titleText = isActivated and info.Effect or "MASK INACTIVE (30s COOLDOWN)"
+    local tipText = isActivated and ("⚠️ " .. (info.Tip or "Beware killer ability!")) or "Killer power is on cooldown for 30 seconds."
+
+    MaskAlertSub.Text = subText
+    MaskAlertSub.TextColor3 = accentCol
+    MaskAlertTitle.Text = titleText
+    MaskAlertTip.Text = tipText
+    MaskAlertStroke.Color = accentCol
+
+    -- Render 3D Mask model in ViewportFrame, fallback to portrait icon
+    local has3d = SetupMaskViewport(MaskAlertVPF, info.ModelName or info.Name)
+    if has3d and MaskAlertVPF then
+        MaskAlertVPF.Visible = true
+        if MaskAlertIcon then MaskAlertIcon.Visible = false end
+    else
+        if MaskAlertVPF then MaskAlertVPF.Visible = false end
+        if MaskAlertIcon then
+            MaskAlertIcon.Image = info.Icon or "rbxassetid://110441838520158"
+            MaskAlertIcon.Visible = true
+        end
+    end
+
+    -- Toast notification
+    pcall(function()
+        if Nexara and Nexara.Notify then
+            Nexara:Notify({
+                Title = isActivated and ("⚠️ THE MASKED: " .. (info.Name or maskName):upper()) or "THE MASKED",
+                Content = isActivated and (info.Effect .. "\n" .. (info.Tip or "")) or "Mask power expired (30s Cooldown)",
+                Duration = isActivated and 5 or 3.5
+            })
+        end
+    end)
+
+    -- Sound cue
+    pcall(function()
+        local snd = Instance.new("Sound")
+        snd.SoundId = isActivated and "rbxassetid://4590662766" or "rbxassetid://4590657391"
+        snd.Volume = 0.65
+        snd.Parent = game:GetService("SoundService")
+        snd:Play()
+        game:GetService("Debris"):AddItem(snd, 2)
+    end)
+
+    -- Smooth banner animation
+    pcall(function()
+        MaskAlertBanner.Visible = true
+        MaskAlertBanner.Position = UDim2.new(0.5, 0, 0, 18)
+        MaskAlertBanner.BackgroundTransparency = 1
+        MaskAlertStroke.Transparency = 1
+        if MaskAlertIcon then MaskAlertIcon.ImageTransparency = 1 end
+        MaskAlertSub.TextTransparency = 1
+        MaskAlertTitle.TextTransparency = 1
+        MaskAlertTip.TextTransparency = 1
+
+        local animIn = TweenService:Create(MaskAlertBanner, TweenInfo.new(0.32, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, 0, 0, 78),
+            BackgroundTransparency = 0.15
+        })
+        TweenService:Create(MaskAlertStroke, TweenInfo.new(0.32, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), { Transparency = 0.1 }):Play()
+        if MaskAlertIcon and MaskAlertIcon.Visible then
+            TweenService:Create(MaskAlertIcon, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
+        end
+        TweenService:Create(MaskAlertSub, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+        TweenService:Create(MaskAlertTitle, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+        TweenService:Create(MaskAlertTip, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+        animIn:Play()
+
+        task.spawn(function()
+            task.wait(isActivated and 5.5 or 3.5)
+            if MaskAlertToken == currentToken and MaskAlertBanner and MaskAlertBanner.Parent then
+                local animOut = TweenService:Create(MaskAlertBanner, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                    Position = UDim2.new(0.5, 0, 0, 18),
+                    BackgroundTransparency = 1
+                })
+                TweenService:Create(MaskAlertStroke, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Transparency = 1 }):Play()
+                if MaskAlertIcon and MaskAlertIcon.Visible then
+                    TweenService:Create(MaskAlertIcon, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { ImageTransparency = 1 }):Play()
+                end
+                TweenService:Create(MaskAlertSub, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1 }):Play()
+                TweenService:Create(MaskAlertTitle, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1 }):Play()
+                TweenService:Create(MaskAlertTip, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1 }):Play()
+                animOut:Play()
+                task.wait(0.32)
+                if MaskAlertToken == currentToken and MaskAlertBanner then
+                    MaskAlertBanner.Visible = false
+                end
+            end
+        end)
+    end)
+end
 local AbyssBurstCooldownEnd = 0
 local AbyssSlashCooldownEnd = 0
 local KillerFrenzyCooldownEnd = 0
@@ -585,19 +1025,27 @@ local function SetupPlayerCooldownHooks(player)
                 SetItemCooldown(player, "Parrying Dagger", 60)
             elseif attrName == "Mask" then
                 local m = char:GetAttribute("Mask")
-                if m and m ~= "Richard" and LastMaskedState == "Richard" then
+                if m and m ~= "Richard" and LastMaskedState ~= m then
                     MaskedActiveEnd = os.clock() + 68
                     MaskedCooldownEnd = 0
+                    local prevMask = LastMaskedState
                     LastMaskedState = m
+                    TriggerMaskAlert(m, true)
                 elseif m == "Richard" and LastMaskedState ~= "Richard" then
                     MaskedActiveEnd = 0
                     MaskedCooldownEnd = os.clock() + 30
+                    local prevMask = LastMaskedState
                     LastMaskedState = "Richard"
+                    TriggerMaskAlert(prevMask, false)
                 end
             elseif attrName == "MaskExpired" and char:GetAttribute("MaskExpired") == true then
-                MaskedActiveEnd = 0
-                MaskedCooldownEnd = os.clock() + 30
-                LastMaskedState = "Richard"
+                if LastMaskedState ~= "Richard" then
+                    local prevMask = LastMaskedState
+                    MaskedActiveEnd = 0
+                    MaskedCooldownEnd = os.clock() + 30
+                    LastMaskedState = "Richard"
+                    TriggerMaskAlert(prevMask, false)
+                end
             elseif (attrName == "overridelookscript" or attrName == "Aiming") and char:GetAttribute(attrName) == true then
                 local eqItem = player:GetAttribute("EquippedItem")
                 if eqItem == "Riot Shield" or char:FindFirstChild("Riot Shield") then
@@ -1083,17 +1531,23 @@ task.spawn(function()
                 table.insert(ScriptConnections, maskRem.OnClientEvent:Connect(function(maskName)
                     MaskedActiveEnd = os.clock() + 68
                     MaskedCooldownEnd = 0
-                    if maskName and typeof(maskName) == "string" and maskName ~= "" then
-                        LastMaskedState = maskName
+                    local m = (maskName and typeof(maskName) == "string" and maskName ~= "") and maskName or "Cobra"
+                    if LastMaskedState ~= m then
+                        LastMaskedState = m
+                        TriggerMaskAlert(m, true)
                     end
                 end))
             end
             local deactRem = maskedRem:FindFirstChild("Deactivatepower")
             if deactRem then
                 table.insert(ScriptConnections, deactRem.OnClientEvent:Connect(function()
-                    MaskedActiveEnd = 0
-                    MaskedCooldownEnd = os.clock() + 30
-                    LastMaskedState = "Richard"
+                    if LastMaskedState ~= "Richard" then
+                        local prev = LastMaskedState
+                        MaskedActiveEnd = 0
+                        MaskedCooldownEnd = os.clock() + 30
+                        LastMaskedState = "Richard"
+                        TriggerMaskAlert(prev, false)
+                    end
                 end))
             end
         end
@@ -1140,23 +1594,155 @@ Window.UnlockMouse = true
 _G.Nexara_CurrentInstance = Nexara
 _G.Nexara_CurrentWindow = Window
 
--- Invisible modal button inside window to natively unlock mouse in first-person without vanishing
+-- Hook PlayerScripts CameraModule to eliminate mouse flickering completely in first-person
+local CameraHooks = {
+    modalGui = nil,
+    modalBtn = nil,
+    cameraUtils = nil,
+    cameraInput = nil,
+    origSetMouseBehavior = nil,
+    origRestoreMouseBehavior = nil,
+    origSetMouseIcon = nil,
+    origGetRotation = nil,
+}
+
+local function SetupPlayerGuiModal()
+    pcall(function()
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return end
+        if CameraHooks.modalGui and CameraHooks.modalGui.Parent == pg then return end
+        if CameraHooks.modalGui then pcall(function() CameraHooks.modalGui:Destroy() end) end
+
+        local old = pg:FindFirstChild("Nexara_ModalGui")
+        if old then pcall(function() old:Destroy() end) end
+
+        local mg = Instance.new("ScreenGui")
+        mg.Name = "Nexara_ModalGui"
+        mg.ResetOnSpawn = false
+        mg.DisplayOrder = 999999
+        mg.Enabled = Window and Window.Visible or false
+
+        local mb = Instance.new("TextButton")
+        mb.Name = "ModalBtn"
+        mb.Size = UDim2.fromOffset(0, 0)
+        mb.Position = UDim2.fromOffset(0, 0)
+        mb.BackgroundTransparency = 1
+        mb.Text = ""
+        mb.Modal = true
+        mb.Active = true
+        mb.Visible = Window and Window.Visible or false
+        mb.Parent = mg
+        mg.Parent = pg
+
+        CameraHooks.modalGui = mg
+        CameraHooks.modalBtn = mb
+    end)
+end
+
 local modalUnlockBtn = Instance.new("TextButton")
 modalUnlockBtn.Name = "Nexara_ModalUnlock"
-modalUnlockBtn.Size = UDim2.fromOffset(10, 10)
+modalUnlockBtn.Size = UDim2.fromOffset(2, 2)
 modalUnlockBtn.Position = UDim2.fromOffset(0, 0)
 modalUnlockBtn.BackgroundTransparency = 1
 modalUnlockBtn.Text = ""
 modalUnlockBtn.Modal = true
 modalUnlockBtn.Selectable = false
-modalUnlockBtn.Active = false
+modalUnlockBtn.Active = true
 modalUnlockBtn.Visible = Window.Visible
-modalUnlockBtn.Parent = Window.MainFrame or Window.Gui
+modalUnlockBtn.Parent = Window.Gui or Window.MainFrame
+
+pcall(function()
+    local ps = LocalPlayer:FindFirstChild("PlayerScripts")
+    local pm = ps and ps:FindFirstChild("PlayerModule")
+    local cm = pm and pm:FindFirstChild("CameraModule")
+    if not cm then return end
+
+    local cu = require(cm:WaitForChild("CameraUtils", 5))
+    local ci = require(cm:WaitForChild("CameraInput", 5))
+    if not cu or not ci then return end
+
+    CameraHooks.cameraUtils = cu
+    CameraHooks.cameraInput = ci
+
+    if not cu._nexara_hooked then
+        cu._nexara_hooked = true
+        CameraHooks.origSetMouseBehavior = cu.setMouseBehaviorOverride
+        CameraHooks.origRestoreMouseBehavior = cu.restoreMouseBehavior
+        CameraHooks.origSetMouseIcon = cu.setMouseIconOverride
+
+        cu.setMouseBehaviorOverride = function(val)
+            if Window and Window.Visible then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                UserInputService.MouseIconEnabled = true
+                return
+            end
+            return CameraHooks.origSetMouseBehavior(val)
+        end
+
+        cu.restoreMouseBehavior = function()
+            if Window and Window.Visible then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                UserInputService.MouseIconEnabled = true
+                return
+            end
+            return CameraHooks.origRestoreMouseBehavior()
+        end
+
+        cu.setMouseIconOverride = function(icon)
+            if Window and Window.Visible then
+                return
+            end
+            return CameraHooks.origSetMouseIcon(icon)
+        end
+    end
+
+    if ci and not ci._nexara_hooked then
+        ci._nexara_hooked = true
+        CameraHooks.origGetRotation = ci.getRotation
+
+        ci.getRotation = function(...)
+            if Window and Window.Visible then
+                return Vector2.zero
+            end
+            return CameraHooks.origGetRotation(...)
+        end
+    end
+end)
+
+SetupPlayerGuiModal()
+
+local origSetVisible = Window.SetVisible
+function Window:SetVisible(state, instant)
+    origSetVisible(self, state, instant)
+    task.defer(function()
+        if modalUnlockBtn and modalUnlockBtn.Parent then
+            modalUnlockBtn.Visible = Window.Visible
+            modalUnlockBtn.Active = Window.Visible
+        end
+        if CameraHooks.modalGui then CameraHooks.modalGui.Enabled = Window.Visible end
+        if CameraHooks.modalBtn then
+            CameraHooks.modalBtn.Visible = Window.Visible
+            CameraHooks.modalBtn.Active = Window.Visible
+        end
+        if UpdateMouseUnlockBinding then
+            UpdateMouseUnlockBinding()
+        end
+    end)
+end
 
 if Window.MainFrame then
     table.insert(ScriptConnections, Window.MainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
-        modalUnlockBtn.Visible = Window.MainFrame.Visible
-        if Window.MainFrame.Visible then
+        local isVis = Window.MainFrame.Visible
+        if modalUnlockBtn and modalUnlockBtn.Parent then
+            modalUnlockBtn.Visible = isVis
+            modalUnlockBtn.Active = isVis
+        end
+        if CameraHooks.modalGui then CameraHooks.modalGui.Enabled = isVis end
+        if CameraHooks.modalBtn then
+            CameraHooks.modalBtn.Visible = isVis
+            CameraHooks.modalBtn.Active = isVis
+        end
+        if isVis then
             UserInputService.MouseBehavior = Enum.MouseBehavior.Default
             UserInputService.MouseIconEnabled = true
         end
@@ -1351,23 +1937,6 @@ function Window:CreateTab(tabName, tabIcon)
     return TabObj
 end
 
--- Priority 2000 (RenderPriority.Last.Value) runs strictly AFTER Roblox's CameraModule (priority 200),
--- guaranteeing the cursor will never be locked to center while the UI window is visible!
-pcall(function()
-    RunService:BindToRenderStep("Nexara_MouseUnlock", Enum.RenderPriority.Last.Value, function()
-        if Window and Window.Visible then
-            if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
-                UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-            end
-            if not UserInputService.MouseIconEnabled then
-                UserInputService.MouseIconEnabled = true
-            end
-            if modalUnlockBtn and not modalUnlockBtn.Visible then
-                modalUnlockBtn.Visible = true
-            end
-        end
-    end)
-end)
 
 
 -- Nexara:AddWatermark("Nexara Studio") -- Removed name watermark as requested
@@ -1637,6 +2206,8 @@ local StatusToPerkMap = {
     ["tradeoff"] = "Trade Off",
 }
 
+local LastPerkScanTime = {}
+
 -- EXACT PERKS RESOLUTION (RESPECTS EXACT SLOTS, NO FAKE FILLERS, LOBBY & IN-GAME VIEWABLE)
 GetPlayerPerks = function(player)
     local perks = {}
@@ -1645,7 +2216,19 @@ GetPlayerPerks = function(player)
     -- Reset cache if player is in lobby so match data never bleeds across sessions
     if IsInLobby() or IsPlayerInLobby(player) then
         PersistentPerksCache[player] = nil
+        LastPerkScanTime[player] = nil
     end
+
+    -- Fast-path: If perks already resolved in match, return immediately without re-scanning descendants!
+    if not IsInLobby() and PersistentPerksCache[player] and #PersistentPerksCache[player] > 0 then
+        return PersistentPerksCache[player]
+    end
+
+    local now = os.clock()
+    if not IsInLobby() and LastPerkScanTime[player] and (now - LastPerkScanTime[player] < 4.0) then
+        return PersistentPerksCache[player] or perks
+    end
+    LastPerkScanTime[player] = now
 
     local isK = IsKiller(player)
     local targetNorm = isK and KnownKillerPerksNormalized or KnownSurvivorPerksNormalized
@@ -2157,21 +2740,26 @@ local function GetPlayerSkillInfo(player)
             local currentMask = char:GetAttribute("Mask") or "Richard"
             local now = os.clock()
 
-            if currentMask ~= "Richard" and LastMaskedState == "Richard" then
+            if currentMask ~= "Richard" and LastMaskedState ~= currentMask then
                 MaskedActiveEnd = now + 68
                 MaskedCooldownEnd = 0
                 LastMaskedState = currentMask
+                TriggerMaskAlert(currentMask, true)
             elseif currentMask == "Richard" and LastMaskedState ~= "Richard" then
+                local prev = LastMaskedState
                 MaskedActiveEnd = 0
                 MaskedCooldownEnd = now + 30
                 LastMaskedState = "Richard"
+                TriggerMaskAlert(prev, false)
             end
 
             local activeLeft = math.max(0, math.ceil(MaskedActiveEnd - now))
             local cdLeft = math.max(0, math.ceil(MaskedCooldownEnd - now))
 
             if currentMask ~= "Richard" and activeLeft > 0 then
-                table.insert(skillEntries, string.format("Mask: %s [Active %ds]", currentMask, activeLeft))
+                local mInfo = ResolveMaskInfo(currentMask)
+                local eff = mInfo and mInfo.Effect or currentMask
+                table.insert(skillEntries, string.format("Mask: %s [%s] (%ds)", currentMask, eff, activeLeft))
             elseif cdLeft > 0 then
                 table.insert(skillEntries, string.format("Mask [CD %ds]", cdLeft))
             else
@@ -2351,6 +2939,55 @@ local CachedWindows = {}
 local CachedGates = {}
 local lastMapScan = 0
 
+-- Pallet State Tracking & Cleanup
+local PalletDrawings = {}
+local PalletAuras = {}
+local DroppedPallets = {}
+local BrokenPallets = {}
+
+local function MarkPalletBroken(model)
+    if not model then return end
+    BrokenPallets[model] = true
+    DroppedPallets[model] = nil
+    local hl = PalletAuras[model]
+    if hl then
+        pcall(function()
+            hl.Enabled = false
+            hl:Destroy()
+        end)
+        PalletAuras[model] = nil
+    end
+    local txt = PalletDrawings[model]
+    if txt then
+        pcall(function()
+            txt.Visible = false
+            txt:Remove()
+        end)
+        PalletDrawings[model] = nil
+    end
+end
+
+local function IsPalletBroken(model, prim)
+    if not model or not model.Parent or not model:IsDescendantOf(Workspace) then
+        return true
+    end
+    if BrokenPallets[model] then
+        return true
+    end
+    if model:GetAttribute("Destroyed") == true or model:GetAttribute("Broken") == true
+       or model:GetAttribute("isBroken") == true or model:GetAttribute("isDestroyed") == true
+       or model:GetAttribute("State") == "Broken" or model:GetAttribute("State") == "Destroyed" then
+        BrokenPallets[model] = true
+        return true
+    end
+    local pPart = prim or model.PrimaryPart or model:FindFirstChild("PrimaryPartPallet") or model:FindFirstChildWhichIsA("BasePart")
+    if not pPart or not pPart.Parent or not pPart:IsDescendantOf(model) or pPart.Transparency >= 0.99 then
+        BrokenPallets[model] = true
+        return true
+    end
+    return false
+end
+
 local function UpdateBackgroundCache()
     pcall(function()
         local inLobby = IsInLobby()
@@ -2366,13 +3003,25 @@ local function UpdateBackgroundCache()
                     local isK = IsKiller(p)
                     local perks = GetPlayerPerks(p)
                     local skill, isReady = GetPlayerSkillInfo(p)
-                    CachedPlayerData[p] = {
-                        IsKiller = isK,
-                        Perks = perks,
-                        SkillInfo = skill,
-                        ItemReady = isReady,
-                        DisplayName = p.DisplayName,
-                    }
+                    if isK and type(skill) == "string" then
+                        if skill:find("^Skill:") then
+                            skill = skill:gsub("^Skill:%s*", "[SKILL] ")
+                        elseif not skill:find("^%[SKILL%]") then
+                            skill = "[SKILL] " .. skill
+                        end
+                        skill = skill:gsub("%s*|%s*CHASING", ""):gsub("%[CHASING%]", "")
+                    end
+                    local entry = CachedPlayerData[p]
+                    if not entry then
+                        entry = {}
+                        CachedPlayerData[p] = entry
+                    end
+                    entry.IsKiller = isK
+                    entry.Perks = perks or {}
+                    entry.PerksFormatted = (perks and #perks > 0) and table.concat(perks, " | ") or ""
+                    entry.SkillInfo = skill or false
+                    entry.ItemReady = isReady
+                    entry.DisplayName = p.DisplayName
                 end
             end
         end
@@ -2384,7 +3033,7 @@ local function UpdateBackgroundCache()
             end
         end
 
-        -- Map objects: only scan when in match, throttled to every 3.0s (saves 90% CPU overhead)
+        -- Map objects: only scan once per match when needed (saves 100% recurring CPU spikes)
         if inLobby then
             if #CachedGenerators > 0 then table.clear(CachedGenerators) end
             if #CachedPallets > 0 then table.clear(CachedPallets) end
@@ -2394,7 +3043,12 @@ local function UpdateBackgroundCache()
             return
         end
 
-        if now - lastMapScan < 3.0 and #CachedGenerators > 0 then
+        -- If map objects are already cached for this match, never re-scan GetDescendants
+        if #CachedGenerators > 0 and #CachedPallets > 0 then
+            return
+        end
+
+        if now - lastMapScan < 5.0 then
             return
         end
         lastMapScan = now
@@ -2417,7 +3071,12 @@ local function UpdateBackgroundCache()
         local function registerVault(container, refPart, sillType)
             if not refPart or not refPart:IsA("BasePart") then return end
             -- Reject gigantic building structures (must be actual vault part or trigger)
-            if refPart.Size.X > 12 or refPart.Size.Y > 12 or refPart.Size.Z > 12 then return end
+            if refPart.Size.X > 10 or refPart.Size.Y > 10 or refPart.Size.Z > 10 then return end
+            -- Reject random parts named "Part" unless the parent model is explicitly named Window or Vault
+            local cName = container and container.Name:lower() or (refPart.Parent and refPart.Parent.Name:lower() or "")
+            if (refPart.Name == "Part" or refPart.Name == "Union" or refPart.Name == "MeshPart") and not (cName:find("window") or cName:find("vault")) then
+                return
+            end
             if isNearExistingVault(refPart.Position) then return end
             table.insert(windows, {
                 Model = container or refPart.Parent,
@@ -2480,16 +3139,17 @@ local function UpdateBackgroundCache()
         -- 1. Universal Multi-Map Vault Detection: CollectionService tags
         pcall(function()
             local CollectionService = game:GetService("CollectionService")
-            for _, tag in ipairs({"VaultPoint", "Vault", "Window", "VaultLedge", "VaultSpot", "WindowVault"}) do
+            for _, tag in ipairs({"VaultPoint", "Vault", "Window", "VaultLedge", "VaultSpot", "WindowVault", "window", "vault"}) do
                 for _, vt in ipairs(CollectionService:GetTagged(tag)) do
-                    local directPart = vt:IsA("BasePart") and vt or vt:FindFirstAncestorWhichIsA("BasePart")
-                    local container = vt:IsA("Model") and vt or (vt.Parent and vt.Parent:IsA("Model") and vt.Parent) or vt:FindFirstAncestorOfClass("Model")
-                    if container and (container == Workspace or container.Name == "Map" or container.Name:lower():find("house") or container.Name:lower():find("building") or container.Name:lower():find("ruin")) then
-                        if vt.Parent and vt.Parent:IsA("Model") and vt.Parent.Name ~= "Map" and vt.Parent ~= Workspace then
-                            container = vt.Parent
-                        else
-                            container = nil
-                        end
+                    local directPart = vt:IsA("BasePart") and vt or vt:FindFirstChildWhichIsA("BasePart")
+                    local container = nil
+                    if vt:IsA("Model") then
+                        container = vt
+                    elseif vt.Parent and vt.Parent:IsA("Model") then
+                        container = vt.Parent
+                    end
+                    if container and (container == Workspace or container.Name == "Map" or container.Name:lower():find("house") or container.Name:lower():find("building") or container.Name:lower():find("ruin") or (container.Name:lower() == "model" and not container:FindFirstChild("Bottom") and not container:FindFirstChild("VaultTrigger"))) then
+                        container = nil
                     end
                     if not container or not winSeen[container] then
                         if container then winSeen[container] = true end
@@ -2505,12 +3165,10 @@ local function UpdateBackgroundCache()
             for _, tag in ipairs({"Pallet", "Pallets", "DroppablePallet", "InteractablePallet"}) do
                 for _, p in ipairs(CollectionService:GetTagged(tag)) do
                     local model = p:IsA("Model") and p or p:FindFirstAncestorOfClass("Model") or p.Parent
-                    if model and model:IsA("Model") and not palletSeen[model] then
-                        if model:GetAttribute("Destroyed") ~= true and model:GetAttribute("Broken") ~= true then
-                            palletSeen[model] = true
-                            local part = model:FindFirstChild("PrimaryPartPallet") or model:FindFirstChild("Wood") or model:FindFirstChild("PalletWood") or model:FindFirstChild("Hitbox") or model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
-                            if part then table.insert(pallets, { Model = model, Part = part, PalletWood = model }) end
-                        end
+                    if model and model:IsA("Model") and not palletSeen[model] and not IsPalletBroken(model) then
+                        palletSeen[model] = true
+                        local part = model:FindFirstChild("PrimaryPartPallet") or model:FindFirstChild("Wood") or model:FindFirstChild("PalletWood") or model:FindFirstChild("Hitbox") or model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+                        if part and not IsPalletBroken(model, part) then table.insert(pallets, { Model = model, Part = part, PalletWood = model }) end
                     end
                 end
             end
@@ -2551,24 +3209,25 @@ local function UpdateBackgroundCache()
                                          (dName:find("pallet") ~= nil) or
                                          (d:FindFirstChild("PrimaryPartPallet") ~= nil) or
                                          (d:FindFirstChild("DropPrompt", true) ~= nil)
-                        if isPallet and d:GetAttribute("Destroyed") ~= true and d:GetAttribute("Broken") ~= true then
+                        if isPallet and not IsPalletBroken(d) then
                             palletSeen[d] = true
                             local part = d:FindFirstChild("PrimaryPartPallet") or d:FindFirstChild("Wood") or d:FindFirstChild("PalletWood") or d:FindFirstChild("Hitbox") or d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                            if part then table.insert(pallets, { Model = d, Part = part, PalletWood = d }) end
+                            if part and not IsPalletBroken(d, part) then table.insert(pallets, { Model = d, Part = part, PalletWood = d }) end
                         end
                     end
                 end
 
-                -- Window / Vault detection across all maps (handle models inside folders named Windows or Vaults or with VaultTrigger)
+                -- Window / Vault detection across all maps (handle models named Window or Vault, NEVER entire building models)
                 if d:IsA("Model") and not winSeen[d] then
                     local dName = d.Name:lower()
                     local pName = d.Parent and d.Parent.Name:lower() or ""
-                    local hasTrigger = d:FindFirstChild("VaultTrigger", true) ~= nil
-                    local hasBottom = d:FindFirstChild("Bottom") ~= nil or d:FindFirstChild("Ledge") ~= nil
-                    local isWindow = hasTrigger or (hasBottom and (dName:find("window") or dName:find("vault") or pName == "windows" or pName == "vaults" or pName == "vaultpoints"))
+                    local hasDirectTrigger = d:FindFirstChild("VaultTrigger") ~= nil
+                    local hasDirectBottom = d:FindFirstChild("Bottom") ~= nil or d:FindFirstChild("Ledge") ~= nil
+                    local isWindowName = (dName == "window" or dName:find("vault") ~= nil or pName == "windows" or pName == "vaults" or pName == "vaultpoints")
+                    local isWindow = (isWindowName and (hasDirectTrigger or hasDirectBottom)) or (hasDirectTrigger and hasDirectBottom)
                     if isWindow then
                         winSeen[d] = true
-                        local trigger = d:FindFirstChild("VaultTrigger", true)
+                        local trigger = d:FindFirstChild("VaultTrigger")
                         local bestPart, sillType = findBestVaultPart(d, trigger and trigger:IsA("BasePart") and trigger)
                         if bestPart then
                             registerVault(d, bestPart, sillType)
@@ -2602,13 +3261,30 @@ end)
 UpdateBackgroundCache()
 task.spawn(function()
     while ScriptRunning do
-        task.wait(0.3)
+        task.wait(1.0)
         UpdateBackgroundCache()
     end
 end)
 
 -- ======== ESP DRAWING SYSTEM (SEPARATED SURVIVOR BOX & KILLER SKELETON) ========
 local ESP_Objects = {}
+
+local function hidePlayerESP(esp)
+    if esp.IsHidden then return end
+    esp.IsHidden = true
+    if esp.BoxOutline.Visible then esp.BoxOutline.Visible = false end
+    if esp.Box.Visible then esp.Box.Visible = false end
+    if esp.TopText.Visible then esp.TopText.Visible = false end
+    if esp.BottomText.Visible then esp.BottomText.Visible = false end
+    if esp.PerkText.Visible then esp.PerkText.Visible = false end
+    if esp.SkillText.Visible then esp.SkillText.Visible = false end
+    for _, l in pairs(esp.Skeleton) do
+        if l.Visible then l.Visible = false end
+    end
+    if esp.Chams and esp.Chams.Enabled then
+        esp.Chams.Enabled = false
+    end
+end
 
 local function CreatePlayerESP(player)
     local esp = {
@@ -2619,14 +3295,24 @@ local function CreatePlayerESP(player)
         BottomText = Drawing.new("Text"),
         PerkText = Drawing.new("Text"),
         SkillText = Drawing.new("Text"),
-        -- Killer Skeleton Lines (Sleek Hot Pink stick figure)
+        -- Anatomical Skeleton Lines (Model-accurate 14 bones)
         Skeleton = {
+            Head = Drawing.new("Line"),
             Spine = Drawing.new("Line"),
-            LeftArm = Drawing.new("Line"),
-            RightArm = Drawing.new("Line"),
-            LeftLeg = Drawing.new("Line"),
-            RightLeg = Drawing.new("Line"),
-        }
+            LeftCollar = Drawing.new("Line"),
+            LeftArmUpper = Drawing.new("Line"),
+            LeftArmLower = Drawing.new("Line"),
+            RightCollar = Drawing.new("Line"),
+            RightArmUpper = Drawing.new("Line"),
+            RightArmLower = Drawing.new("Line"),
+            LeftPelvis = Drawing.new("Line"),
+            LeftLegUpper = Drawing.new("Line"),
+            LeftLegLower = Drawing.new("Line"),
+            RightPelvis = Drawing.new("Line"),
+            RightLegUpper = Drawing.new("Line"),
+            RightLegLower = Drawing.new("Line"),
+        },
+        Chams = nil
     }
 
     esp.BoxOutline.Thickness = 3
@@ -2663,6 +3349,10 @@ local function CreatePlayerESP(player)
             for _, line in pairs(self.Skeleton) do
                 line:Remove()
             end
+            if self.Chams then
+                self.Chams:Destroy()
+                self.Chams = nil
+            end
         end)
     end
 
@@ -2693,7 +3383,7 @@ end))
 
 -- Objective Drawings mapped directly by Instance (PREVENTS SWAPPING & SHAKING)
 local GenDrawings = {}
-local PalletDrawings = {}
+PalletDrawings = PalletDrawings or {}
 local WindowDrawings = {}
 local GateDrawings = {}
 
@@ -2707,30 +3397,27 @@ TopKillerSkillText.Color = Color3.fromRGB(80, 220, 255)
 TopKillerSkillText.Visible = false
 
 -- 3D Glowing Auras (Highlights)
-local PalletAuras = {}
+PalletAuras = PalletAuras or {}
 local WindowAuras = {}
 local WindowAdornments = {}
 
 -- Pallet & Window State Tracking (Dropped Pallets & Blocked Vaults)
-local DroppedPallets = {}
+DroppedPallets = DroppedPallets or {}
 local BlockedWindows = {}
 local BlockedWindowPositions = {}
 local LastKillerVaultingState = {}
 
 local function IsPalletDropped(model, prim)
-    if not model then return false end
+    if not model or BrokenPallets[model] then return false end
     if DroppedPallets[model] then return true end
     if model:GetAttribute("Dropped") == true or model:GetAttribute("isDropped") == true or model:GetAttribute("isdropped") == true or model:GetAttribute("State") == "Dropped" then
-        return true
-    end
-    if model:FindFirstChild("PalletPointSlide", true) or model:FindFirstChild("SlidePoint", true) or model:FindFirstChild("DestroyPrompt", true) then
+        DroppedPallets[model] = true
         return true
     end
     local pPart = prim or model.PrimaryPart or model:FindFirstChild("PrimaryPartPallet") or model:FindFirstChildWhichIsA("BasePart")
-    if pPart then
-        if math.abs(pPart.CFrame.UpVector.Y) < 0.45 then
-            return true
-        end
+    if pPart and math.abs(pPart.CFrame.UpVector.Y) < 0.45 then
+        DroppedPallets[model] = true
+        return true
     end
     return false
 end
@@ -2967,7 +3654,7 @@ pcall(function()
     end
 end)
 
--- Network listeners for Pallet Drops
+-- Network listeners for Pallet Drops & Pallet Breaks
 pcall(function()
     local remPallet = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Pallet")
     if remPallet then
@@ -2975,7 +3662,7 @@ pcall(function()
         if dropAnim and dropAnim:IsA("RemoteEvent") then
             table.insert(ScriptConnections, dropAnim.OnClientEvent:Connect(function(p1, p2)
                 local target = p2 or p1
-                local win = target and (target:IsA("Model") and target or target.Parent)
+                local win = target and (target:IsA("Model") and target or target:FindFirstAncestorOfClass("Model") or target.Parent)
                 if win then DroppedPallets[win] = true end
             end))
         end
@@ -2983,8 +3670,46 @@ pcall(function()
         if dropEvent and dropEvent:IsA("RemoteEvent") then
             table.insert(ScriptConnections, dropEvent.OnClientEvent:Connect(function(p1, p2)
                 local target = p2 or p1
-                local win = target and (target:IsA("Model") and target or target.Parent)
+                local win = target and (target:IsA("Model") and target or target:FindFirstAncestorOfClass("Model") or target.Parent)
                 if win then DroppedPallets[win] = true end
+            end))
+        end
+        local jason = remPallet:FindFirstChild("Jason")
+        if jason then
+            for _, rName in ipairs({"Destroy", "Destroy-Global", "PalletBreakCommit"}) do
+                local r = jason:FindFirstChild(rName)
+                if r and r:IsA("RemoteEvent") then
+                    table.insert(ScriptConnections, r.OnClientEvent:Connect(function(p1, p2)
+                        local target = p1 or p2
+                        local win = target and (target:IsA("Model") and target or target:FindFirstAncestorOfClass("Model"))
+                        if win then
+                            MarkPalletBroken(win)
+                        else
+                            for _, p in ipairs(Players:GetPlayers()) do
+                                if IsKiller(p) and p.Character then
+                                    local kRoot = p.Character:FindFirstChild("HumanoidRootPart")
+                                    if kRoot then
+                                        for _, item in ipairs(CachedPallets) do
+                                            local m = item.Model
+                                            local rPart = item.Part
+                                            if m and rPart and rPart.Parent and (rPart.Position - kRoot.Position).Magnitude < 12 then
+                                                MarkPalletBroken(m)
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end))
+                end
+            end
+        end
+        local brokenEvt = remPallet:FindFirstChild("PalletBroken")
+        if brokenEvt and (brokenEvt:IsA("RemoteEvent") or brokenEvt:IsA("BindableEvent")) then
+            local connEvt = brokenEvt:IsA("RemoteEvent") and brokenEvt.OnClientEvent or brokenEvt.Event
+            table.insert(ScriptConnections, connEvt:Connect(function(target)
+                local win = target and (target:IsA("Model") and target or target:FindFirstAncestorOfClass("Model"))
+                if win then MarkPalletBroken(win) end
             end))
         end
     end
@@ -3072,6 +3797,9 @@ local function HideAllESP()
             if esp.Skeleton then
                 for _, l in pairs(esp.Skeleton) do l.Visible = false end
             end
+            if esp.Chams then
+                pcall(function() esp.Chams.Enabled = false end)
+            end
         end
         for _, txt in pairs(GenDrawings) do txt.Visible = false end
         for _, txt in pairs(PalletDrawings) do txt.Visible = false end
@@ -3090,6 +3818,21 @@ local function UnloadScript()
     pcall(function() RunService:UnbindFromRenderStep("Nexara_MouseUnlock") end)
     if modalUnlockBtn then
         pcall(function() modalUnlockBtn:Destroy() end)
+    end
+    if CameraHooks then
+        pcall(function()
+            if CameraHooks.cameraUtils and CameraHooks.cameraUtils._nexara_hooked then
+                if CameraHooks.origSetMouseBehavior then CameraHooks.cameraUtils.setMouseBehaviorOverride = CameraHooks.origSetMouseBehavior end
+                if CameraHooks.origRestoreMouseBehavior then CameraHooks.cameraUtils.restoreMouseBehavior = CameraHooks.origRestoreMouseBehavior end
+                if CameraHooks.origSetMouseIcon then CameraHooks.cameraUtils.setMouseIconOverride = CameraHooks.origSetMouseIcon end
+                CameraHooks.cameraUtils._nexara_hooked = nil
+            end
+            if CameraHooks.cameraInput and CameraHooks.cameraInput._nexara_hooked then
+                if CameraHooks.origGetRotation then CameraHooks.cameraInput.getRotation = CameraHooks.origGetRotation end
+                CameraHooks.cameraInput._nexara_hooked = nil
+            end
+            if CameraHooks.modalGui then CameraHooks.modalGui:Destroy() end
+        end)
     end
     for _, conn in ipairs(ScriptConnections) do
         pcall(function() conn:Disconnect() end)
@@ -3187,6 +3930,7 @@ _G.Nexara_VD_Cleanup = UnloadScript
 
 -- ======== MAIN TAB (Dashboard) ========
 local MainTab = Window:CreateTab("Main", "rbxassetid://7733960981")
+do
 local MainCol1 = MainTab:CreateColumn()
 local MainCol2 = MainTab:CreateColumn()
 
@@ -3436,9 +4180,11 @@ task.spawn(function()
         end)
     end
 end)
+end
 
 -- ======== VISUALS (ESP) TAB (SEGMENTED TOP CATEGORY NAVIGATION & 2-COLUMN LAYOUT) ========
 local TabVisuals = Window:CreateTab("Visuals", "rbxassetid://10723346959")
+do
 
 -- Destroy default UIListLayout on TabView so TopCategoryNav and ColumnsFrame can be freely animated with smooth slide-down
 local viewLayout = TabVisuals.View:FindFirstChildOfClass("UIListLayout")
@@ -3516,6 +4262,7 @@ secSurv1:AddToggle({ Name = "Enable Survivor ESP", Default = false, Callback = f
                 esp.PerkText.Visible = false
                 esp.SkillText.Visible = false
                 for _, l in pairs(esp.Skeleton) do l.Visible = false end
+                if esp.Chams then pcall(function() esp.Chams.Enabled = false end) end
             end
         end
     end
@@ -3532,6 +4279,38 @@ secSurv1:AddToggle({
                 if not IsKiller(p) then
                     esp.BoxOutline.Visible = false
                     esp.Box.Visible = false
+                end
+            end
+        end
+    end
+})
+secSurv1:AddToggle({
+    Name = "Survivor Skeleton",
+    Default = false,
+    Color = Config.Color_SurvivorSkeleton,
+    Callback = function(v, col)
+        Config.ESP_SurvivorSkeleton = v
+        if col then Config.Color_SurvivorSkeleton = col end
+        if not v then
+            for p, esp in pairs(ESP_Objects) do
+                if not IsKiller(p) then
+                    for _, l in pairs(esp.Skeleton) do l.Visible = false end
+                end
+            end
+        end
+    end
+})
+secSurv1:AddToggle({
+    Name = "Survivor Chams",
+    Default = false,
+    Color = Config.Color_SurvivorChams,
+    Callback = function(v, col)
+        Config.ESP_SurvivorChams = v
+        if col then Config.Color_SurvivorChams = col end
+        if not v then
+            for p, esp in pairs(ESP_Objects) do
+                if not IsKiller(p) and esp.Chams then
+                    pcall(function() esp.Chams.Enabled = false end)
                 end
             end
         end
@@ -3605,6 +4384,7 @@ secKiller1:AddToggle({ Name = "Enable Killer ESP", Default = false, Callback = f
                 esp.PerkText.Visible = false
                 esp.SkillText.Visible = false
                 for _, l in pairs(esp.Skeleton) do l.Visible = false end
+                if esp.Chams then pcall(function() esp.Chams.Enabled = false end) end
             end
         end
     end
@@ -3630,6 +4410,22 @@ secKiller1:AddSlider({ Name = "Skeleton Line Width", Min = 1, Max = 3, Default =
     end
 end })
 secKiller1:AddToggle({
+    Name = "Killer Chams",
+    Default = false,
+    Color = Config.Color_KillerChams,
+    Callback = function(v, col)
+        Config.ESP_KillerChams = v
+        if col then Config.Color_KillerChams = col end
+        if not v then
+            for p, esp in pairs(ESP_Objects) do
+                if IsKiller(p) and esp.Chams then
+                    pcall(function() esp.Chams.Enabled = false end)
+                end
+            end
+        end
+    end
+})
+secKiller1:AddToggle({
     Name = "Killer Name & Distance",
     Default = false,
     Color = Config.Color_KillerNames,
@@ -3648,6 +4444,13 @@ secKiller1:AddToggle({
 })
 
 local secKiller2 = colV2:CreateSection("Killer Skills & Overlay")
+secKiller2:AddToggle({
+    Name = "The Masked: Mask Alert",
+    Default = true,
+    Callback = function(v)
+        Config.Alert_MaskChange = v
+    end
+})
 secKiller2:AddToggle({
     Name = "Killer Skills, Charges & CD",
     Default = false,
@@ -3709,7 +4512,10 @@ secObj2:AddToggle({
         if col then
             Config.Color_PalletAura = col
             for _, hl in pairs(PalletAuras) do
-                pcall(function() hl.FillColor = col end)
+                pcall(function()
+                    hl.FillColor = col
+                    hl.OutlineColor = col
+                end)
             end
         end
         if not v then
@@ -3948,6 +4754,7 @@ TabVisuals.View:GetPropertyChangedSignal("Visible"):Connect(function()
         playVisualsEntrance()
     end
 end)
+end
 
 -- ======== PLAYERLIST (DBD SCOREBOARD ROSTER) TAB ========
 -- In-game asset mapping (Perks, Items, Killers) pulled directly from game files
@@ -3980,7 +4787,7 @@ local KillerPowerIcons = {
     ["Hidden"] = "http://www.roblox.com/asset/?id=130915693370693",
     ["Stalker"] = "rbxassetid://110045688062234",
     ["Abysswalker"] = "rbxassetid://86213737463907",
-    ["Masked"] = "rbxassetid://138348124971869",
+    ["Masked"] = "rbxassetid://110441838520158",
     ["Killer"] = "rbxassetid://106695569058121",
 }
 
@@ -4307,6 +5114,7 @@ local function GetKillerPowerIcon(kName)
 end
 
 local TabPlayerlist = Window:CreateTab("Playerlist", "rbxassetid://10723415766")
+do
 local colRoster = TabPlayerlist:CreateColumn()
 colRoster.Frame.Size = UDim2.new(1, 0, 1, 0)
 
@@ -4966,6 +5774,7 @@ task.spawn(function()
         end
     end
 end)
+end
 
 
 
@@ -5024,6 +5833,7 @@ WrapConfigFlagsForAutoLoad()
 -- ======== SETTINGS TAB ========
 Window:CreateSettingsTab({ ConfigDirectory = "Nexara Studio Config", DefaultTheme = "NexaraTheme" })
 
+do
 -- Guarantee NexaraTheme and Stars weather exist in Dropdowns even when loading older GitHub UI
 local presetDrop = Window.ConfigFlags and Window.ConfigFlags["ThemePreset"]
 if presetDrop and presetDrop.Refresh then
@@ -5033,6 +5843,7 @@ end
 local weatherDrop = Window.ConfigFlags and Window.ConfigFlags["ThemeWeather"]
 if weatherDrop and weatherDrop.Refresh then
     weatherDrop:Refresh({"None", "Snow", "Rain", "Leaves", "Sakura", "Stars", "Shooting Stars"})
+end
 end
 
 WrapConfigFlagsForAutoLoad()
@@ -5108,8 +5919,11 @@ local function SynchronizeConfigState()
     end
 
     Config.Color_SurvivorBox = syncCol("Survivor 2D Boxes", Config.Color_SurvivorBox)
+    Config.Color_SurvivorSkeleton = syncCol("Survivor Skeleton", Config.Color_SurvivorSkeleton)
+    Config.Color_SurvivorChams = syncCol("Survivor Chams", Config.Color_SurvivorChams)
     Config.Color_SurvivorNames = syncCol("Survivor Names & Distance", Config.Color_SurvivorNames)
     Config.Color_KillerSkeleton = syncCol("Stick Skeleton", Config.Color_KillerSkeleton)
+    Config.Color_KillerChams = syncCol("Killer Chams", Config.Color_KillerChams)
     Config.Color_KillerNames = syncCol("Killer Name & Distance", Config.Color_KillerNames)
     Config.Color_KillerSkills = syncCol("Killer Skills, Charges & CD", Config.Color_KillerSkills)
     Config.Color_Generators = syncCol("Generator ESP", Config.Color_Generators)
@@ -5125,10 +5939,14 @@ local function SynchronizeConfigState()
 
     if cv["Enable Killer ESP"] ~= nil then Config.ESP_KillerEnabled = (cv["Enable Killer ESP"] == true) end
     if cv["Stick Skeleton"] ~= nil then Config.ESP_KillerSkeleton = (cv["Stick Skeleton"] == true) end
+    if cv["Killer Chams"] ~= nil then Config.ESP_KillerChams = (cv["Killer Chams"] == true) end
     if cv["Killer Name & Distance"] ~= nil then Config.ESP_KillerNames = (cv["Killer Name & Distance"] == true) end
     if cv["Killer Skills, Charges & CD"] ~= nil then Config.ESP_KillerSkills = (cv["Killer Skills, Charges & CD"] == true) end
+    if cv["The Masked: Mask Alert"] ~= nil then Config.Alert_MaskChange = (cv["The Masked: Mask Alert"] == true) end
     if cv["Enable Survivor ESP"] ~= nil then Config.ESP_SurvivorEnabled = (cv["Enable Survivor ESP"] == true) end
     if cv["Survivor 2D Boxes"] ~= nil then Config.ESP_SurvivorBoxes = (cv["Survivor 2D Boxes"] == true) end
+    if cv["Survivor Skeleton"] ~= nil then Config.ESP_SurvivorSkeleton = (cv["Survivor Skeleton"] == true) end
+    if cv["Survivor Chams"] ~= nil then Config.ESP_SurvivorChams = (cv["Survivor Chams"] == true) end
     if cv["Survivor Names & Distance"] ~= nil then Config.ESP_SurvivorNames = (cv["Survivor Names & Distance"] == true) end
     if cv["Survivor Status (Knock/Hook)"] ~= nil then Config.ESP_SurvivorStatus = (cv["Survivor Status (Knock/Hook)"] == true) end
     if cv["Survivor Items & Cooldowns"] ~= nil then Config.ESP_SurvivorSkills = (cv["Survivor Items & Cooldowns"] == true) end
@@ -5194,16 +6012,23 @@ local function UpdateMouseUnlockBinding()
         if not mouseUnlockBound then
             mouseUnlockBound = true
             pcall(function()
-                RunService:BindToRenderStep("Nexara_MouseUnlock", Enum.RenderPriority.Last.Value, function()
+                RunService:BindToRenderStep("Nexara_MouseUnlock", Enum.RenderPriority.Camera.Value + 1, function()
                     if Window and Window.Visible then
-                        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-                        UserInputService.MouseIconEnabled = true
+                        if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+                            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                        end
+                        if not UserInputService.MouseIconEnabled then
+                            UserInputService.MouseIconEnabled = true
+                        end
                     end
                 end)
             end)
         end
+        if CameraHooks.modalGui then CameraHooks.modalGui.Enabled = true end
+        if CameraHooks.modalBtn then CameraHooks.modalBtn.Visible = true; CameraHooks.modalBtn.Active = true end
         if modalUnlockBtn and modalUnlockBtn.Parent then
             modalUnlockBtn.Visible = true
+            modalUnlockBtn.Active = true
         end
         UserInputService.MouseBehavior = Enum.MouseBehavior.Default
         UserInputService.MouseIconEnabled = true
@@ -5212,12 +6037,18 @@ local function UpdateMouseUnlockBinding()
             mouseUnlockBound = false
             pcall(function() RunService:UnbindFromRenderStep("Nexara_MouseUnlock") end)
         end
+        if CameraHooks.modalGui then CameraHooks.modalGui.Enabled = false end
+        if CameraHooks.modalBtn then CameraHooks.modalBtn.Visible = false; CameraHooks.modalBtn.Active = false end
         if modalUnlockBtn and modalUnlockBtn.Parent then
             modalUnlockBtn.Visible = false
+            modalUnlockBtn.Active = false
         end
         if not IsInLobby() then
             UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
             UserInputService.MouseIconEnabled = false
+            if CameraHooks.origSetMouseBehavior then
+                pcall(function() CameraHooks.origSetMouseBehavior(Enum.MouseBehavior.LockCenter) end)
+            end
         else
             UserInputService.MouseBehavior = Enum.MouseBehavior.Default
             UserInputService.MouseIconEnabled = true
@@ -5237,17 +6068,21 @@ table.insert(ScriptConnections, UserInputService.InputBegan:Connect(function(inp
     end
 end))
 
--- Listen for Window.Visible property changes directly from UI library
+-- Listen for Window.Visible / MainFrame property changes directly from UI library
 pcall(function()
-    if Window and Window.Gui then
-        local mainFrame = Window.Gui:FindFirstChild("Main") or Window.Gui:FindFirstChildWhichIsA("Frame", true)
-        if mainFrame then
-            table.insert(ScriptConnections, mainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
-                UpdateMouseUnlockBinding()
-            end))
-        end
+    if Window and Window.MainFrame then
+        table.insert(ScriptConnections, Window.MainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+            UpdateMouseUnlockBinding()
+        end))
     end
 end)
+
+-- Re-sync mouse state when entering game or respawning
+table.insert(ScriptConnections, LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.2)
+    if SetupPlayerGuiModal then SetupPlayerGuiModal() end
+    UpdateMouseUnlockBinding()
+end))
 
 -- 2. Anti-cursor bug fix during in-match gameplay:
 -- When menu is closed and player is in match, clicking into game (MouseButton1 / MouseButton2)
@@ -5300,64 +6135,141 @@ table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
     end
 end))
 
--- ======== SKELETON DRAWER (R6 BONES - THIN & SLEEK) ========
+-- ======== SKELETON DRAWER (R6 ANATOMICAL BONES - MODEL ACCURATE) ========
+local SKEL_HEAD = Vector3.new(0, 0.4, 0)
+local SKEL_NECK = Vector3.new(0, 0.9, 0)
+local SKEL_PELVIS = Vector3.new(0, -0.9, 0)
+local SKEL_L_SHOULDER = Vector3.new(-1.0, 0.65, 0)
+local SKEL_R_SHOULDER = Vector3.new(1.0, 0.65, 0)
+local SKEL_ELBOW = Vector3.new(0, 0.05, 0)
+local SKEL_HAND = Vector3.new(0, -0.9, 0)
+local SKEL_L_HIP = Vector3.new(-0.5, -0.95, 0)
+local SKEL_R_HIP = Vector3.new(0.5, -0.95, 0)
+local SKEL_KNEE = Vector3.new(0, 0.05, 0)
+local SKEL_FOOT = Vector3.new(0, -0.95, 0)
+
+local function getSkelPoint(cf, offset)
+    local p = cf:PointToWorldSpace(offset)
+    local sp, vis = Camera:WorldToViewportPoint(p)
+    return Vector2.new(math.floor(sp.X), math.floor(sp.Y)), (vis and sp.Z > 0)
+end
+
+local function drawSkelLine(line, p1, v1, p2, v2, color, th)
+    if not line then return end
+    if v1 and v2 and p1 and p2 then
+        line.From = p1
+        line.To = p2
+        if line.Color ~= color then line.Color = color end
+        if line.Thickness ~= th then line.Thickness = th end
+        if not line.Visible then line.Visible = true end
+    else
+        if line.Visible then line.Visible = false end
+    end
+end
+
 local function UpdateSkeleton(char, lines, color, thickness)
     local head = char:FindFirstChild("Head")
     local torso = char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
-    local leftArm = char:FindFirstChild("Left Arm") or char:FindFirstChild("leftarm")
-    local rightArm = char:FindFirstChild("Right Arm") or char:FindFirstChild("rightarm")
-    local leftLeg = char:FindFirstChild("Left Leg") or char:FindFirstChild("leftleg")
-    local rightLeg = char:FindFirstChild("Right Leg") or char:FindFirstChild("rightleg")
+    local leftArm = char:FindFirstChild("Left Arm") or char:FindFirstChild("leftarm") or char:FindFirstChild("LeftUpperArm")
+    local rightArm = char:FindFirstChild("Right Arm") or char:FindFirstChild("rightarm") or char:FindFirstChild("RightUpperArm")
+    local leftLeg = char:FindFirstChild("Left Leg") or char:FindFirstChild("leftleg") or char:FindFirstChild("LeftUpperLeg")
+    local rightLeg = char:FindFirstChild("Right Leg") or char:FindFirstChild("rightleg") or char:FindFirstChild("RightUpperLeg")
 
     if not (head and torso) then
-        for _, l in pairs(lines) do l.Visible = false end
+        for _, l in pairs(lines) do if l.Visible then l.Visible = false end end
         return false, nil, nil
     end
 
-    local function getPoint(part, offset)
-        if not part then return nil, false end
-        local p = part.Position + (offset or Vector3.new())
-        local sp, vis = Camera:WorldToViewportPoint(p)
-        return Vector2.new(math.floor(sp.X), math.floor(sp.Y)), vis
+    local th = thickness or 1.3
+
+    -- Core Spine
+    local headPos, hVis = getSkelPoint(head.CFrame, SKEL_HEAD)
+    local neckPos, nVis = getSkelPoint(torso.CFrame, SKEL_NECK)
+    local pelvisPos, pVis = getSkelPoint(torso.CFrame, SKEL_PELVIS)
+
+    drawSkelLine(lines.Head, headPos, hVis, neckPos, nVis, color, th)
+    drawSkelLine(lines.Spine, neckPos, nVis, pelvisPos, pVis, color, th)
+
+    -- Left Arm (Anatomical: Neck -> Left Shoulder -> Left Elbow -> Left Hand)
+    local lShoulderPos, lsVis = getSkelPoint(torso.CFrame, SKEL_L_SHOULDER)
+    drawSkelLine(lines.LeftCollar, neckPos, nVis, lShoulderPos, lsVis, color, th)
+    if leftArm then
+        local lElbowPos, leVis = getSkelPoint(leftArm.CFrame, SKEL_ELBOW)
+        local lHandPos, lhVis = getSkelPoint(leftArm.CFrame, SKEL_HAND)
+        drawSkelLine(lines.LeftArmUpper, lShoulderPos, lsVis, lElbowPos, leVis, color, th)
+        drawSkelLine(lines.LeftArmLower, lElbowPos, leVis, lHandPos, lhVis, color, th)
+    else
+        if lines.LeftArmUpper and lines.LeftArmUpper.Visible then lines.LeftArmUpper.Visible = false end
+        if lines.LeftArmLower and lines.LeftArmLower.Visible then lines.LeftArmLower.Visible = false end
     end
 
-    local headPos, hVis = getPoint(head)
-    local neckPos, nVis = getPoint(torso, Vector3.new(0, 0.8, 0))
-    local waistPos, wVis = getPoint(torso, Vector3.new(0, -0.9, 0))
-    local lArmPos, laVis = getPoint(leftArm, Vector3.new(0, -0.6, 0))
-    local rArmPos, raVis = getPoint(rightArm, Vector3.new(0, -0.6, 0))
-    local lLegPos, llVis = getPoint(leftLeg, Vector3.new(0, -1.0, 0))
-    local rLegPos, rlVis = getPoint(rightLeg, Vector3.new(0, -1.0, 0))
-
-    local function drawL(line, p1, v1, p2, v2)
-        if v1 and v2 and p1 and p2 then
-            line.From = p1
-            line.To = p2
-            line.Color = color
-            line.Thickness = thickness or 1.3
-            line.Visible = true
-        else
-            line.Visible = false
-        end
+    -- Right Arm (Anatomical: Neck -> Right Shoulder -> Right Elbow -> Right Hand)
+    local rShoulderPos, rsVis = getSkelPoint(torso.CFrame, SKEL_R_SHOULDER)
+    drawSkelLine(lines.RightCollar, neckPos, nVis, rShoulderPos, rsVis, color, th)
+    if rightArm then
+        local rElbowPos, reVis = getSkelPoint(rightArm.CFrame, SKEL_ELBOW)
+        local rHandPos, rhVis = getSkelPoint(rightArm.CFrame, SKEL_HAND)
+        drawSkelLine(lines.RightArmUpper, rShoulderPos, rsVis, rElbowPos, reVis, color, th)
+        drawSkelLine(lines.RightArmLower, rElbowPos, reVis, rHandPos, rhVis, color, th)
+    else
+        if lines.RightArmUpper and lines.RightArmUpper.Visible then lines.RightArmUpper.Visible = false end
+        if lines.RightArmLower and lines.RightArmLower.Visible then lines.RightArmLower.Visible = false end
     end
 
-    drawL(lines.Spine, headPos, hVis, waistPos, wVis)
-    drawL(lines.LeftArm, neckPos, nVis, lArmPos, laVis)
-    drawL(lines.RightArm, neckPos, nVis, rArmPos, raVis)
-    drawL(lines.LeftLeg, waistPos, wVis, lLegPos, llVis)
-    drawL(lines.RightLeg, waistPos, wVis, rLegPos, rlVis)
+    -- Left Leg (Anatomical: Pelvis -> Left Hip -> Left Knee -> Left Foot)
+    local lHipPos, lhipVis = getSkelPoint(torso.CFrame, SKEL_L_HIP)
+    drawSkelLine(lines.LeftPelvis, pelvisPos, pVis, lHipPos, lhipVis, color, th)
+    local lowestLegPos = pelvisPos
+    if leftLeg then
+        local lKneePos, lkVis = getSkelPoint(leftLeg.CFrame, SKEL_KNEE)
+        local lFootPos, lfVis = getSkelPoint(leftLeg.CFrame, SKEL_FOOT)
+        drawSkelLine(lines.LeftLegUpper, lHipPos, lhipVis, lKneePos, lkVis, color, th)
+        drawSkelLine(lines.LeftLegLower, lKneePos, lkVis, lFootPos, lfVis, color, th)
+        if lfVis then lowestLegPos = lFootPos end
+    else
+        if lines.LeftLegUpper and lines.LeftLegUpper.Visible then lines.LeftLegUpper.Visible = false end
+        if lines.LeftLegLower and lines.LeftLegLower.Visible then lines.LeftLegLower.Visible = false end
+    end
 
-    return (hVis or wVis), headPos, (lLegPos or waistPos)
+    -- Right Leg (Anatomical: Pelvis -> Right Hip -> Right Knee -> Right Foot)
+    local rHipPos, rhipVis = getSkelPoint(torso.CFrame, SKEL_R_HIP)
+    drawSkelLine(lines.RightPelvis, pelvisPos, pVis, rHipPos, rhipVis, color, th)
+    if rightLeg then
+        local rKneePos, rkVis = getSkelPoint(rightLeg.CFrame, SKEL_KNEE)
+        local rFootPos, rfVis = getSkelPoint(rightLeg.CFrame, SKEL_FOOT)
+        drawSkelLine(lines.RightLegUpper, rHipPos, rhipVis, rKneePos, rkVis, color, th)
+        drawSkelLine(lines.RightLegLower, rKneePos, rkVis, rFootPos, rfVis, color, th)
+        if rfVis and not lowestLegPos then lowestLegPos = rFootPos end
+    else
+        if lines.RightLegUpper and lines.RightLegUpper.Visible then lines.RightLegUpper.Visible = false end
+        if lines.RightLegLower and lines.RightLegLower.Visible then lines.RightLegLower.Visible = false end
+    end
+
+    return (hVis or pVis), headPos, lowestLegPos
 end
 
 -- ======== ESP RENDERING (CAMERA POST-UPDATE) ========
+local RenderESP
+do
 local seenGens = {}
 local seenPallets = {}
 local seenWindows = {}
 local seenGates = {}
 local wasInLobby = false
+local lastPalletSortTime = 0
+local cachedPalletEntries = {}
+local function sortPalletByDist(a, b) return a.Dist < b.Dist end
+local lastPalletCheckTime = 0
+local cachedDroppingHRPPos = nil
 
-local function RenderESP()
+local menuPos = nil
+local menuSize = nil
+local function IsInMenu(sx, sy)
+    if not menuPos or not menuSize then return false end
+    return sx >= (menuPos.X - 20) and sx <= (menuPos.X + menuSize.X + 20) and sy >= (menuPos.Y - 45) and sy <= (menuPos.Y + menuSize.Y + 20)
+end
+
+function RenderESP()
     pcall(function()
         Camera = Workspace.CurrentCamera or Camera
         local inLobby = IsInLobby()
@@ -5374,8 +6286,11 @@ local function RenderESP()
             table.clear(PlayerItemCooldowns)
             table.clear(PlayerItemCache)
             table.clear(DroppedPallets)
+            table.clear(BrokenPallets)
             table.clear(BlockedWindows)
             table.clear(BlockedWindowPositions)
+            table.clear(cachedPalletEntries)
+            lastPalletSortTime = 0
         end
         wasInLobby = inLobby
         local myRoot = GetRoot(LocalPlayer)
@@ -5383,92 +6298,52 @@ local function RenderESP()
         local myPos = myRoot and myRoot.Position or camPos
 
         local mainFrame = Window and (Window.MainFrame or Window.Main)
-        local menuPos = (Window and Window.Visible and mainFrame and mainFrame.Visible) and mainFrame.AbsolutePosition or nil
-        local menuSize = menuPos and mainFrame.AbsoluteSize or nil
-        local function IsInMenu(sx, sy)
-            if not menuPos or not menuSize then return false end
-            return sx >= (menuPos.X - 20) and sx <= (menuPos.X + menuSize.X + 20) and sy >= (menuPos.Y - 45) and sy <= (menuPos.Y + menuSize.Y + 20)
-        end
+        menuPos = (Window and Window.Visible and mainFrame and mainFrame.Visible) and mainFrame.AbsolutePosition or nil
+        menuSize = menuPos and mainFrame.AbsoluteSize or nil
 
         -- Top Screen Killer Skill (Rendered directly under in-game match timer, hidden in lobby, post-match, or when playing as Killer)
         if not inLobby and not IsKiller(LocalPlayer) and Config.ESP_KillerEnabled and Config.ESP_KillerSkills then
             local killerPlr = nil
+            local killerData = nil
             for p, _ in pairs(ESP_Objects) do
                 local data = CachedPlayerData[p]
                 if (data and data.IsKiller) or IsKiller(p) then
                     killerPlr = p
+                    killerData = data
                     break
                 end
             end
 
             if killerPlr and killerPlr.Character and killerPlr ~= LocalPlayer then
-                local kSkillStr = GetPlayerSkillInfo(killerPlr)
-                if kSkillStr and #kSkillStr > 0 then
+                local kSkillStr = killerData and killerData.SkillInfo
+                if type(kSkillStr) == "string" and #kSkillStr > 0 then
                     local posX = math.floor(Camera.ViewportSize.X / 2)
-                    local posY = Config.TopKillerSkillYOffset or 58
+                    local posY = math.max(tonumber(Config.TopKillerSkillYOffset) or 58, 54)
                     local timerEnded = false
 
-                    pcall(function()
-                        local pg = LocalPlayer:FindFirstChild("PlayerGui")
-                        if pg then
-                            local timeFrame = nil
-                            local tl = nil
-                            for _, guiName in ipairs({"Survivor", "Killer", "Spectator", "HUD", "InGame"}) do
-                                local g = pg:FindFirstChild(guiName)
-                                if g then
-                                    local tf = g:FindFirstChild("time") or g:FindFirstChild("Time") or g:FindFirstChild("Timer")
-                                    if tf then
-                                        timeFrame = tf
-                                        tl = tf:FindFirstChild("TimerLabel") or tf:FindFirstChildOfClass("TextLabel")
-                                        break
-                                    end
-                                end
-                            end
-                            if not timeFrame then
-                                for _, gui in ipairs(pg:GetChildren()) do
-                                    if gui:IsA("ScreenGui") and gui.Name ~= "NexaraStudio" and gui.Name ~= "Nexara_ScreenGui" then
-                                        local tf = gui:FindFirstChild("time", true)
-                                        if tf then
-                                            timeFrame = tf
-                                            tl = tf:FindFirstChild("TimerLabel") or tf:FindFirstChildOfClass("TextLabel")
-                                            break
-                                        end
-                                    end
-                                end
-                            end
-
-                            if tl and (tl.Text == "00:00" or tl.Text == "0:00") then
-                                timerEnded = true
-                            end
-                            posX = math.floor(Camera.ViewportSize.X / 2)
-                            posY = math.max(tonumber(Config.TopKillerSkillYOffset) or 58, 54)
-                        end
-                    end)
+                    local tl = GetMatchTimerLabel()
+                    if tl and (tl.Text == "00:00" or tl.Text == "0:00") then
+                        timerEnded = true
+                    end
 
                     if timerEnded then
-                        TopKillerSkillText.Visible = false
+                        if TopKillerSkillText.Visible then TopKillerSkillText.Visible = false end
                     else
                         TopKillerSkillText.Size = Config.TopKillerSkillSize or 16
-                        local formattedText = kSkillStr
-                        if formattedText:find("^Skill:") then
-                            formattedText = formattedText:gsub("^Skill:%s*", "[SKILL] ")
-                        elseif not formattedText:find("^%[SKILL%]") then
-                            formattedText = "[SKILL] " .. formattedText
+                        if TopKillerSkillText.Text ~= kSkillStr then
+                            TopKillerSkillText.Text = kSkillStr
                         end
-                        -- Clean any accidental CHASING status
-                        formattedText = formattedText:gsub("%s*|%s*CHASING", ""):gsub("%[CHASING%]", "")
-                        TopKillerSkillText.Text = formattedText
                         TopKillerSkillText.Position = Vector2.new(posX, posY)
                         TopKillerSkillText.Color = Config.Color_KillerSkills or Color3.fromRGB(80, 220, 255)
-                        TopKillerSkillText.Visible = true
+                        if not TopKillerSkillText.Visible then TopKillerSkillText.Visible = true end
                     end
-                else
+                elseif TopKillerSkillText.Visible then
                     TopKillerSkillText.Visible = false
                 end
-            else
+            elseif TopKillerSkillText.Visible then
                 TopKillerSkillText.Visible = false
             end
-        else
+        elseif TopKillerSkillText.Visible then
             TopKillerSkillText.Visible = false
         end
 
@@ -5490,6 +6365,7 @@ local function RenderESP()
                 local headScreen = Camera:WorldToViewportPoint(char.Head.Position)
 
                 if onScreen and not IsInMenu(rootScreen.X, rootScreen.Y) and not IsInMenu(headScreen.X, headScreen.Y) then
+                    esp.IsHidden = false
                     local dist = (myPos - rootPos).Magnitude
                     local currentX = math.floor(rootScreen.X)
                     local currentY = 0
@@ -5498,10 +6374,10 @@ local function RenderESP()
                 if isK and not inLobby then
                     if Config.ESP_KillerEnabled then
                         -- Hide 2D Box
-                        esp.BoxOutline.Visible = false
-                        esp.Box.Visible = false
+                        if esp.BoxOutline.Visible then esp.BoxOutline.Visible = false end
+                        if esp.Box.Visible then esp.Box.Visible = false end
 
-                        -- Render Hot Pink Skeleton (Thin & sleek)
+                        -- Render Hot Pink Skeleton (Thin & sleek, model-accurate)
                         local topY = headScreen.Y - 14
                         local btmY = rootScreen.Y + 18
                         if Config.ESP_KillerSkeleton then
@@ -5510,17 +6386,44 @@ local function RenderESP()
                             topY = hPoint and (hPoint.Y - 14) or (headScreen.Y - 14)
                             btmY = fPoint and (fPoint.Y + 4) or (rootScreen.Y + 18)
                         else
-                            for _, l in pairs(esp.Skeleton) do l.Visible = false end
+                            for _, l in pairs(esp.Skeleton) do if l.Visible then l.Visible = false end end
+                        end
+
+                        -- Killer Chams (Soft, non-opaque highlight)
+                        if Config.ESP_KillerChams then
+                            local hl = esp.Chams
+                            local aCol = Config.Color_KillerChams or Color3.fromRGB(255, 60, 60)
+                            if not hl or not hl.Parent then
+                                hl = Instance.new("Highlight")
+                                hl.Name = "Nexara_PlayerChams"
+                                hl.FillColor = aCol
+                                hl.OutlineColor = aCol
+                                hl.FillTransparency = 0.78
+                                hl.OutlineTransparency = 0.45
+                                hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                                hl.Adornee = char
+                                pcall(function() hl.Parent = char end)
+                                esp.Chams = hl
+                            else
+                                if hl.Adornee ~= char then hl.Adornee = char end
+                                if hl.FillColor ~= aCol then
+                                    hl.FillColor = aCol
+                                    hl.OutlineColor = aCol
+                                end
+                            end
+                            if not hl.Enabled then hl.Enabled = true end
+                        elseif esp.Chams and esp.Chams.Enabled then
+                            esp.Chams.Enabled = false
                         end
 
                         -- Top Text: Player Name [Distance] (Clean, no [KILLER] prefix)
                         if Config.ESP_KillerNames then
                             local topStr = (data and data.DisplayName or player.DisplayName) .. " [" .. math.floor(dist) .. "m]"
-                            esp.TopText.Text = topStr
+                            if esp.TopText.Text ~= topStr then esp.TopText.Text = topStr end
                             esp.TopText.Position = Vector2.new(currentX, topY)
                             esp.TopText.Color = Config.Color_KillerNames or Color3.fromRGB(255, 60, 160)
-                            esp.TopText.Visible = true
-                        else
+                            if not esp.TopText.Visible then esp.TopText.Visible = true end
+                        elseif esp.TopText.Visible then
                             esp.TopText.Visible = false
                         end
 
@@ -5531,50 +6434,88 @@ local function RenderESP()
                             if char:GetAttribute("IsStunned") == true then btmStr = btmStr .. " [STUNNED]" end
                             if char:GetAttribute("IsCarrying") == true then btmStr = btmStr .. " [CARRYING]" end
 
-                            esp.BottomText.Text = btmStr
+                            if esp.BottomText.Text ~= btmStr then esp.BottomText.Text = btmStr end
                             esp.BottomText.Position = Vector2.new(currentX, btmY)
                             esp.BottomText.Color = Color3.fromRGB(255, 255, 255)
-                            esp.BottomText.Visible = true
+                            if not esp.BottomText.Visible then esp.BottomText.Visible = true end
                             currentY = btmY + 14
-                        else
+                        elseif esp.BottomText.Visible then
                             esp.BottomText.Visible = false
                             currentY = btmY + 14
                         end
 
                         -- Perks Text
                         if Config.ESP_KillerPerks then
-                            local perks = (data and data.Perks) or (GetPlayerPerks and GetPlayerPerks(player))
-                            if perks and #perks > 0 then
-                                esp.PerkText.Text = "Perks: " .. table.concat(perks, " | ")
+                            local perksFmt = data and data.PerksFormatted
+                            if perksFmt and #perksFmt > 0 then
+                                local pStr = "Perks: " .. perksFmt
+                                if esp.PerkText.Text ~= pStr then esp.PerkText.Text = pStr end
                                 esp.PerkText.Position = Vector2.new(currentX, currentY)
                                 esp.PerkText.Color = Color3.fromRGB(255, 120, 140)
-                                esp.PerkText.Visible = true
+                                if not esp.PerkText.Visible then esp.PerkText.Visible = true end
                                 currentY = currentY + 14
-                            else
+                            elseif esp.PerkText.Visible then
                                 esp.PerkText.Visible = false
                             end
-                        else
+                        elseif esp.PerkText.Visible then
                             esp.PerkText.Visible = false
                         end
 
                         -- Skills & Charges Text (Moved under top match timer)
-                        esp.SkillText.Visible = false
+                        if esp.SkillText.Visible then esp.SkillText.Visible = false end
                     else
-                        esp.BoxOutline.Visible = false
-                        esp.Box.Visible = false
-                        esp.TopText.Visible = false
-                        esp.BottomText.Visible = false
-                        esp.PerkText.Visible = false
-                        esp.SkillText.Visible = false
-                        for _, l in pairs(esp.Skeleton) do l.Visible = false end
+                        hidePlayerESP(esp)
                     end
 
                 -- SURVIVOR OR LOBBY BRANCH
                 else
                     local allowESP = inLobby and (Config.ESP_LobbyEnabled ~= false) or (not inLobby and Config.ESP_SurvivorEnabled and not isLobbyPlr and not isDead)
                     if allowESP then
-                        -- Hide Skeleton lines
-                        for _, l in pairs(esp.Skeleton) do l.Visible = false end
+                        -- Carrying detection: suppress box and all intrusive drawings ONLY if this survivor is truly being carried
+                        local isBeingCarriedByMe = false
+                        if not inLobby and IsKiller(LocalPlayer) then
+                            local myChar = GetCharacter()
+                            local myIsCarrying = (myChar and myChar:GetAttribute("IsCarrying") == true)
+                            local hasCarryTime = (char:GetAttribute("RemainingCarryTime") ~= nil)
+                            local isCarriedAttr = (char:GetAttribute("IsCarried") == true or char:GetAttribute("Carried") == true)
+                            if (myIsCarrying and dist <= 7) or (hasCarryTime and dist <= 7) or (isCarriedAttr and dist <= 7) then
+                                isBeingCarriedByMe = true
+                            end
+                        end
+
+                        -- Survivor Skeleton
+                        if (not isBeingCarriedByMe) and Config.ESP_SurvivorSkeleton then
+                            UpdateSkeleton(char, esp.Skeleton, Config.Color_SurvivorSkeleton or Color3.fromRGB(80, 255, 160), Config.SurvivorSkeletonThickness or 1.3)
+                        else
+                            for _, l in pairs(esp.Skeleton) do if l.Visible then l.Visible = false end end
+                        end
+
+                        -- Survivor Chams (Soft, non-opaque highlight)
+                        if (not isBeingCarriedByMe) and Config.ESP_SurvivorChams then
+                            local hl = esp.Chams
+                            local aCol = inLobby and Color3.fromRGB(0, 210, 255) or (Config.Color_SurvivorChams or Color3.fromRGB(80, 255, 120))
+                            if not hl or not hl.Parent then
+                                hl = Instance.new("Highlight")
+                                hl.Name = "Nexara_PlayerChams"
+                                hl.FillColor = aCol
+                                hl.OutlineColor = aCol
+                                hl.FillTransparency = 0.78
+                                hl.OutlineTransparency = 0.45
+                                hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                                hl.Adornee = char
+                                pcall(function() hl.Parent = char end)
+                                esp.Chams = hl
+                            else
+                                if hl.Adornee ~= char then hl.Adornee = char end
+                                if hl.FillColor ~= aCol then
+                                    hl.FillColor = aCol
+                                    hl.OutlineColor = aCol
+                                end
+                            end
+                            if not hl.Enabled then hl.Enabled = true end
+                        elseif esp.Chams and esp.Chams.Enabled then
+                            esp.Chams.Enabled = false
+                        end
 
                         local head = char:FindFirstChild("Head")
                         local topWorld = head and (head.Position + Vector3.new(0, 0.6, 0)) or (rootPos + Vector3.new(0, 1.9, 0))
@@ -5590,18 +6531,6 @@ local function RenderESP()
                             local boxX = math.floor(rootScreen.X - boxWidth * 0.5)
                             local boxY = math.floor(math.min(topScreen.Y, btmScreen.Y))
 
-                            -- Carrying detection: suppress box and all intrusive drawings ONLY if this survivor is truly being carried
-                            local isBeingCarriedByMe = false
-                            if not inLobby and IsKiller(LocalPlayer) then
-                                local myChar = GetCharacter()
-                                local myIsCarrying = (myChar and myChar:GetAttribute("IsCarrying") == true)
-                                local hasCarryTime = (char:GetAttribute("RemainingCarryTime") ~= nil)
-                                local isCarriedAttr = (char:GetAttribute("IsCarried") == true or char:GetAttribute("Carried") == true)
-                                if (myIsCarrying and dist <= 7) or (hasCarryTime and dist <= 7) or (isCarriedAttr and dist <= 7) then
-                                    isBeingCarriedByMe = true
-                                end
-                            end
-
                             local showBox = (not isBeingCarriedByMe) and (inLobby and (Config.ESP_LobbyBoxes ~= false) or Config.ESP_SurvivorBoxes)
                             if showBox then
                                 local boxPos = Vector2.new(boxX, boxY)
@@ -5609,15 +6538,15 @@ local function RenderESP()
 
                                 esp.BoxOutline.Size = boxSize
                                 esp.BoxOutline.Position = boxPos
-                                esp.BoxOutline.Visible = true
+                                if not esp.BoxOutline.Visible then esp.BoxOutline.Visible = true end
 
                                 esp.Box.Size = boxSize
                                 esp.Box.Position = boxPos
                                 esp.Box.Color = col
-                                esp.Box.Visible = true
+                                if not esp.Box.Visible then esp.Box.Visible = true end
                             else
-                                esp.BoxOutline.Visible = false
-                                esp.Box.Visible = false
+                                if esp.BoxOutline.Visible then esp.BoxOutline.Visible = false end
+                                if esp.Box.Visible then esp.Box.Visible = false end
                             end
 
                             -- Status check (Hooked, Carried, Down, Injured)
@@ -5650,12 +6579,12 @@ local function RenderESP()
                                 if not inLobby then
                                     topStr = topStr .. " [" .. math.floor(dist) .. "m]"
                                 end
-                                esp.TopText.Text = topStr
+                                if esp.TopText.Text ~= topStr then esp.TopText.Text = topStr end
                                 esp.TopText.Position = Vector2.new(rootScreen.X, boxY - 14)
                                 local nameCol = inLobby and Color3.fromRGB(0, 210, 255) or (Config.Color_SurvivorNames or Color3.fromRGB(80, 255, 120))
-                                esp.TopText.Color = nameCol
-                                esp.TopText.Visible = true
-                            else
+                                if esp.TopText.Color ~= nameCol then esp.TopText.Color = nameCol end
+                                if not esp.TopText.Visible then esp.TopText.Visible = true end
+                            elseif esp.TopText.Visible then
                                 esp.TopText.Visible = false
                             end
 
@@ -5664,87 +6593,56 @@ local function RenderESP()
 
                             -- Status Text: Positioned directly under feet
                             if (not isBeingCarriedByMe) and statusText then
-                                esp.BottomText.Text = statusText
+                                if esp.BottomText.Text ~= statusText then esp.BottomText.Text = statusText end
                                 esp.BottomText.Position = Vector2.new(rootScreen.X, currentY)
                                 esp.BottomText.Color = statusColor
-                                esp.BottomText.Visible = true
+                                if not esp.BottomText.Visible then esp.BottomText.Visible = true end
                                 currentY = currentY + 14
-                            else
+                            elseif esp.BottomText.Visible then
                                 esp.BottomText.Visible = false
                             end
 
-                            -- Survivor Item & Status (Live Real-Time Cooldown Countdown)
-                            local sSkillStr, isItemReady = GetPlayerSkillInfo(player)
-                            if not sSkillStr and data then
-                                sSkillStr = data.SkillInfo
-                                isItemReady = data.ItemReady
-                            end
-                            if (not isBeingCarriedByMe) and Config.ESP_SurvivorSkills and not inLobby and sSkillStr then
-                                esp.SkillText.Text = sSkillStr
+                            -- Survivor Item & Status
+                            local sSkillStr = data and data.SkillInfo
+                            local isItemReady = data and data.ItemReady
+                            if (not isBeingCarriedByMe) and Config.ESP_SurvivorSkills and not inLobby and type(sSkillStr) == "string" and #sSkillStr > 0 then
+                                if esp.SkillText.Text ~= sSkillStr then esp.SkillText.Text = sSkillStr end
                                 esp.SkillText.Position = Vector2.new(rootScreen.X, currentY)
-                                if isItemReady == false then
-                                    esp.SkillText.Color = Color3.fromRGB(255, 75, 75) -- Red when used/cooling down/empty
-                                elseif isItemReady == true then
-                                    esp.SkillText.Color = Color3.fromRGB(80, 255, 80) -- Green when ready to use
-                                else
-                                    esp.SkillText.Color = Color3.fromRGB(80, 220, 255)
-                                end
-                                esp.SkillText.Visible = true
+                                local sCol = (isItemReady == false and Color3.fromRGB(255, 75, 75)) or (isItemReady == true and Color3.fromRGB(80, 255, 80)) or Color3.fromRGB(80, 220, 255)
+                                if esp.SkillText.Color ~= sCol then esp.SkillText.Color = sCol end
+                                if not esp.SkillText.Visible then esp.SkillText.Visible = true end
                                 currentY = currentY + 14
-                            else
+                            elseif esp.SkillText.Visible then
                                 esp.SkillText.Visible = false
                             end
 
                             -- Survivor Perks
                             if Config.ESP_SurvivorPerks then
-                                local perks = (data and data.Perks) or (GetPlayerPerks and GetPlayerPerks(player))
-                                if perks and #perks > 0 then
-                                    esp.PerkText.Text = table.concat(perks, " | ")
+                                local perksFmt = data and data.PerksFormatted
+                                if perksFmt and #perksFmt > 0 then
+                                    if esp.PerkText.Text ~= perksFmt then esp.PerkText.Text = perksFmt end
                                     esp.PerkText.Position = Vector2.new(rootScreen.X, currentY)
                                     esp.PerkText.Color = Color3.fromRGB(120, 220, 255)
-                                    esp.PerkText.Visible = true
+                                    if not esp.PerkText.Visible then esp.PerkText.Visible = true end
                                     currentY = currentY + 14
-                                else
+                                elseif esp.PerkText.Visible then
                                     esp.PerkText.Visible = false
                                 end
-                            else
+                            elseif esp.PerkText.Visible then
                                 esp.PerkText.Visible = false
                             end
                         else
-                            esp.BoxOutline.Visible = false
-                            esp.Box.Visible = false
-                            esp.TopText.Visible = false
-                            esp.BottomText.Visible = false
-                            esp.PerkText.Visible = false
-                            esp.SkillText.Visible = false
+                            hidePlayerESP(esp)
                         end
                     else
-                        esp.BoxOutline.Visible = false
-                        esp.Box.Visible = false
-                        esp.TopText.Visible = false
-                        esp.BottomText.Visible = false
-                        esp.PerkText.Visible = false
-                        esp.SkillText.Visible = false
-                        for _, l in pairs(esp.Skeleton) do l.Visible = false end
+                        hidePlayerESP(esp)
                     end
                 end
             else
-                esp.BoxOutline.Visible = false
-                esp.Box.Visible = false
-                esp.TopText.Visible = false
-                esp.BottomText.Visible = false
-                esp.PerkText.Visible = false
-                esp.SkillText.Visible = false
-                for _, l in pairs(esp.Skeleton) do l.Visible = false end
+                hidePlayerESP(esp)
             end
         else
-            esp.BoxOutline.Visible = false
-            esp.Box.Visible = false
-            esp.TopText.Visible = false
-            esp.BottomText.Visible = false
-            esp.PerkText.Visible = false
-            esp.SkillText.Visible = false
-            for _, l in pairs(esp.Skeleton) do l.Visible = false end
+            hidePlayerESP(esp)
         end
     end
 
@@ -5778,278 +6676,323 @@ local function RenderESP()
                         if repairers > 0 then label = label .. " (Repairing)" end
                     end
 
-                    txt.Text = label
+                    if txt.Text ~= label then txt.Text = label end
                     txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
 
-                    if prog >= 100 then
-                        txt.Color = Color3.fromRGB(0, 240, 255)
-                    elseif repairers > 0 then
-                        txt.Color = Color3.fromRGB(255, 215, 0)
-                    else
-                        txt.Color = Config.Color_Generators or Color3.fromRGB(255, 200, 50)
-                    end
-                    txt.Visible = true
-                else
+                    local gCol = (prog >= 100 and Color3.fromRGB(0, 240, 255))
+                              or (repairers > 0 and Color3.fromRGB(255, 215, 0))
+                              or (Config.Color_Generators or Color3.fromRGB(255, 200, 50))
+                    if txt.Color ~= gCol then txt.Color = gCol end
+                    if not txt.Visible then txt.Visible = true end
+                elseif txt.Visible then
                     txt.Visible = false
                 end
             end
         end
     end
     for gen, txt in pairs(GenDrawings) do
-        if not seenGens[gen] then txt.Visible = false end
+        if not seenGens[gen] and txt.Visible then txt.Visible = false end
     end
 
     -- 3. Pallet ESP & 3D Glowing Aura
     table.clear(seenPallets)
     if not inLobby and (Config.ESP_Pallets or Config.ESP_PalletAura) then
-        local palletList = {}
-        for _, item in ipairs(CachedPallets) do
-            local pallet = item.Model
-            local root = item.Part
-            if pallet and pallet.Parent and root and root.Parent then
-                seenPallets[pallet] = true
-                local dist = (myPos - root.Position).Magnitude
-                table.insert(palletList, { Item = item, Dist = dist })
-            end
-        end
-        table.sort(palletList, function(a, b) return a.Dist < b.Dist end)
-
-        for idx, entry in ipairs(palletList) do
-            local item = entry.Item
-            local pallet = item.Model
-            local root = item.Part
-            local dist = entry.Dist
-
-            -- 3D Glowing Aura through walls (Wood pallet only, capped at closest 14 to avoid Roblox 31 highlight limit)
-            if Config.ESP_PalletAura and idx <= 14 and dist <= Config.PalletMaxDist then
-                local targetAdornee = item.PalletWood or pallet
-                local hl = PalletAuras[pallet]
-                local aCol = Config.Color_PalletAura or Color3.fromRGB(255, 170, 0)
-                if not hl or not hl.Parent then
-                    hl = Instance.new("Highlight")
-                    hl.Name = "Nexara_PalletAura"
-                    hl.FillColor = aCol
-                    hl.OutlineColor = Color3.fromRGB(255, 230, 100)
-                    hl.FillTransparency = 0.65
-                    hl.OutlineTransparency = 0.1
-                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                    hl.Adornee = targetAdornee
-                    hl.Parent = targetAdornee
-                    PalletAuras[pallet] = hl
-                else
-                    hl.FillColor = aCol
-                end
-                hl.Enabled = true
-            elseif PalletAuras[pallet] then
-                pcall(function() PalletAuras[pallet].Enabled = false end)
-            end
-
-            -- Distance Text
-            local txt = PalletDrawings[pallet]
-            if not txt then
-                txt = Drawing.new("Text")
-                txt.Size = 12
-                txt.Center = true
-                txt.Outline = true
-                txt.OutlineColor = Color3.fromRGB(0, 0, 0)
-                PalletDrawings[pallet] = txt
-            end
-
-            if Config.ESP_Pallets and dist <= Config.PalletMaxDist then
-                local sPos, onScreen = Camera:WorldToViewportPoint(root.Position)
-                if onScreen and not IsInMenu(sPos.X, sPos.Y) then
-                    local isDropped = IsPalletDropped(pallet, root)
-                    local isDropping = false
-                    for _, p in ipairs(Players:GetPlayers()) do
-                        local c = p.Character
-                        if c and (c:GetAttribute("isDroppingPallet") == true or c:GetAttribute("IsDroppingPallet") == true) then
-                            local r = c:FindFirstChild("HumanoidRootPart")
-                            if r and (r.Position - root.Position).Magnitude < 7 then
-                                isDropping = true
-                                break
+        -- Killer proximity breaking check (throttled to 0.1s to avoid N*M iterations at 144Hz)
+        local nowTime = os.clock()
+        if nowTime - lastPalletCheckTime > 0.1 then
+            lastPalletCheckTime = nowTime
+            for _, p in ipairs(Players:GetPlayers()) do
+                if IsKiller(p) then
+                    local kChar = p.Character
+                    if kChar then
+                        local isBreaking = kChar:GetAttribute("isBreakingPallet") == true
+                                        or kChar:GetAttribute("isBreaking") == true
+                                        or (kChar:GetAttribute("action") == true and kChar:GetAttribute("Immobile") == true)
+                        if isBreaking then
+                            local kRoot = kChar:FindFirstChild("HumanoidRootPart")
+                            if kRoot then
+                                local kPos = kRoot.Position
+                                for _, item in ipairs(CachedPallets) do
+                                    local pModel = item.Model
+                                    local pRoot = item.Part
+                                    if pModel and pRoot and pRoot.Parent and (pRoot.Position - kPos).Magnitude < 10 then
+                                        MarkPalletBroken(pModel)
+                                    end
+                                end
                             end
                         end
                     end
-
-                    if isDropping then
-                        txt.Text = "Pallet Dropping " .. math.floor(dist) .. "m"
-                        txt.Color = Color3.fromRGB(255, 80, 80)
-                    elseif isDropped then
-                        txt.Text = "Pallet [Dropped] " .. math.floor(dist) .. "m"
-                        txt.Color = Color3.fromRGB(255, 140, 40)
-                    else
-                        txt.Text = "Pallet " .. math.floor(dist) .. "m"
-                        txt.Color = Config.Color_PalletNames or Color3.fromRGB(255, 180, 50)
-                    end
-                    txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
-                    txt.Visible = true
-                else
-                    txt.Visible = false
+                    break
                 end
-            else
-                txt.Visible = false
+            end
+
+            cachedDroppingHRPPos = nil
+            for _, p in ipairs(Players:GetPlayers()) do
+                local c = p.Character
+                if c and (c:GetAttribute("isDroppingPallet") == true or c:GetAttribute("IsDroppingPallet") == true) then
+                    local r = c:FindFirstChild("HumanoidRootPart")
+                    if r then cachedDroppingHRPPos = r.Position; break end
+                end
+            end
+        end
+        local droppingHRPPos = cachedDroppingHRPPos
+
+        -- Throttled distance sorting (every 0.3s) - reuses pre-allocated entries to eliminate GC churn
+        if (nowTime - lastPalletSortTime > 0.3) or (#cachedPalletEntries == 0) then
+            lastPalletSortTime = nowTime
+            local validCount = 0
+            for _, item in ipairs(CachedPallets) do
+                local pallet = item.Model
+                local root = item.Part
+                if pallet and pallet.Parent and root and root.Parent and not IsPalletBroken(pallet, root) then
+                    local dist = (myPos - root.Position).Magnitude
+                    validCount = validCount + 1
+                    local entry = cachedPalletEntries[validCount]
+                    if not entry then
+                        entry = { Item = item, Dist = dist }
+                        cachedPalletEntries[validCount] = entry
+                    else
+                        entry.Item = item
+                        entry.Dist = dist
+                    end
+                else
+                    if pallet then MarkPalletBroken(pallet) end
+                end
+            end
+            for i = #cachedPalletEntries, validCount + 1, -1 do
+                cachedPalletEntries[i] = nil
+            end
+            table.sort(cachedPalletEntries, sortPalletByDist)
+        end
+
+        for idx, entry in ipairs(cachedPalletEntries) do
+            local item = entry.Item
+            local pallet = item.Model
+            local root = item.Part
+            if pallet and pallet.Parent and root and root.Parent and not IsPalletBroken(pallet, root) then
+                seenPallets[pallet] = true
+                local dist = (myPos - root.Position).Magnitude
+
+                -- 3D Glowing Aura through walls (Wood pallet only, capped at closest 14 to avoid Roblox 31 highlight limit)
+                if Config.ESP_PalletAura and idx <= 14 and dist <= Config.PalletMaxDist then
+                    local targetAdornee = item.PalletWood or pallet
+                    local hl = PalletAuras[pallet]
+                    local aCol = Config.Color_PalletAura or Color3.fromRGB(255, 205, 90)
+                    if not hl or not hl.Parent then
+                        hl = Instance.new("Highlight")
+                        hl.Name = "Nexara_PalletAura"
+                        hl.FillColor = aCol
+                        hl.OutlineColor = aCol
+                        hl.FillTransparency = 0.82
+                        hl.OutlineTransparency = 0.5
+                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        hl.Adornee = targetAdornee
+                        pcall(function() hl.Parent = targetAdornee end)
+                        PalletAuras[pallet] = hl
+                    else
+                        if hl.Adornee ~= targetAdornee then hl.Adornee = targetAdornee end
+                        if hl.FillColor ~= aCol then
+                            hl.FillColor = aCol
+                            hl.OutlineColor = aCol
+                        end
+                    end
+                    if not hl.Enabled then hl.Enabled = true end
+                elseif PalletAuras[pallet] and PalletAuras[pallet].Enabled then
+                    PalletAuras[pallet].Enabled = false
+                end
+
+                -- Distance Text
+                if Config.ESP_Pallets and dist <= Config.PalletMaxDist then
+                    local sPos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                    if onScreen and not IsInMenu(sPos.X, sPos.Y) then
+                        local txt = PalletDrawings[pallet]
+                        if not txt then
+                            txt = Drawing.new("Text")
+                            txt.Size = 12
+                            txt.Center = true
+                            txt.Outline = true
+                            txt.OutlineColor = Color3.fromRGB(0, 0, 0)
+                            PalletDrawings[pallet] = txt
+                        end
+                        local isDropped = IsPalletDropped(pallet, root)
+                        local isDropping = droppingHRPPos and ((droppingHRPPos - root.Position).Magnitude < 7) or false
+
+                        local mDist = math.floor(dist)
+                        local pText = isDropping and ("Pallet Dropping " .. mDist .. "m")
+                                   or isDropped and ("Pallet [Dropped] " .. mDist .. "m")
+                                   or ("Pallet " .. mDist .. "m")
+                        local pCol = isDropping and Color3.fromRGB(255, 80, 80)
+                                  or isDropped and Color3.fromRGB(255, 140, 40)
+                                  or (Config.Color_PalletNames or Color3.fromRGB(255, 180, 50))
+
+                        if txt.Text ~= pText then txt.Text = pText end
+                        if txt.Color ~= pCol then txt.Color = pCol end
+                        txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
+                        if not txt.Visible then txt.Visible = true end
+                    elseif PalletDrawings[pallet] and PalletDrawings[pallet].Visible then
+                        PalletDrawings[pallet].Visible = false
+                    end
+                elseif PalletDrawings[pallet] and PalletDrawings[pallet].Visible then
+                    PalletDrawings[pallet].Visible = false
+                end
             end
         end
     end
     for pallet, hl in pairs(PalletAuras) do
-        if not seenPallets[pallet] or inLobby or not Config.ESP_PalletAura then
-            pcall(function() hl.Enabled = false end)
+        if not seenPallets[pallet] or inLobby or not Config.ESP_PalletAura or IsPalletBroken(pallet) then
+            if hl.Enabled then hl.Enabled = false end
+            if IsPalletBroken(pallet) then
+                pcall(function() hl:Destroy() end)
+                PalletAuras[pallet] = nil
+            end
         end
     end
     for pallet, txt in pairs(PalletDrawings) do
-        if not seenPallets[pallet] or not Config.ESP_Pallets then txt.Visible = false end
+        if not seenPallets[pallet] or not Config.ESP_Pallets or IsPalletBroken(pallet) then
+            if txt.Visible then txt.Visible = false end
+            if IsPalletBroken(pallet) then
+                pcall(function() txt:Remove() end)
+                PalletDrawings[pallet] = nil
+            end
+        end
     end
 
     -- 4. Window / Vault ESP & 3D Glowing Aura
     table.clear(seenWindows)
     if not inLobby and (Config.ESP_Windows or Config.ESP_WindowAura) then
-        local windowList = {}
-        local renderedVaultPos = {}
-        for _, item in ipairs(CachedWindows) do
-            local win = item.Model or item.Part
-            local root = item.VaultLedge or item.Part
-            if win and win.Parent and root and root.Parent then
-                local isDup = false
-                for _, rPos in ipairs(renderedVaultPos) do
-                    if (rPos - root.Position).Magnitude < 4.5 then
-                        isDup = true
-                        break
-                    end
-                end
-                if not isDup then
-                    table.insert(renderedVaultPos, root.Position)
-                    seenWindows[win] = true
-                    local dist = (myPos - root.Position).Magnitude
-                    table.insert(windowList, { Item = item, Dist = dist })
-                end
-            end
-        end
-        table.sort(windowList, function(a, b) return a.Dist < b.Dist end)
-
         local wAuraCol = Config.Color_WindowAura or Color3.fromRGB(0, 210, 255)
         local wGlowCol = wAuraCol:Lerp(Color3.new(1, 1, 1), 0.35)
 
-        for idx, entry in ipairs(windowList) do
-            local item = entry.Item
+        for _, item in ipairs(CachedWindows) do
             local win = item.Model or item.Part
             local root = item.Part
             local ledge = item.VaultLedge or root
-            local sillType = item.SillType or "Auto"
-            local dist = entry.Dist
+            if win and win.Parent and ledge and ledge.Parent then
+                local dist = (myPos - root.Position).Magnitude
+                if dist <= Config.WindowMaxDist then
+                    seenWindows[win] = true
+                    local sillType = item.SillType or "Auto"
+                    local offsetY = ((sillType == "Trigger" or sillType == "InvisWall") and ledge.Size.Y >= 4.5) and (-(ledge.Size.Y - 2.8) / 2) or 0
 
-            -- Calculate full vault barrier dimensions & offset (Highlights the entire vault wall, not just a thin top strip)
-            local rawW = math.max(ledge.Size.X, ledge.Size.Z)
-            local rawT = math.min(ledge.Size.X, ledge.Size.Z)
-            local width = math.clamp(rawW, 3.8, 6.0)
-            local thickness = math.clamp(rawT, 0.8, 2.0)
-            local height = (ledge.Size.Y >= 1.2 and ledge.Size.Y <= 4.0) and ledge.Size.Y or 2.8
+                    -- Check blocked status & countdown timer
+                    local isBlocked, blockTimeLeft = GetWindowBlockTime(win, root, ledge)
+                    local activeBoxColor = isBlocked and Color3.fromRGB(255, 50, 50) or wAuraCol
+                    local activeGlowColor = isBlocked and Color3.fromRGB(255, 100, 100) or wGlowCol
 
-            local sillSize
-            if ledge.Size.X >= ledge.Size.Z then
-                sillSize = Vector3.new(width, height, thickness)
-            else
-                sillSize = Vector3.new(thickness, height, width)
-            end
+                    -- 3D Glowing Vault Sill (Dual-Layer Hologram: Solid Core + Neon Outer Glow)
+                    if Config.ESP_WindowAura then
+                        local sillSize, sillOffset
+                        if ledge.Name == "Bottom" then
+                            sillSize = ledge.Size
+                            sillOffset = CFrame.new(0, 0, 0)
+                        else
+                            local rawW = math.max(ledge.Size.X, ledge.Size.Z)
+                            local rawT = math.min(ledge.Size.X, ledge.Size.Z)
+                            local width = math.clamp(rawW, 3.8, 6.0)
+                            local thickness = math.clamp(rawT, 0.8, 2.0)
+                            local height = (ledge.Size.Y >= 1.2 and ledge.Size.Y <= 4.0) and ledge.Size.Y or 2.8
+                            sillSize = (ledge.Size.X >= ledge.Size.Z) and Vector3.new(width, height, thickness) or Vector3.new(thickness, height, width)
+                            sillOffset = CFrame.new(0, offsetY, 0)
+                        end
 
-            local offsetY = 0
-            if (sillType == "Trigger" or sillType == "InvisWall") and ledge.Size.Y >= 4.5 then
-                offsetY = -(ledge.Size.Y - height) / 2
-            end
+                        -- Layer 1: Core BoxHandleAdornment
+                        local bha = WindowAdornments[win]
+                        if not bha or not bha.Parent or not bha:IsA("BoxHandleAdornment") then
+                            bha = Instance.new("BoxHandleAdornment")
+                            bha.Name = "Nexara_WindowBox"
+                            bha.AlwaysOnTop = true
+                            bha.ZIndex = 8
+                            bha.Adornee = ledge
+                            bha.Size = sillSize
+                            bha.CFrame = sillOffset
+                            bha.Color3 = activeBoxColor
+                            bha.Transparency = 0.85
+                            bha.Parent = ledge
+                            WindowAdornments[win] = bha
+                        else
+                            if bha.Adornee ~= ledge then bha.Adornee = ledge end
+                            if bha.Size ~= sillSize then bha.Size = sillSize end
+                            if bha.CFrame ~= sillOffset then bha.CFrame = sillOffset end
+                            if bha.Color3 ~= activeBoxColor then bha.Color3 = activeBoxColor end
+                        end
+                        if not bha.Visible then bha.Visible = true end
 
-            -- Check blocked status & countdown timer
-            local isBlocked, blockTimeLeft = GetWindowBlockTime(win, root, ledge)
+                        -- Layer 2: Outer Glow Shell BoxHandleAdornment (Stored in WindowAuras)
+                        local glow = WindowAuras[win]
+                        if not glow or not glow.Parent or not glow:IsA("BoxHandleAdornment") then
+                            if glow and glow:IsA("Highlight") then
+                                pcall(function() glow:Destroy() end)
+                            end
 
-            local activeBoxColor = isBlocked and Color3.fromRGB(255, 50, 50) or wAuraCol
-            local activeGlowColor = isBlocked and Color3.fromRGB(255, 100, 100) or wGlowCol
-
-            -- 3D Glowing Vault Sill (Dual-Layer Hologram: Solid Core + Neon Outer Glow)
-            if Config.ESP_WindowAura and dist <= Config.WindowMaxDist and ledge and ledge.Parent then
-                -- Layer 1: Core BoxHandleAdornment
-                local bha = WindowAdornments[win]
-                if not bha or not bha.Parent or not bha:IsA("BoxHandleAdornment") then
-                    bha = Instance.new("BoxHandleAdornment")
-                    bha.Name = "Nexara_WindowBox"
-                    bha.AlwaysOnTop = true
-                    bha.ZIndex = 8
-                    bha.Parent = ledge
-                    WindowAdornments[win] = bha
-                end
-                bha.Adornee = ledge
-                bha.Size = sillSize
-                bha.CFrame = CFrame.new(0, offsetY, 0)
-                bha.Color3 = activeBoxColor
-                bha.Transparency = 0.45
-                bha.Visible = true
-
-                -- Layer 2: Outer Glow Shell BoxHandleAdornment (Stored in WindowAuras)
-                local glow = WindowAuras[win]
-                if not glow or not glow.Parent or not glow:IsA("BoxHandleAdornment") then
-                    if glow and glow:IsA("Highlight") then
-                        pcall(function() glow:Destroy() end)
-                    end
-                    glow = Instance.new("BoxHandleAdornment")
-                    glow.Name = "Nexara_WindowGlow"
-                    glow.AlwaysOnTop = true
-                    glow.ZIndex = 7
-                    glow.Parent = ledge
-                    WindowAuras[win] = glow
-                end
-                glow.Adornee = ledge
-                glow.Size = sillSize + Vector3.new(0.12, 0.12, 0.12)
-                glow.CFrame = CFrame.new(0, offsetY, 0)
-                glow.Color3 = activeGlowColor
-                glow.Transparency = 0.75
-                glow.Visible = true
-            else
-                if WindowAdornments[win] then pcall(function() WindowAdornments[win].Visible = false end) end
-                if WindowAuras[win] then pcall(function() WindowAuras[win].Visible = false end) end
-            end
-
-            -- Distance Text & Block Timer
-            local txt = WindowDrawings[win]
-            if not txt then
-                txt = Drawing.new("Text")
-                txt.Size = 12
-                txt.Center = true
-                txt.Outline = true
-                txt.OutlineColor = Color3.fromRGB(0, 0, 0)
-                WindowDrawings[win] = txt
-            end
-
-            if Config.ESP_Windows and dist <= Config.WindowMaxDist then
-                local sillWorldPos = ledge.CFrame:PointToWorldSpace(Vector3.new(0, offsetY, 0))
-                local sPos, onScreen = Camera:WorldToViewportPoint(sillWorldPos)
-                if onScreen and not IsInMenu(sPos.X, sPos.Y) then
-                    if isBlocked then
-                        local sec = math.max(1, math.ceil(blockTimeLeft))
-                        txt.Text = string.format("Vault [BLOCKED %ds] %dm", sec, math.floor(dist))
-                        txt.Color = Color3.fromRGB(255, 60, 60)
+                            glow = Instance.new("BoxHandleAdornment")
+                            glow.Name = "Nexara_WindowGlow"
+                            glow.AlwaysOnTop = true
+                            glow.ZIndex = 7
+                            glow.Adornee = ledge
+                            glow.Size = sillSize + Vector3.new(0.12, 0.12, 0.12)
+                            glow.CFrame = sillOffset
+                            glow.Color3 = activeGlowColor
+                            glow.Transparency = 0.92
+                            glow.Parent = ledge
+                            WindowAuras[win] = glow
+                        else
+                            if glow.Adornee ~= ledge then glow.Adornee = ledge end
+                            if glow.Size ~= (sillSize + Vector3.new(0.12, 0.12, 0.12)) then glow.Size = sillSize + Vector3.new(0.12, 0.12, 0.12) end
+                            if glow.CFrame ~= sillOffset then glow.CFrame = sillOffset end
+                            if glow.Color3 ~= activeGlowColor then glow.Color3 = activeGlowColor end
+                        end
+                        if not glow.Visible then glow.Visible = true end
                     else
-                        txt.Text = "Vault " .. math.floor(dist) .. "m"
-                        txt.Color = Config.Color_WindowNames or Color3.fromRGB(80, 210, 255)
+                        if WindowAdornments[win] and WindowAdornments[win].Visible then WindowAdornments[win].Visible = false end
+                        if WindowAuras[win] and WindowAuras[win].Visible then WindowAuras[win].Visible = false end
                     end
-                    txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
-                    txt.Visible = true
-                else
-                    txt.Visible = false
+
+                    -- Distance Text & Block Timer
+                    local txt = WindowDrawings[win]
+                    if not txt then
+                        txt = Drawing.new("Text")
+                        txt.Size = 12
+                        txt.Center = true
+                        txt.Outline = true
+                        txt.OutlineColor = Color3.fromRGB(0, 0, 0)
+                        WindowDrawings[win] = txt
+                    end
+
+                    if Config.ESP_Windows then
+                        local sillWorldPos = ledge.CFrame:PointToWorldSpace(Vector3.new(0, offsetY, 0))
+                        local sPos, onScreen = Camera:WorldToViewportPoint(sillWorldPos)
+                        if onScreen and not IsInMenu(sPos.X, sPos.Y) then
+                            local wText = isBlocked and string.format("Vault [BLOCKED %ds] %dm", math.max(1, math.ceil(blockTimeLeft)), math.floor(dist))
+                                       or ("Vault " .. math.floor(dist) .. "m")
+                            local wCol = isBlocked and Color3.fromRGB(255, 60, 60) or (Config.Color_WindowNames or Color3.fromRGB(80, 210, 255))
+                            if txt.Text ~= wText then txt.Text = wText end
+                            if txt.Color ~= wCol then txt.Color = wCol end
+                            txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
+                            if not txt.Visible then txt.Visible = true end
+                        elseif txt.Visible then
+                            txt.Visible = false
+                        end
+                    elseif txt.Visible then
+                        txt.Visible = false
+                    end
                 end
-            else
-                txt.Visible = false
             end
         end
     end
     for win, glow in pairs(WindowAuras) do
-        if not seenWindows[win] or inLobby or not Config.ESP_WindowAura then
-            pcall(function() glow.Visible = false end)
+        if (not seenWindows[win] or inLobby or not Config.ESP_WindowAura) and glow.Visible then
+            glow.Visible = false
         end
     end
     for win, bha in pairs(WindowAdornments) do
-        if not seenWindows[win] or inLobby or not Config.ESP_WindowAura then
-            pcall(function() bha.Visible = false end)
+        if (not seenWindows[win] or inLobby or not Config.ESP_WindowAura) and bha.Visible then
+            bha.Visible = false
         end
     end
     for win, txt in pairs(WindowDrawings) do
-        if not seenWindows[win] or not Config.ESP_Windows then txt.Visible = false end
+        if (not seenWindows[win] or not Config.ESP_Windows) and txt.Visible then
+            txt.Visible = false
+        end
     end
 
     -- 5. Exit Gates ESP
@@ -6073,20 +7016,23 @@ local function RenderESP()
 
                 if onScreen and not IsInMenu(sPos.X, sPos.Y) then
                     local dist = math.floor((myPos - root.Position).Magnitude)
-                    txt.Text = string.format("Exit Gate #%d (%dm)", idx, dist)
+                    local gText = string.format("Exit Gate #%d (%dm)", idx, dist)
+                    if txt.Text ~= gText then txt.Text = gText end
                     txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
-                    txt.Color = Config.Color_ExitGates or Color3.fromRGB(50, 255, 120)
-                    txt.Visible = true
-                else
+                    local gCol = Config.Color_ExitGates or Color3.fromRGB(50, 255, 120)
+                    if txt.Color ~= gCol then txt.Color = gCol end
+                    if not txt.Visible then txt.Visible = true end
+                elseif txt.Visible then
                     txt.Visible = false
                 end
             end
         end
     end
     for gate, txt in pairs(GateDrawings) do
-        if not seenGates[gate] then txt.Visible = false end
+        if not seenGates[gate] and txt.Visible then txt.Visible = false end
     end
     end)
+    end
 end
 
 -- Bind ESP rendering strictly AFTER CameraModule (200), Flashlight ShiftLock (300), and CameraShake (2001)
@@ -6094,3 +7040,4 @@ pcall(function() RunService:UnbindFromRenderStep("NexaraESP_Render") end)
 RunService:BindToRenderStep("NexaraESP_Render", Enum.RenderPriority.Last.Value + 10, RenderESP)
 
 print("[Nexara Studio] Violence District V 1.0.0-a912beta loaded successfully.")
+
