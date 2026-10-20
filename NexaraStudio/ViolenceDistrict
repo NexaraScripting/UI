@@ -3126,10 +3126,10 @@ local function UpdateBackgroundCache()
                     entry.Perks = perks or {}
                     entry.PerksFormatted = (perks and #perks > 0) and table.concat(perks, " | ") or ""
                     entry.SkillInfo = skill or false
-                    entry.ItemReady = isReady
-                    entry.ItemName = itemNm
-                    entry.ItemQtyStr = itemQty
-                    entry.OtherDetails = otherDet
+                    entry.ItemReady = isK and false or isReady
+                    entry.ItemName = isK and nil or itemNm
+                    entry.ItemQtyStr = isK and nil or itemQty
+                    entry.OtherDetails = isK and nil or otherDet
                     entry.DisplayName = p.DisplayName
                 end
             end
@@ -6337,26 +6337,33 @@ local function drawSkelLine(line, p1, v1, p2, v2, color, th)
 end
 
 local function UpdateSkeleton(char, lines, color, thickness)
-    local head = char:FindFirstChild("Head")
     local torso = char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
+    if not torso then
+        for _, l in pairs(lines) do if l.Visible then l.Visible = false end end
+        return false
+    end
+
+    local head = char:FindFirstChild("Head")
+    local headValid = head and head:IsA("BasePart") and (head.Position - torso.Position).Magnitude <= 3.5
+
     local leftArm = char:FindFirstChild("Left Arm") or char:FindFirstChild("leftarm") or char:FindFirstChild("LeftUpperArm")
     local rightArm = char:FindFirstChild("Right Arm") or char:FindFirstChild("rightarm") or char:FindFirstChild("RightUpperArm")
     local leftLeg = char:FindFirstChild("Left Leg") or char:FindFirstChild("leftleg") or char:FindFirstChild("LeftUpperLeg")
     local rightLeg = char:FindFirstChild("Right Leg") or char:FindFirstChild("rightleg") or char:FindFirstChild("RightUpperLeg")
 
-    if not (head and torso) then
-        for _, l in pairs(lines) do if l.Visible then l.Visible = false end end
-        return false
-    end
-
     local th = thickness or 1.3
     local tS = torso.Size
-    local hS = head.Size
+    local hS = headValid and head.Size or Vector3.new(1.2, 1.2, 1.2)
 
     -- Dynamic joints based on actual model proportions (fits R6, scaled killers, Stalker, Slasher, Cure, etc.)
-    local headPos, hVis = getSkelPoint(head.CFrame, Vector3.new(0, hS.Y * 0.45, 0))
     local neckPos, nVis = getSkelPoint(torso.CFrame, Vector3.new(0, tS.Y * 0.5, 0))
     local pelvisPos, pVis = getSkelPoint(torso.CFrame, Vector3.new(0, -tS.Y * 0.5, 0))
+    local headPos, hVis
+    if headValid then
+        headPos, hVis = getSkelPoint(head.CFrame, Vector3.new(0, hS.Y * 0.45, 0))
+    else
+        headPos, hVis = getSkelPoint(torso.CFrame, Vector3.new(0, tS.Y * 0.5 + hS.Y * 0.45, 0))
+    end
 
     drawSkelLine(lines.Head, headPos, hVis, neckPos, nVis, color, th)
     drawSkelLine(lines.Spine, neckPos, nVis, pelvisPos, pVis, color, th)
@@ -6473,64 +6480,8 @@ function RenderESP()
         menuPos = (Window and Window.Visible and mainFrame and mainFrame.Visible) and mainFrame.AbsolutePosition or nil
         menuSize = menuPos and mainFrame.AbsoluteSize or nil
 
-        -- Top Screen Killer Skill (Rendered directly under in-game match timer, hidden in lobby, post-match, or when playing as Killer)
-        if not inLobby and not IsKiller(LocalPlayer) and Config.ESP_KillerEnabled and Config.ESP_KillerSkills then
-            local killerPlr = nil
-            local killerData = nil
-            for p, _ in pairs(ESP_Objects) do
-                local data = CachedPlayerData[p]
-                if (data and data.IsKiller) or IsKiller(p) then
-                    killerPlr = p
-                    killerData = data
-                    break
-                end
-            end
-            if not killerPlr then
-                for _, p in ipairs(Players:GetPlayers()) do
-                    if p ~= LocalPlayer and IsKiller(p) then
-                        killerPlr = p
-                        killerData = CachedPlayerData[p]
-                        break
-                    end
-                end
-            end
-
-            if killerPlr and killerPlr.Character and killerPlr ~= LocalPlayer then
-                local kSkillStr = GetPlayerSkillInfo(killerPlr) or (killerData and killerData.SkillInfo)
-                if type(kSkillStr) == "string" and #kSkillStr > 0 then
-                    if kSkillStr:find("^Skill:") then
-                        kSkillStr = kSkillStr:gsub("^Skill:%s*", "[SKILL] ")
-                    elseif not kSkillStr:find("^%[SKILL%]") then
-                        kSkillStr = "[SKILL] " .. kSkillStr
-                    end
-                    kSkillStr = kSkillStr:gsub("%s*|%s*CHASING", ""):gsub("%[CHASING%]", "")
-                    local posX = math.floor(Camera.ViewportSize.X / 2)
-                    local posY = math.max(tonumber(Config.TopKillerSkillYOffset) or 58, 54)
-                    local timerEnded = false
-
-                    local tl = GetMatchTimerLabel()
-                    if tl and (tl.Text == "00:00" or tl.Text == "0:00") then
-                        timerEnded = true
-                    end
-
-                    if timerEnded then
-                        if TopKillerSkillText.Visible then TopKillerSkillText.Visible = false end
-                    else
-                        TopKillerSkillText.Size = Config.TopKillerSkillSize or 16
-                        if TopKillerSkillText.Text ~= kSkillStr then
-                            TopKillerSkillText.Text = kSkillStr
-                        end
-                        TopKillerSkillText.Position = Vector2.new(posX, posY)
-                        TopKillerSkillText.Color = Config.Color_KillerSkills or Color3.fromRGB(80, 220, 255)
-                        if not TopKillerSkillText.Visible then TopKillerSkillText.Visible = true end
-                    end
-                elseif TopKillerSkillText.Visible then
-                    TopKillerSkillText.Visible = false
-                end
-            elseif TopKillerSkillText.Visible then
-                TopKillerSkillText.Visible = false
-            end
-        elseif TopKillerSkillText.Visible then
+        -- Top Screen Killer Skill (Suppressed so cooldown is rendered under feet per user request)
+        if TopKillerSkillText.Visible then
             TopKillerSkillText.Visible = false
         end
 
@@ -6545,11 +6496,15 @@ function RenderESP()
 
             local shouldHide = isLocalMe or isDead or (not inLobby and isLobbyPlr) or (inLobby and not Config.ESP_LobbyEnabled)
 
-            if not shouldHide and char and root and char:FindFirstChild("Head") then
+            if not shouldHide and char and root then
                 local isK = not inLobby and ((data and data.IsKiller) or IsKiller(player))
                 local rootPos = root.Position
                 local rootScreen, onScreen = Camera:WorldToViewportPoint(rootPos)
-                local headScreen = Camera:WorldToViewportPoint(char.Head.Position)
+
+                local head = char:FindFirstChild("Head")
+                local headValid = head and head:IsA("BasePart") and (head.Position - rootPos).Magnitude <= 3.5
+                local headPos = headValid and head.Position or (rootPos + Vector3.new(0, root.Size.Y * 0.5 + 1.2, 0))
+                local headScreen = Camera:WorldToViewportPoint(headPos)
 
                 if onScreen and not IsInMenu(rootScreen.X, rootScreen.Y) and not IsInMenu(headScreen.X, headScreen.Y) then
                     esp.IsHidden = false
@@ -6565,18 +6520,10 @@ function RenderESP()
                         if esp.Box.Visible then esp.Box.Visible = false end
 
                         -- Rock-solid 3D World Space Top (Above Head) and Bottom (Under Feet)
-                        local head = char.Head
-                        local leftLeg = char:FindFirstChild("Left Leg") or char:FindFirstChild("leftleg")
-                        local rightLeg = char:FindFirstChild("Right Leg") or char:FindFirstChild("rightleg")
-                        local topWorld = head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.35, 0)
-                        local footBottomY = rootPos.Y - (root.Size.Y * 0.5 + 2.0)
-                        if leftLeg and rightLeg then
-                            footBottomY = math.min(leftLeg.Position.Y - leftLeg.Size.Y * 0.5, rightLeg.Position.Y - rightLeg.Size.Y * 0.5)
-                        elseif leftLeg then
-                            footBottomY = leftLeg.Position.Y - leftLeg.Size.Y * 0.5
-                        elseif rightLeg then
-                            footBottomY = rightLeg.Position.Y - rightLeg.Size.Y * 0.5
-                        end
+                        local topWorld = headValid and (head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.35, 0)) or (rootPos + Vector3.new(0, root.Size.Y * 0.5 + 1.5, 0))
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        local hipHeight = (hum and hum.HipHeight > 0) and hum.HipHeight or 2.0
+                        local footBottomY = rootPos.Y - (root.Size.Y * 0.5 + hipHeight + 0.1)
                         local btmWorld = Vector3.new(rootPos.X, footBottomY, rootPos.Z)
 
                         local topScreen, topVis = Camera:WorldToViewportPoint(topWorld)
@@ -6584,7 +6531,7 @@ function RenderESP()
 
                         currentX = math.floor(rootScreen.X)
                         local topY = math.floor(topScreen.Y - 14)
-                        local btmY = math.floor(btmScreen.Y + 4)
+                        local btmY = math.floor(btmScreen.Y + 2)
 
                         -- Render Hot Pink Skeleton (Thin & sleek, model-accurate)
                         if Config.ESP_KillerSkeleton then
@@ -6632,7 +6579,8 @@ function RenderESP()
                             esp.TopText.Visible = false
                         end
 
-                        -- Bottom Text: [KILLER] KillerType (No CHASING)
+                        -- Bottom Text: [KILLER] KillerType (Directly locked under feet)
+                        currentY = btmY
                         if Config.ESP_KillerNames then
                             local kType = player:GetAttribute("SelectedKiller") or "The Killer"
                             local btmStr = "[KILLER] " .. kType
@@ -6640,16 +6588,39 @@ function RenderESP()
                             if char:GetAttribute("IsCarrying") == true then btmStr = btmStr .. " [CARRYING]" end
 
                             if esp.BottomText.Text ~= btmStr then esp.BottomText.Text = btmStr end
-                            esp.BottomText.Position = Vector2.new(currentX, btmY)
+                            esp.BottomText.Position = Vector2.new(currentX, currentY)
                             esp.BottomText.Color = Color3.fromRGB(255, 255, 255)
                             if not esp.BottomText.Visible then esp.BottomText.Visible = true end
-                            currentY = btmY + 14
+                            currentY = currentY + 14
                         elseif esp.BottomText.Visible then
                             esp.BottomText.Visible = false
-                            currentY = btmY + 14
                         end
 
-                        -- Perks Text
+                        -- Skills & Charges Text (Directly below [KILLER] text under feet)
+                        if Config.ESP_KillerSkills then
+                            local kSkillStr = GetPlayerSkillInfo(player) or (data and data.SkillInfo)
+                            if type(kSkillStr) == "string" and #kSkillStr > 0 then
+                                if kSkillStr:find("^Skill:") then
+                                    kSkillStr = kSkillStr:gsub("^Skill:%s*", "[SKILL] ")
+                                elseif not kSkillStr:find("^%[SKILL%]") then
+                                    kSkillStr = "[SKILL] " .. kSkillStr
+                                end
+                                kSkillStr = kSkillStr:gsub("%s*|%s*CHASING", ""):gsub("%[CHASING%]", "")
+                                if esp.SkillText.Text ~= kSkillStr then esp.SkillText.Text = kSkillStr end
+                                esp.SkillText.Position = Vector2.new(currentX, currentY)
+                                esp.SkillText.Color = Config.Color_KillerSkills or Color3.fromRGB(80, 220, 255)
+                                if not esp.SkillText.Visible then esp.SkillText.Visible = true end
+                                currentY = currentY + 14
+                            elseif esp.SkillText.Visible then
+                                esp.SkillText.Visible = false
+                                esp.SkillText.Text = ""
+                            end
+                        elseif esp.SkillText.Visible then
+                            esp.SkillText.Visible = false
+                            esp.SkillText.Text = ""
+                        end
+
+                        -- Perks Text (Directly below skills under feet)
                         if Config.ESP_KillerPerks then
                             local perksFmt = data and data.PerksFormatted
                             if perksFmt and #perksFmt > 0 then
@@ -6664,12 +6635,6 @@ function RenderESP()
                             end
                         elseif esp.PerkText.Visible then
                             esp.PerkText.Visible = false
-                        end
-
-                        -- Skills & Charges Text (Moved under top match timer)
-                        if esp.SkillText.Visible then
-                            esp.SkillText.Visible = false
-                            esp.SkillText.Text = ""
                         end
                     else
                         hidePlayerESP(esp)
@@ -6726,18 +6691,10 @@ function RenderESP()
                             esp.Chams.Adornee = nil
                         end
 
-                        local head = char:FindFirstChild("Head")
-                        local leftLeg = char:FindFirstChild("Left Leg") or char:FindFirstChild("leftleg")
-                        local rightLeg = char:FindFirstChild("Right Leg") or char:FindFirstChild("rightleg")
-                        local topWorld = head and (head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.35, 0)) or (rootPos + Vector3.new(0, 1.9, 0))
-                        local footBottomY = rootPos.Y - (root.Size.Y * 0.5 + 2.0)
-                        if leftLeg and rightLeg then
-                            footBottomY = math.min(leftLeg.Position.Y - leftLeg.Size.Y * 0.5, rightLeg.Position.Y - rightLeg.Size.Y * 0.5)
-                        elseif leftLeg then
-                            footBottomY = leftLeg.Position.Y - leftLeg.Size.Y * 0.5
-                        elseif rightLeg then
-                            footBottomY = rightLeg.Position.Y - rightLeg.Size.Y * 0.5
-                        end
+                        local topWorld = headValid and (head.Position + Vector3.new(0, head.Size.Y * 0.5 + 0.35, 0)) or (rootPos + Vector3.new(0, root.Size.Y * 0.5 + 1.5, 0))
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        local hipHeight = (hum and hum.HipHeight > 0) and hum.HipHeight or 2.0
+                        local footBottomY = rootPos.Y - (root.Size.Y * 0.5 + hipHeight + 0.1)
                         local btmWorld = Vector3.new(rootPos.X, footBottomY, rootPos.Z)
                         local topScreen, topVis = Camera:WorldToViewportPoint(topWorld)
                         local btmScreen, btmVis = Camera:WorldToViewportPoint(btmWorld)
