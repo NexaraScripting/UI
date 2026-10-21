@@ -551,7 +551,7 @@ local ItemIcons = {
     ["Bandage"] = "rbxassetid://82212412764648",
     ["Medkit"] = "rbxassetid://82212412764648",
     ["Parrying Dagger"] = "rbxassetid://73125857028072",
-    ["Adrenaline Shot"] = "rbxassetid://18720210000",
+    ["Adrenaline Shot"] = "rbxassetid://137929638334333",
     ["Shadow Clone"] = "rbxassetid://134088840518889",
     ["WaxBound Candle"] = "rbxassetid://106285555718658",
     ["Holy Water"] = "rbxassetid://87891828424217",
@@ -3892,7 +3892,11 @@ local function FindNearestWindow(posOrPart)
     return bestWin, bestPart
 end
 
-local function MarkWindowBlocked(posOrPart, duration)
+local function MarkWindowBlocked(posOrPart, duration, clearPrevious)
+    if clearPrevious then
+        table.clear(BlockedWindows)
+        table.clear(BlockedWindowPositions)
+    end
     local dur = tonumber(duration) or 16
     local exp = os.clock() + dur
     local targetPos = nil
@@ -3929,7 +3933,8 @@ local function OnKillerVault(cfOrPart, maybePart)
     local hasCont, dur = KillerHasContainment()
     if hasCont then
         local target = maybePart or cfOrPart
-        MarkWindowBlocked(target, dur > 0 and dur or 16)
+        -- Containment / Bamboozle only blocks ONE window at a time; vaulting a new window unblocks the previous one!
+        MarkWindowBlocked(target, dur > 0 and dur or 16, true)
     end
 end
 
@@ -5191,13 +5196,23 @@ local function GetItemIcon(itemName)
         for _, it in ipairs(rs.Items:GetChildren()) do
             local nLower = it.Name:lower()
             if nLower == itLower or itLower:find(nLower) or nLower:find(itLower) then
+                local defObj = it:FindFirstChild("Default", true)
+                if defObj then
+                    if defObj:IsA("Decal") and defObj.Texture ~= "" then
+                        ItemIconCache[itemName] = defObj.Texture
+                        return defObj.Texture
+                    elseif (defObj:IsA("ImageLabel") or defObj:IsA("ImageButton")) and defObj.Image ~= "" then
+                        ItemIconCache[itemName] = defObj.Image
+                        return defObj.Image
+                    end
+                end
                 for _, c in ipairs(it:GetDescendants()) do
-                    if (c:IsA("ImageLabel") or c:IsA("ImageButton")) and c.Image ~= "" and not c.Image:find("Placeholder") then
-                        ItemIconCache[itemName] = c.Image
-                        return c.Image
-                    elseif c:IsA("Decal") and c.Texture ~= "" then
+                    if c:IsA("Decal") and c.Texture ~= "" and not c.Texture:find("18720210000") then
                         ItemIconCache[itemName] = c.Texture
                         return c.Texture
+                    elseif (c:IsA("ImageLabel") or c:IsA("ImageButton")) and c.Image ~= "" and not c.Image:find("Placeholder") and not c.Image:find("18720210000") then
+                        ItemIconCache[itemName] = c.Image
+                        return c.Image
                     end
                 end
             end
@@ -5954,6 +5969,61 @@ local function CreatePlayerRow(plr)
     return rowObj
 end
 
+local LocalKillerLevelCache = {}
+local LastKillerLevelQuery = {}
+
+local function GetResolvedKillerLevel(plr, kType)
+    local cleanK = tostring(kType or "Killer"):gsub("^The%s+", "")
+    local char = plr and plr.Character
+    -- 1. Check any replicated KillerLevel attribute on Character or Player
+    local attrLvl = (char and (char:GetAttribute("KillerLevel") or char:GetAttribute("Level") or char:GetAttribute(cleanK .. "Level")))
+                 or (plr and (plr:GetAttribute("KillerLevel") or plr:GetAttribute(cleanK .. "Level")))
+    if type(attrLvl) == "number" and attrLvl > 0 then
+        return attrLvl
+    end
+
+    -- 2. For LocalPlayer: query ReplicatedStorage.Remotes.ShopKillers.GetKillerLevel(cleanK) with caching
+    if plr == LocalPlayer then
+        local now = os.clock()
+        if not LocalKillerLevelCache[cleanK] or (now - (LastKillerLevelQuery[cleanK] or 0) > 15) then
+            LastKillerLevelQuery[cleanK] = now
+            task.spawn(function()
+                pcall(function()
+                    local sk = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("ShopKillers")
+                    local gkl = sk and sk:FindFirstChild("GetKillerLevel")
+                    if gkl and gkl:IsA("RemoteFunction") then
+                        local lv = gkl:InvokeServer(cleanK)
+                        if type(lv) == "number" and lv > 0 then
+                            LocalKillerLevelCache[cleanK] = lv
+                        end
+                    end
+                end)
+            end)
+        end
+        if LocalKillerLevelCache[cleanK] then
+            return LocalKillerLevelCache[cleanK]
+        end
+        -- Also check PlayerGui.Spectator.Inventory.Browse_loadout_killer.LevelLabel if already loaded
+        local ok, guiLv = pcall(function()
+            local inv = LocalPlayer.PlayerGui:FindFirstChild("Spectator") and LocalPlayer.PlayerGui.Spectator:FindFirstChild("Inventory")
+            local blk = inv and inv:FindFirstChild("Browse_loadout_killer")
+            local sel = inv and inv:FindFirstChild("SelectedKiller")
+            if blk and sel and tostring(sel.Value):lower() == cleanK:lower() then
+                local lbl = blk:FindFirstChild("LevelLabel")
+                local num = lbl and tonumber(tostring(lbl.Text):match("(%d+)"))
+                return num
+            end
+            return nil
+        end)
+        if ok and guiLv and guiLv > 0 then
+            LocalKillerLevelCache[cleanK] = guiLv
+            return guiLv
+        end
+    end
+
+    return tonumber(plr and plr:GetAttribute("Level")) or 1
+end
+
 local function UpdateRoster(force)
     local allPlayers = Players:GetPlayers()
     local killerPlr = nil
@@ -6014,18 +6084,19 @@ local function UpdateRoster(force)
 
             kType = ResolveKillerType(plr)
             local cleanK = tostring(kType or "Killer"):gsub("^The%s+", "")
+            local kLevel = GetResolvedKillerLevel(plr, kType)
 
             SetupKillerAvatar(row, kType, plr)
 
             if row.LvlBadge then
                 row.LvlBadge.BackgroundColor3 = Color3.fromRGB(42, 12, 18)
                 row.LvlStroke.Color = kCol
-                row.LvlText.Text = tostring(plrLevel)
+                row.LvlText.Text = tostring(kLevel)
                 row.LvlText.TextColor3 = Color3.fromRGB(255, 210, 215)
             end
 
             row.RolePill.BackgroundColor3 = Color3.fromRGB(60, 15, 22)
-            row.RoleText.Text = "[" .. cleanK:upper() .. " • LV." .. tostring(plrLevel) .. "]"
+            row.RoleText.Text = "[" .. cleanK:upper() .. " • LV." .. tostring(kLevel) .. "]"
             row.RoleText.TextColor3 = Color3.fromRGB(255, 85, 105)
 
             local kState = inLobby and "Lobby" or GetRosterKillerState(plr)
