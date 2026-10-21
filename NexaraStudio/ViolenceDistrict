@@ -4114,32 +4114,31 @@ pcall(function()
 end)
 
 -- Network listeners for Pallet Drops & Pallet Breaks
-local function ResolvePalletModel(p1, p2)
-    local inst = (typeof(p1) == "Instance" and p1) or (typeof(p2) == "Instance" and p2)
-    if inst then
-        return (inst:IsA("Model") and inst) or inst:FindFirstAncestorOfClass("Model") or (inst.Parent and inst.Parent:IsA("Model") and inst.Parent) or nil
-    end
-    local pos = (typeof(p1) == "CFrame" and p1.Position) or (typeof(p1) == "Vector3" and p1)
-             or (typeof(p2) == "CFrame" and p2.Position) or (typeof(p2) == "Vector3" and p2)
-    if pos then
-        local bestModel, bestDist = nil, 12.0
-        for _, item in ipairs(CachedPallets) do
-            local m = item.Model
-            local rPart = item.Part
-            if m and rPart and rPart.Parent then
-                local d = (rPart.Position - pos).Magnitude
-                if d < bestDist then
-                    bestDist = d
-                    bestModel = m
+pcall(function()
+    local function ResolvePalletModel(p1, p2)
+        local inst = (typeof(p1) == "Instance" and p1) or (typeof(p2) == "Instance" and p2)
+        if inst then
+            return (inst:IsA("Model") and inst) or inst:FindFirstAncestorOfClass("Model") or (inst.Parent and inst.Parent:IsA("Model") and inst.Parent) or nil
+        end
+        local pos = (typeof(p1) == "CFrame" and p1.Position) or (typeof(p1) == "Vector3" and p1)
+                 or (typeof(p2) == "CFrame" and p2.Position) or (typeof(p2) == "Vector3" and p2)
+        if pos then
+            local bestModel, bestDist = nil, 12.0
+            for _, item in ipairs(CachedPallets) do
+                local m = item.Model
+                local rPart = item.Part
+                if m and rPart and rPart.Parent then
+                    local d = (rPart.Position - pos).Magnitude
+                    if d < bestDist then
+                        bestDist = d
+                        bestModel = m
+                    end
                 end
             end
+            return bestModel
         end
-        return bestModel
+        return nil
     end
-    return nil
-end
-
-pcall(function()
     local remPallet = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Pallet")
     if remPallet then
         local dropAnim = remPallet:FindFirstChild("PalletDropAnim")
@@ -7721,8 +7720,12 @@ end)
 task.delay(0.35, SynchronizeConfigState)
 
 MainTab:Select()
+if Window and Window.SetVisible and not Window.Visible then
+    pcall(function() Window:SetVisible(true, true) end)
+end
 
 -- ======== AUTO SKILL CHECK (100% Great Zone + Merciless Storm / KingScourge Multi-Check Support) ========
+do
 local skillCheckTriggered = false
 local lastTriggeredGoalRot = nil
 
@@ -7888,8 +7891,11 @@ table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
         ApplyFullbrightNow()
     end
 end))
+end
 
 -- ======== SKELETON DRAWER (DYNAMIC MODEL-ACCURATE BONES) ========
+local RenderESP
+do
 local function getSkelPoint(cf, offset)
     local p = cf:PointToWorldSpace(offset)
     local sp, vis = Camera:WorldToViewportPoint(p)
@@ -8004,8 +8010,6 @@ local function UpdateSkeleton(char, lines, color, thickness, alpha)
 end
 
 -- ======== ESP RENDERING (CAMERA POST-UPDATE WITH SMOOTH FADE IN/OUT) ========
-local RenderESP
-do
 local seenGens = {}
 local seenPallets = {}
 local seenWindows = {}
@@ -8043,6 +8047,78 @@ local function IsInMenu(sx, sy)
     return sx >= (menuPos.X - 20) and sx <= (menuPos.X + menuSize.X + 20) and sy >= (menuPos.Y - 45) and sy <= (menuPos.Y + menuSize.Y + 20)
 end
 
+local OcclusionTarget = {}
+local OcclusionSmooth = {}
+local OcclusionNextCheck = {}
+local occRayParams = RaycastParams.new()
+occRayParams.FilterType = Enum.RaycastFilterType.Exclude
+occRayParams.IgnoreWater = true
+
+local function IsPointOccludedByWall(camOrigin, targetPos, ignoreInst)
+    local dir = targetPos - camOrigin
+    local dist = dir.Magnitude
+    if dist <= 1.5 then return false end
+    local unit = dir / dist
+    local curOrigin = camOrigin
+    local remaining = dist - 0.85
+    local filter = { LocalPlayer.Character, ignoreInst }
+    occRayParams.FilterDescendantsInstances = filter
+
+    for _ = 1, 4 do
+        if remaining <= 0.2 then return false end
+        local hit = Workspace:Raycast(curOrigin, unit * remaining, occRayParams)
+        if not hit or not hit.Instance then
+            return false
+        end
+        local hPart = hit.Instance
+        if ignoreInst and hPart:IsDescendantOf(ignoreInst) then
+            return false
+        end
+        local isTransparentOrTrigger = (hPart.Transparency >= 0.75) or (not hPart.CanCollide and hPart.Transparency > 0.2) or hPart.Name == "VaultTrigger" or hPart.Name == "Bottom"
+        if not isTransparentOrTrigger then
+            -- Also ignore other players' characters so players don't count as map walls
+            local hitModel = hPart:FindFirstAncestorOfClass("Model")
+            if hitModel and Players:GetPlayerFromCharacter(hitModel) then
+                isTransparentOrTrigger = true
+            end
+        end
+        if not isTransparentOrTrigger then
+            return true
+        end
+        local traveled = (hit.Position - curOrigin).Magnitude + 0.15
+        curOrigin = curOrigin + unit * traveled
+        remaining = remaining - traveled
+    end
+    return false
+end
+
+local function GetOcclusionFactor(inst, posA, posB, camOrigin, nowTime, dt)
+    local nextT = OcclusionNextCheck[inst] or 0
+    if nowTime >= nextT then
+        OcclusionNextCheck[inst] = nowTime + 0.055
+        local occA = posA and IsPointOccludedByWall(camOrigin, posA, inst) or false
+        local occB = posB and IsPointOccludedByWall(camOrigin, posB, inst) or occA
+        if occA and occB then
+            OcclusionTarget[inst] = 1.0
+        elseif occA or occB then
+            OcclusionTarget[inst] = 0.65
+        else
+            OcclusionTarget[inst] = 0.0
+        end
+    end
+    local target = OcclusionTarget[inst] or 0.0
+    local cur = OcclusionSmooth[inst]
+    if cur == nil then
+        cur = target
+    else
+        cur = cur + (target - cur) * math.clamp(dt * 14, 0, 1)
+        if target == 0 and cur < 0.01 then cur = 0 end
+        if target == 1 and cur > 0.99 then cur = 1 end
+    end
+    OcclusionSmooth[inst] = cur
+    return cur
+end
+
 function RenderESP(dtArg)
     pcall(function()
         local nowClock = os.clock()
@@ -8067,6 +8143,9 @@ function RenderESP(dtArg)
             table.clear(BlockedWindows)
             table.clear(BlockedWindowPositions)
             table.clear(cachedPalletEntries)
+            table.clear(OcclusionTarget)
+            table.clear(OcclusionSmooth)
+            table.clear(OcclusionNextCheck)
             lastPalletSortTime = 0
         end
         wasInLobby = inLobby
@@ -8126,9 +8205,11 @@ function RenderESP(dtArg)
                 local headPos = headValid and head.Position or (rootPos + Vector3.new(0, root.Size.Y * 0.5 + 1.2, 0))
                 local headScreen = Camera:WorldToViewportPoint(headPos)
 
-                -- Update 3D Chams even when off-screen so 3D Auras fade smoothly anywhere
+                -- Update 3D Chams (DBD-style: visible when behind walls, smoothly hidden when in plain sight)
                 if isK and not inLobby then
-                    if aKillerChams > 0.01 then
+                    local occK = (aKillerChams > 0.01) and GetOcclusionFactor(char, headPos, rootPos, camPos, nowClock, dt) or 0
+                    local effKChams = aKillerChams * occK
+                    if effKChams > 0.01 then
                         local hl = esp.Chams
                         local aCol = Config.Color_KillerChams or Color3.fromRGB(255, 60, 60)
                         if not hl or not hl.Parent then
@@ -8147,8 +8228,8 @@ function RenderESP(dtArg)
                                 hl.OutlineColor = aCol
                             end
                         end
-                        hl.FillTransparency = 1 - (0.22 * aKillerChams)
-                        hl.OutlineTransparency = 1 - (0.55 * aKillerChams)
+                        hl.FillTransparency = 1 - (0.28 * effKChams)
+                        hl.OutlineTransparency = 1 - (0.65 * effKChams)
                         if not hl.Enabled then hl.Enabled = true end
                     elseif esp.Chams and esp.Chams.Enabled then
                         esp.Chams.Enabled = false
@@ -8164,7 +8245,9 @@ function RenderESP(dtArg)
                             carriedByMe = true
                         end
                     end
-                    if (not carriedByMe) and sChamsAlpha > 0.01 then
+                    local occS = (not carriedByMe and sChamsAlpha > 0.01) and GetOcclusionFactor(char, headPos, rootPos, camPos, nowClock, dt) or 0
+                    local effSChams = sChamsAlpha * occS
+                    if (not carriedByMe) and effSChams > 0.01 then
                         local hl = esp.Chams
                         local sHum = char:FindFirstChildOfClass("Humanoid")
                         local isSurvivorHit = not inLobby and ((sHum and sHum.Health < 99) or char:GetAttribute("Knocked") == true or char:GetAttribute("IsHooked") == true)
@@ -8186,8 +8269,8 @@ function RenderESP(dtArg)
                                 hl.OutlineColor = aCol
                             end
                         end
-                        hl.FillTransparency = 1 - (0.22 * sChamsAlpha)
-                        hl.OutlineTransparency = 1 - (0.55 * sChamsAlpha)
+                        hl.FillTransparency = 1 - (0.28 * effSChams)
+                        hl.OutlineTransparency = 1 - (0.65 * effSChams)
                         if not hl.Enabled then hl.Enabled = true end
                     elseif esp.Chams and esp.Chams.Enabled then
                         esp.Chams.Enabled = false
@@ -8527,31 +8610,44 @@ function RenderESP(dtArg)
                     seenGens[gen] = true
                     local repairers = tonumber(gen:GetAttribute("PlayersRepairingCount")) or 0
 
-                    -- 3D Generator Chams / Highlight
+                    -- 3D Generator Chams / Highlight (DBD-style: visible only when occluded behind walls)
                     if aGenChams > 0.01 then
-                        local hl = GenAuras[gen]
-                        local cCol = (repairers > 0 and Color3.fromRGB(255, 215, 0))
-                                  or (Config.Color_GenChams or Config.Color_Generators or Color3.fromRGB(0, 240, 255))
-                        if not hl or not hl.Parent then
-                            hl = Instance.new("Highlight")
-                            hl.Name = "Nexara_GenAura"
-                            hl.FillColor = cCol
-                            hl.OutlineColor = cCol
-                            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                            hl.Adornee = gen
-                            local hlParent = (gethui and gethui()) or game:GetService("CoreGui") or gen
-                            pcall(function() hl.Parent = hlParent end)
-                            GenAuras[gen] = hl
-                        else
-                            if hl.Adornee ~= gen then hl.Adornee = gen end
-                            if hl.FillColor ~= cCol then
+                        local gOcc = GetOcclusionFactor(
+                            gen,
+                            root.Position + Vector3.new(0, 2.5, 0),
+                            root.Position + Vector3.new(0, 0.5, 0),
+                            camPos,
+                            nowClock,
+                            dt
+                        )
+                        local effGenChams = aGenChams * gOcc
+                        if effGenChams > 0.01 then
+                            local hl = GenAuras[gen]
+                            local cCol = (repairers > 0 and Color3.fromRGB(255, 215, 0))
+                                      or (Config.Color_GenChams or Config.Color_Generators or Color3.fromRGB(0, 240, 255))
+                            if not hl or not hl.Parent then
+                                hl = Instance.new("Highlight")
+                                hl.Name = "Nexara_GenAura"
                                 hl.FillColor = cCol
                                 hl.OutlineColor = cCol
+                                hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                                hl.Adornee = gen
+                                local hlParent = (gethui and gethui()) or game:GetService("CoreGui") or gen
+                                pcall(function() hl.Parent = hlParent end)
+                                GenAuras[gen] = hl
+                            else
+                                if hl.Adornee ~= gen then hl.Adornee = gen end
+                                if hl.FillColor ~= cCol then
+                                    hl.FillColor = cCol
+                                    hl.OutlineColor = cCol
+                                end
                             end
+                            hl.FillTransparency = 1 - (0.25 * effGenChams)
+                            hl.OutlineTransparency = 1 - (0.60 * effGenChams)
+                            if not hl.Enabled then hl.Enabled = true end
+                        elseif GenAuras[gen] and GenAuras[gen].Enabled then
+                            GenAuras[gen].Enabled = false
                         end
-                        hl.FillTransparency = 1 - (0.25 * aGenChams)
-                        hl.OutlineTransparency = 1 - (0.60 * aGenChams)
-                        if not hl.Enabled then hl.Enabled = true end
                     elseif GenAuras[gen] and GenAuras[gen].Enabled then
                         GenAuras[gen].Enabled = false
                     end
@@ -8690,29 +8786,42 @@ function RenderESP(dtArg)
 
                 -- 3D Glowing Aura through walls (Wood pallet only, capped at closest 14 to avoid Roblox 31 highlight limit)
                 if aPalletAura > 0.01 and idx <= 14 and dist <= Config.PalletMaxDist then
-                    local targetAdornee = item.PalletWood or pallet
-                    local hl = PalletAuras[pallet]
-                    local aCol = Config.Color_PalletAura or Color3.fromRGB(255, 205, 90)
-                    if not hl or not hl.Parent then
-                        hl = Instance.new("Highlight")
-                        hl.Name = "Nexara_PalletAura"
-                        hl.FillColor = aCol
-                        hl.OutlineColor = aCol
-                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                        hl.Adornee = targetAdornee
-                        local hlParent = (gethui and gethui()) or game:GetService("CoreGui") or targetAdornee
-                        pcall(function() hl.Parent = hlParent end)
-                        PalletAuras[pallet] = hl
-                    else
-                        if hl.Adornee ~= targetAdornee then hl.Adornee = targetAdornee end
-                        if hl.FillColor ~= aCol then
+                    local pOcc = GetOcclusionFactor(
+                        pallet,
+                        root.Position + Vector3.new(0, 1.5, 0),
+                        root.Position - Vector3.new(0, 0.8, 0),
+                        camPos,
+                        nowClock,
+                        dt
+                    )
+                    local effPalletAura = aPalletAura * pOcc
+                    if effPalletAura > 0.01 then
+                        local targetAdornee = item.PalletWood or pallet
+                        local hl = PalletAuras[pallet]
+                        local aCol = Config.Color_PalletAura or Color3.fromRGB(255, 205, 90)
+                        if not hl or not hl.Parent then
+                            hl = Instance.new("Highlight")
+                            hl.Name = "Nexara_PalletAura"
                             hl.FillColor = aCol
                             hl.OutlineColor = aCol
+                            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                            hl.Adornee = targetAdornee
+                            local hlParent = (gethui and gethui()) or game:GetService("CoreGui") or targetAdornee
+                            pcall(function() hl.Parent = hlParent end)
+                            PalletAuras[pallet] = hl
+                        else
+                            if hl.Adornee ~= targetAdornee then hl.Adornee = targetAdornee end
+                            if hl.FillColor ~= aCol then
+                                hl.FillColor = aCol
+                                hl.OutlineColor = aCol
+                            end
                         end
+                        hl.FillTransparency = 1 - (0.28 * effPalletAura)
+                        hl.OutlineTransparency = 1 - (0.60 * effPalletAura)
+                        if not hl.Enabled then hl.Enabled = true end
+                    elseif PalletAuras[pallet] and PalletAuras[pallet].Enabled then
+                        PalletAuras[pallet].Enabled = false
                     end
-                    hl.FillTransparency = 1 - (0.28 * aPalletAura)
-                    hl.OutlineTransparency = 1 - (0.60 * aPalletAura)
-                    if not hl.Enabled then hl.Enabled = true end
                 elseif PalletAuras[pallet] and PalletAuras[pallet].Enabled then
                     PalletAuras[pallet].Enabled = false
                 end
@@ -8796,69 +8905,84 @@ function RenderESP(dtArg)
                     local activeBoxColor = isBlocked and Color3.fromRGB(255, 50, 50) or wAuraCol
                     local activeGlowColor = isBlocked and Color3.fromRGB(255, 100, 100) or wGlowCol
 
-                    -- 3D Glowing Vault Sill (Dual-Layer Hologram: Solid Core + Neon Outer Glow)
+                    -- 3D Glowing Vault Sill (Dual-Layer Hologram: Solid Core + Neon Outer Glow, DBD-style behind walls)
+                    local sillWorldPos = ledge.CFrame:PointToWorldSpace(Vector3.new(0, offsetY, 0))
                     if aWindowAura > 0.01 then
-                        local sillSize, sillOffset
-                        if ledge.Name == "Bottom" then
-                            sillSize = ledge.Size
-                            sillOffset = CFrame.new(0, 0, 0)
-                        else
-                            local rawW = math.max(ledge.Size.X, ledge.Size.Z)
-                            local rawT = math.min(ledge.Size.X, ledge.Size.Z)
-                            local width = math.clamp(rawW, 3.8, 6.0)
-                            local thickness = math.clamp(rawT, 0.8, 2.0)
-                            local height = (ledge.Size.Y >= 1.2 and ledge.Size.Y <= 4.0) and ledge.Size.Y or 2.8
-                            sillSize = (ledge.Size.X >= ledge.Size.Z) and Vector3.new(width, height, thickness) or Vector3.new(thickness, height, width)
-                            sillOffset = CFrame.new(0, offsetY, 0)
-                        end
-
-                        -- Layer 1: Core BoxHandleAdornment
-                        local bha = WindowAdornments[win]
-                        if not bha or not bha.Parent or not bha:IsA("BoxHandleAdornment") then
-                            bha = Instance.new("BoxHandleAdornment")
-                            bha.Name = "Nexara_WindowBox"
-                            bha.AlwaysOnTop = true
-                            bha.ZIndex = 8
-                            bha.Adornee = ledge
-                            bha.Size = sillSize
-                            bha.CFrame = sillOffset
-                            bha.Color3 = activeBoxColor
-                            bha.Parent = ledge
-                            WindowAdornments[win] = bha
-                        else
-                            if bha.Adornee ~= ledge then bha.Adornee = ledge end
-                            if bha.Size ~= sillSize then bha.Size = sillSize end
-                            if bha.CFrame ~= sillOffset then bha.CFrame = sillOffset end
-                            if bha.Color3 ~= activeBoxColor then bha.Color3 = activeBoxColor end
-                        end
-                        bha.Transparency = 1 - (0.15 * aWindowAura)
-                        if not bha.Visible then bha.Visible = true end
-
-                        -- Layer 2: Outer Glow Shell BoxHandleAdornment (Stored in WindowAuras)
-                        local glow = WindowAuras[win]
-                        if not glow or not glow.Parent or not glow:IsA("BoxHandleAdornment") then
-                            if glow and glow:IsA("Highlight") then
-                                pcall(function() glow:Destroy() end)
+                        local wOcc = GetOcclusionFactor(
+                            win,
+                            sillWorldPos + Vector3.new(0, 0.8, 0),
+                            sillWorldPos - Vector3.new(0, 0.4, 0),
+                            camPos,
+                            nowClock,
+                            dt
+                        )
+                        local effWinAura = aWindowAura * wOcc
+                        if effWinAura > 0.01 then
+                            local sillSize, sillOffset
+                            if ledge.Name == "Bottom" then
+                                sillSize = ledge.Size
+                                sillOffset = CFrame.new(0, 0, 0)
+                            else
+                                local rawW = math.max(ledge.Size.X, ledge.Size.Z)
+                                local rawT = math.min(ledge.Size.X, ledge.Size.Z)
+                                local width = math.clamp(rawW, 3.8, 6.0)
+                                local thickness = math.clamp(rawT, 0.8, 2.0)
+                                local height = (ledge.Size.Y >= 1.2 and ledge.Size.Y <= 4.0) and ledge.Size.Y or 2.8
+                                sillSize = (ledge.Size.X >= ledge.Size.Z) and Vector3.new(width, height, thickness) or Vector3.new(thickness, height, width)
+                                sillOffset = CFrame.new(0, offsetY, 0)
                             end
 
-                            glow = Instance.new("BoxHandleAdornment")
-                            glow.Name = "Nexara_WindowGlow"
-                            glow.AlwaysOnTop = true
-                            glow.ZIndex = 7
-                            glow.Adornee = ledge
-                            glow.Size = sillSize + Vector3.new(0.12, 0.12, 0.12)
-                            glow.CFrame = sillOffset
-                            glow.Color3 = activeGlowColor
-                            glow.Parent = ledge
-                            WindowAuras[win] = glow
+                            -- Layer 1: Core BoxHandleAdornment
+                            local bha = WindowAdornments[win]
+                            if not bha or not bha.Parent or not bha:IsA("BoxHandleAdornment") then
+                                bha = Instance.new("BoxHandleAdornment")
+                                bha.Name = "Nexara_WindowBox"
+                                bha.AlwaysOnTop = true
+                                bha.ZIndex = 8
+                                bha.Adornee = ledge
+                                bha.Size = sillSize
+                                bha.CFrame = sillOffset
+                                bha.Color3 = activeBoxColor
+                                bha.Parent = ledge
+                                WindowAdornments[win] = bha
+                            else
+                                if bha.Adornee ~= ledge then bha.Adornee = ledge end
+                                if bha.Size ~= sillSize then bha.Size = sillSize end
+                                if bha.CFrame ~= sillOffset then bha.CFrame = sillOffset end
+                                if bha.Color3 ~= activeBoxColor then bha.Color3 = activeBoxColor end
+                            end
+                            bha.Transparency = 1 - (0.15 * effWinAura)
+                            if not bha.Visible then bha.Visible = true end
+
+                            -- Layer 2: Outer Glow Shell BoxHandleAdornment (Stored in WindowAuras)
+                            local glow = WindowAuras[win]
+                            if not glow or not glow.Parent or not glow:IsA("BoxHandleAdornment") then
+                                if glow and glow:IsA("Highlight") then
+                                    pcall(function() glow:Destroy() end)
+                                end
+
+                                glow = Instance.new("BoxHandleAdornment")
+                                glow.Name = "Nexara_WindowGlow"
+                                glow.AlwaysOnTop = true
+                                glow.ZIndex = 7
+                                glow.Adornee = ledge
+                                glow.Size = sillSize + Vector3.new(0.12, 0.12, 0.12)
+                                glow.CFrame = sillOffset
+                                glow.Color3 = activeGlowColor
+                                glow.Parent = ledge
+                                WindowAuras[win] = glow
+                            else
+                                if glow.Adornee ~= ledge then glow.Adornee = ledge end
+                                if glow.Size ~= (sillSize + Vector3.new(0.12, 0.12, 0.12)) then glow.Size = sillSize + Vector3.new(0.12, 0.12, 0.12) end
+                                if glow.CFrame ~= sillOffset then glow.CFrame = sillOffset end
+                                if glow.Color3 ~= activeGlowColor then glow.Color3 = activeGlowColor end
+                            end
+                            glow.Transparency = 1 - (0.08 * effWinAura)
+                            if not glow.Visible then glow.Visible = true end
                         else
-                            if glow.Adornee ~= ledge then glow.Adornee = ledge end
-                            if glow.Size ~= (sillSize + Vector3.new(0.12, 0.12, 0.12)) then glow.Size = sillSize + Vector3.new(0.12, 0.12, 0.12) end
-                            if glow.CFrame ~= sillOffset then glow.CFrame = sillOffset end
-                            if glow.Color3 ~= activeGlowColor then glow.Color3 = activeGlowColor end
+                            if WindowAdornments[win] and WindowAdornments[win].Visible then WindowAdornments[win].Visible = false end
+                            if WindowAuras[win] and WindowAuras[win].Visible then WindowAuras[win].Visible = false end
                         end
-                        glow.Transparency = 1 - (0.08 * aWindowAura)
-                        if not glow.Visible then glow.Visible = true end
                     else
                         if WindowAdornments[win] and WindowAdornments[win].Visible then WindowAdornments[win].Visible = false end
                         if WindowAuras[win] and WindowAuras[win].Visible then WindowAuras[win].Visible = false end
@@ -8876,7 +9000,6 @@ function RenderESP(dtArg)
                     end
 
                     if aWindowESP > 0.01 then
-                        local sillWorldPos = ledge.CFrame:PointToWorldSpace(Vector3.new(0, offsetY, 0))
                         local sPos, onScreen = Camera:WorldToViewportPoint(sillWorldPos)
                         if onScreen and not IsInMenu(sPos.X, sPos.Y) then
                             local wText = isBlocked and string.format("Vault [BLOCKED %ds] %dm", math.max(1, math.ceil(blockTimeLeft)), math.floor(dist))
