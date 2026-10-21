@@ -5167,8 +5167,326 @@ TabVisuals.View:GetPropertyChangedSignal("Visible"):Connect(function()
 end)
 end
 
+-- ======== AUTO TAB (FLOATING TOP WARNING BANNER ABOVE WINDOW + SEGMENTED SUB-TABS: TWIST OF FATE / VEIL / PARRY) ========
+do
+local TabAuto = Window:CreateTab("Auto", "rbxassetid://7733916988")
+
+local autoViewLayout = TabAuto.View:FindFirstChildOfClass("UIListLayout")
+if autoViewLayout then
+    autoViewLayout:Destroy()
+end
+
+-- 1. Floating Warning Banner above the Nexara Window (Fades in when Auto tab is active, fades out otherwise)
+local AutoWarnBanner = Instance.new("Frame")
+AutoWarnBanner.Name = "Nexara_AutoWarnFloating"
+AutoWarnBanner.Size = UDim2.fromOffset(720, 32)
+AutoWarnBanner.Position = UDim2.fromOffset(0, 0)
+AutoWarnBanner.BackgroundColor3 = Color3.fromRGB(28, 17, 15)
+AutoWarnBanner.BackgroundTransparency = 1
+AutoWarnBanner.BorderSizePixel = 0
+AutoWarnBanner.ClipsDescendants = true
+AutoWarnBanner.Visible = false
+AutoWarnBanner.ZIndex = 50
+AutoWarnBanner.Parent = Window.Gui or (Window.MainFrame and Window.MainFrame.Parent)
+Instance.new("UICorner", AutoWarnBanner).CornerRadius = UDim.new(0, 7)
+
+local warnStroke = Instance.new("UIStroke")
+warnStroke.Color = Color3.fromRGB(255, 170, 50)
+warnStroke.Thickness = 1.2
+warnStroke.Transparency = 1
+warnStroke.Parent = AutoWarnBanner
+
+local warnAccentBar = Instance.new("Frame")
+warnAccentBar.Name = "WarnAccentBar"
+warnAccentBar.Size = UDim2.new(0, 3, 1, 0)
+warnAccentBar.Position = UDim2.new(0, 0, 0, 0)
+warnAccentBar.BackgroundColor3 = Color3.fromRGB(255, 175, 45)
+warnAccentBar.BackgroundTransparency = 1
+warnAccentBar.BorderSizePixel = 0
+warnAccentBar.ZIndex = 51
+warnAccentBar.Parent = AutoWarnBanner
+
+local warnIcon = Instance.new("ImageLabel")
+warnIcon.Name = "WarnIcon"
+warnIcon.Size = UDim2.fromOffset(16, 16)
+warnIcon.Position = UDim2.new(0, 12, 0.5, -8)
+warnIcon.BackgroundTransparency = 1
+warnIcon.Image = "rbxassetid://10709753149"
+warnIcon.ImageColor3 = Color3.fromRGB(255, 185, 55)
+warnIcon.ImageTransparency = 1
+warnIcon.ZIndex = 51
+warnIcon.Parent = AutoWarnBanner
+
+local warnText = Instance.new("TextLabel")
+warnText.Name = "WarnText"
+warnText.Size = UDim2.new(1, -40, 1, 0)
+warnText.Position = UDim2.fromOffset(35, 0)
+warnText.BackgroundTransparency = 1
+warnText.Text = "WARNING: Using these automated features carries a risk of being recorded and reported for a ban."
+warnText.TextColor3 = Color3.fromRGB(255, 215, 145)
+warnText.TextTransparency = 1
+warnText.TextSize = 11
+warnText.TextXAlignment = Enum.TextXAlignment.Left
+warnText.TextTruncate = Enum.TextTruncate.AtEnd
+warnText.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+warnText.ZIndex = 51
+warnText.Parent = AutoWarnBanner
+
+local warnAlpha = 0
+local warnSlideOffset = 10
+
+table.insert(ScriptConnections, RunService.RenderStepped:Connect(function(dt)
+    local mf = Window and Window.MainFrame
+    local shouldShowWarn = (Window and Window.Visible and mf and mf.Visible and TabAuto.View and TabAuto.View.Visible) == true
+    if shouldShowWarn then
+        warnAlpha = math.min(1, warnAlpha + dt * 5.5)
+        warnSlideOffset = warnSlideOffset + (0 - warnSlideOffset) * math.clamp(dt * 12, 0, 1)
+    else
+        warnAlpha = math.max(0, warnAlpha - dt * 6.5)
+        warnSlideOffset = warnSlideOffset + (10 - warnSlideOffset) * math.clamp(dt * 12, 0, 1)
+    end
+
+    if warnAlpha <= 0.01 then
+        if AutoWarnBanner.Visible then AutoWarnBanner.Visible = false end
+        return
+    end
+
+    if not AutoWarnBanner.Visible then
+        AutoWarnBanner.Visible = true
+    end
+
+    if mf then
+        local guiParent = AutoWarnBanner.Parent
+        local guiAbs = (guiParent and guiParent:IsA("GuiBase2d")) and guiParent.AbsolutePosition or Vector2.zero
+        local absPos = mf.AbsolutePosition
+        local absSize = mf.AbsoluteSize
+        AutoWarnBanner.Size = UDim2.fromOffset(absSize.X, 32)
+        AutoWarnBanner.Position = UDim2.fromOffset(math.floor(absPos.X - guiAbs.X), math.floor(absPos.Y - guiAbs.Y - 36 + warnSlideOffset))
+    end
+
+    AutoWarnBanner.BackgroundTransparency = 1 - (0.94 * warnAlpha)
+    warnStroke.Transparency = 1 - (0.68 * warnAlpha)
+    warnAccentBar.BackgroundTransparency = 1 - warnAlpha
+    warnIcon.ImageTransparency = 1 - warnAlpha
+    warnText.TextTransparency = 1 - warnAlpha
+end))
+
+-- 2. Sub-Category Navigation Bar (Twist of Fate | Veil | Parry) at top of Auto Tab (matching Visuals Tab)
+local TopAutoNav = Instance.new("Frame")
+TopAutoNav.Name = "TopAutoNav"
+TopAutoNav.Size = UDim2.new(1, 0, 0, 32)
+TopAutoNav.Position = UDim2.new(0, 0, 0, 0)
+TopAutoNav.BackgroundColor3 = Window.Theme.Section
+TopAutoNav.BackgroundTransparency = Window.TransparentEnabled and 0.25 or 0
+TopAutoNav.BorderSizePixel = 0
+TopAutoNav.Parent = TabAuto.View
+Instance.new("UICorner", TopAutoNav).CornerRadius = UDim.new(0, 6)
+Window:RegisterThemeElement(TopAutoNav, "BackgroundColor3", "Surface")
+
+local autoNavStroke = Instance.new("UIStroke")
+autoNavStroke.Color = Window.Theme.SectionBorder
+autoNavStroke.Thickness = 1
+autoNavStroke.Parent = TopAutoNav
+
+local autoNavLayout = Instance.new("UIListLayout")
+autoNavLayout.FillDirection = Enum.FillDirection.Horizontal
+autoNavLayout.SortOrder = Enum.SortOrder.LayoutOrder
+autoNavLayout.Padding = UDim.new(0, 4)
+autoNavLayout.Parent = TopAutoNav
+
+local autoNavPad = Instance.new("UIPadding")
+autoNavPad.PaddingTop = UDim.new(0, 3)
+autoNavPad.PaddingBottom = UDim.new(0, 3)
+autoNavPad.PaddingLeft = UDim.new(0, 4)
+autoNavPad.PaddingRight = UDim.new(0, 4)
+autoNavPad.Parent = TopAutoNav
+
+-- 3. Container Frame for 2 Columns (50% / 50% split below TopAutoNav)
+local AutoColumnsFrame = Instance.new("Frame")
+AutoColumnsFrame.Name = "AutoColumnsFrame"
+AutoColumnsFrame.Size = UDim2.new(1, 0, 1, -38)
+AutoColumnsFrame.Position = UDim2.new(0, 0, 0, 38)
+AutoColumnsFrame.BackgroundTransparency = 1
+AutoColumnsFrame.BorderSizePixel = 0
+AutoColumnsFrame.Parent = TabAuto.View
+
+local autoColLayout = Instance.new("UIListLayout")
+autoColLayout.FillDirection = Enum.FillDirection.Horizontal
+autoColLayout.SortOrder = Enum.SortOrder.LayoutOrder
+autoColLayout.Padding = UDim.new(0, 8)
+autoColLayout.Parent = AutoColumnsFrame
+
+local colA1 = TabAuto:CreateColumn()
+local colA2 = TabAuto:CreateColumn()
+colA1.Frame.Parent = AutoColumnsFrame
+colA2.Frame.Parent = AutoColumnsFrame
+colA1.Frame.Size = UDim2.new(0.5, -4, 1, 0)
+colA2.Frame.Size = UDim2.new(0.5, -4, 1, 0)
+colA1.Frame.Visible = true
+colA2.Frame.Visible = true
+
+-- ==== SUB-TAB 1: TWIST OF FATE ====
+local secTwist1 = colA1:CreateSection("Twist of Fate")
+local secTwist2 = colA2:CreateSection("Twist of Fate Settings")
+
+-- ==== SUB-TAB 2: VEIL ====
+local secVeil1 = colA1:CreateSection("Veil")
+local secVeil2 = colA2:CreateSection("Veil Settings")
+
+-- ==== SUB-TAB 3: PARRY ====
+local secParry1 = colA1:CreateSection("Parry")
+local secParry2 = colA2:CreateSection("Parry Settings")
+
+local currentAutoCategory = "TwistOfFate"
+local autoCategoryButtons = {}
+local isInitialAutoSelect = true
+
+local autoCategories = {
+    { Id = "TwistOfFate", Name = "Twist of Fate" },
+    { Id = "Veil", Name = "Veil" },
+    { Id = "Parry", Name = "Parry" },
+}
+
+local function selectAutoCategory(catId)
+    currentAutoCategory = catId
+
+    local showTwist = (catId == "TwistOfFate")
+    local showVeil = (catId == "Veil")
+    local showParry = (catId == "Parry")
+
+    secTwist1.Box.Visible = showTwist
+    secTwist2.Box.Visible = showTwist
+
+    secVeil1.Box.Visible = showVeil
+    secVeil2.Box.Visible = showVeil
+
+    secParry1.Box.Visible = showParry
+    secParry2.Box.Visible = showParry
+
+    for _, btnData in ipairs(autoCategoryButtons) do
+        local isSelected = (btnData.Id == catId)
+        if isSelected then
+            TweenService:Create(btnData.Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 0.45,
+                TextColor3 = Window.Theme.Text
+            }):Play()
+            btnData.Indicator.Visible = true
+            if not isInitialAutoSelect then
+                btnData.Indicator.Size = UDim2.new(0, 0, 0, 2)
+            end
+            TweenService:Create(btnData.Indicator, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+                Size = UDim2.new(0.7, 0, 0, 2)
+            }):Play()
+        else
+            TweenService:Create(btnData.Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 1,
+                TextColor3 = Window.Theme.SubText
+            }):Play()
+            if btnData.Indicator.Visible then
+                local shrinkTw = TweenService:Create(btnData.Indicator, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                    Size = UDim2.new(0, 0, 0, 2)
+                })
+                shrinkTw:Play()
+                task.delay(0.18, function()
+                    if currentAutoCategory ~= btnData.Id then
+                        btnData.Indicator.Visible = false
+                    end
+                end)
+            end
+        end
+    end
+
+    if not isInitialAutoSelect and TabAuto.View.Visible then
+        AutoColumnsFrame.Position = UDim2.new(0, 0, 0, 48)
+        TweenService:Create(AutoColumnsFrame, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0, 0, 0, 38)
+        }):Play()
+    end
+end
+
+for _, catData in ipairs(autoCategories) do
+    local itemBtn = Instance.new("TextButton")
+    itemBtn.Name = "AutoNavBtn_" .. catData.Id
+    itemBtn.Size = UDim2.new(1 / 3, -4, 1, 0)
+    itemBtn.BackgroundColor3 = Window.Theme.Inline
+    itemBtn.BackgroundTransparency = 1
+    itemBtn.BorderSizePixel = 0
+    itemBtn.Text = catData.Name
+    itemBtn.TextColor3 = Window.Theme.SubText
+    itemBtn.TextSize = 11
+    itemBtn.FontFace = GetPreferredFont()
+    itemBtn.AutoButtonColor = false
+    itemBtn.Parent = TopAutoNav
+    Instance.new("UICorner", itemBtn).CornerRadius = UDim.new(0, 4)
+
+    local activeIndicator = Instance.new("Frame")
+    activeIndicator.Name = "ActiveIndicator"
+    activeIndicator.Size = UDim2.new(0.7, 0, 0, 2)
+    activeIndicator.AnchorPoint = Vector2.new(0.5, 1)
+    activeIndicator.Position = UDim2.new(0.5, 0, 1, -1)
+    activeIndicator.BackgroundColor3 = Window.Theme.Accent
+    activeIndicator.BorderSizePixel = 0
+    activeIndicator.Visible = false
+    activeIndicator.Parent = itemBtn
+    Instance.new("UICorner", activeIndicator).CornerRadius = UDim.new(0, 1)
+    Window:RegisterAccent(activeIndicator, "BackgroundColor3")
+
+    table.insert(autoCategoryButtons, {
+        Id = catData.Id,
+        Button = itemBtn,
+        Indicator = activeIndicator
+    })
+
+    itemBtn.MouseEnter:Connect(function()
+        if currentAutoCategory ~= catData.Id then
+            TweenService:Create(itemBtn, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 0.8,
+                TextColor3 = Window.Theme.Text
+            }):Play()
+        end
+    end)
+    itemBtn.MouseLeave:Connect(function()
+        if currentAutoCategory ~= catData.Id then
+            TweenService:Create(itemBtn, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 1,
+                TextColor3 = Window.Theme.SubText
+            }):Play()
+        end
+    end)
+    itemBtn.MouseButton1Click:Connect(function()
+        selectAutoCategory(catData.Id)
+    end)
+end
+
+selectAutoCategory("TwistOfFate")
+isInitialAutoSelect = false
+
+local function playAutoEntrance()
+    if not TabAuto.View.Visible then return end
+
+    warnSlideOffset = 10
+
+    TopAutoNav.Position = UDim2.new(0, 0, 0, -22)
+    TweenService:Create(TopAutoNav, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0, 0, 0, 0)
+    }):Play()
+
+    AutoColumnsFrame.Position = UDim2.new(0, 0, 0, 50)
+    TweenService:Create(AutoColumnsFrame, TweenInfo.new(0.32, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0, 0, 0, 38)
+    }):Play()
+end
+
+TabAuto.View:GetPropertyChangedSignal("Visible"):Connect(function()
+    if TabAuto.View.Visible then
+        playAutoEntrance()
+    end
+end)
+end
+
 -- ======== PLAYERLIST (DBD SCOREBOARD ROSTER) TAB ========
 -- In-game asset mapping (Perks, Items, Killers) pulled directly from game files
+do
 local KillerPortraits = {
     ["cure"] = "rbxassetid://116667641951505",
     ["veil"] = "rbxassetid://107207953517546",
@@ -5521,7 +5839,6 @@ local function _GetKillerPowerIcon(kName)
 end
 
 local TabPlayerlist = Window:CreateTab("Playerlist", "rbxassetid://10723415766")
-do
 local colRoster = TabPlayerlist:CreateColumn()
 colRoster.Frame.Size = UDim2.new(1, 0, 1, 0)
 
@@ -6804,7 +7121,7 @@ local function SyncAllUIWithTheme(presetName, customAccent)
         for _, desc in ipairs(contentArea:GetDescendants()) do
             if desc:IsA("Frame") then
                 local nm = desc.Name
-                if nm:find("^Section_") or nm == "CustomCard" or nm == "TopCategoryNav" or nm == "RosterHeaderCard" or nm:find("^PlayerCard_") then
+                if nm:find("^Section_") or nm == "CustomCard" or nm == "TopCategoryNav" or nm == "TopAutoNav" or nm == "RosterHeaderCard" or nm:find("^PlayerCard_") then
                     desc.BackgroundColor3 = pal.Surface
                     desc.BackgroundTransparency = Window.TransparentEnabled and 0.20 or 0.03
                     local st = desc:FindFirstChildOfClass("UIStroke")
