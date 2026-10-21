@@ -1137,6 +1137,15 @@ local function SetupPlayerCooldownHooks(player)
             end)
             if attrName == "Parry" and char:GetAttribute("Parry") == true then
                 SetItemCooldown(player, "Parrying Dagger", 60)
+            elseif attrName == "IsStunned" and char:GetAttribute("IsStunned") == true and IsKiller(player) then
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) then
+                        local cd = GetItemCooldown(p, "Parrying Dagger")
+                        if cd >= 57 then
+                            SetItemCooldown(p, "Parrying Dagger", 90)
+                        end
+                    end
+                end
             elseif attrName == "LakeMist" then
                 local mActive = char:GetAttribute("LakeMist") == true
                 if mActive and not LastSlasherMist then
@@ -1297,6 +1306,20 @@ local function SetupPlayerCooldownHooks(player)
                         lastUses = cur
                     end
                 end))
+                for _, d in ipairs(c:GetDescendants()) do
+                    if d:IsA("Sound") then
+                        table.insert(ScriptConnections, d:GetPropertyChangedSignal("Playing"):Connect(function()
+                            if not d.Playing or IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
+                            if c.Name == "Gate" then
+                                SetItemCooldown(player, "Gate", 60)
+                            elseif c.Name == "WaxBound Candle" then
+                                SetItemCooldown(player, "WaxBound Candle", 35)
+                            elseif c.Name == "Parrying Dagger" and GetItemCooldown(player, "Parrying Dagger") <= 0 then
+                                SetItemCooldown(player, "Parrying Dagger", 60)
+                            end
+                        end))
+                    end
+                end
             end
 
             for _, c in ipairs(char:GetChildren()) do
@@ -1538,6 +1561,40 @@ pcall(function()
             end))
         end
     end
+
+    -- Global Broadcast Remote for Riot Shield Rush (Remotes.Modules.forgevfx fires to ALL clients with exact character!)
+    local modRem = rem and rem:FindFirstChild("Modules")
+    local fvfx = modRem and modRem:FindFirstChild("forgevfx")
+    if fvfx and fvfx:IsA("RemoteEvent") then
+        table.insert(ScriptConnections, fvfx.OnClientEvent:Connect(function(action, charModel)
+            if (action == "stop" or action == "emit") and typeof(charModel) == "Instance" then
+                local plr = Players:GetPlayerFromCharacter(charModel)
+                if plr and not IsKiller(plr) and not IsPlayerDead(plr) then
+                    SetItemCooldown(plr, "Riot Shield", 50)
+                end
+            end
+        end))
+    end
+
+    -- Global Broadcast Remote for Twist of Fate (VisualizeBullet fires to ALL clients)
+    local tof = items and items:FindFirstChild("Twist of Fate")
+    local visBullet = tof and tof:FindFirstChild("VisualizeBullet")
+    if visBullet and visBullet:IsA("RemoteEvent") then
+        table.insert(ScriptConnections, visBullet.OnClientEvent:Connect(function(origin)
+            if typeof(origin) == "Vector3" then
+                local closest, minD = nil, 25
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+                        local d = (p.Character.HumanoidRootPart.Position - origin).Magnitude
+                        if d < minD then minD = d; closest = p end
+                    end
+                end
+                if closest then
+                    SetItemCooldown(closest, "Twist of Fate", 60)
+                end
+            end
+        end))
+    end
 end)
 end)
 
@@ -1588,7 +1645,7 @@ task.spawn(function()
             end))
         end
 
-        local mech = rem:FindFirstChild("Player")
+        local mech = rem:FindFirstChild("Mechanics") or rem:FindFirstChild("Player")
         attachVisualize(mech and mech:FindFirstChild("visualize"))
 
         local kRem = rem:WaitForChild("Killers", 5)
@@ -2965,7 +3022,10 @@ local function GetPlayerSkillInfo(player)
             end
 
         elseif kName == "Slasher" then
+            local sTorso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
             local mistAttr = char:GetAttribute("LakeMist") == true
+                          or game:GetService("CollectionService"):HasTag(char, "Undetectable")
+                          or (sTorso and sTorso.Transparency > 0.5)
             if mistAttr and not LastSlasherMist then
                 LastSlasherMist = true
                 SlasherMistActiveEnd = now + 13
@@ -3932,7 +3992,8 @@ end
 local function OnKillerVault(cfOrPart, maybePart)
     local hasCont, dur = KillerHasContainment()
     if hasCont then
-        local target = maybePart or cfOrPart
+        local tType = typeof(maybePart)
+        local target = (tType == "Instance" or tType == "CFrame" or tType == "Vector3") and maybePart or cfOrPart
         -- Containment / Bamboozle only blocks ONE window at a time; vaulting a new window unblocks the previous one!
         MarkWindowBlocked(target, dur > 0 and dur or 16, true)
     end
@@ -4053,22 +4114,45 @@ pcall(function()
 end)
 
 -- Network listeners for Pallet Drops & Pallet Breaks
+local function ResolvePalletModel(p1, p2)
+    local inst = (typeof(p1) == "Instance" and p1) or (typeof(p2) == "Instance" and p2)
+    if inst then
+        return (inst:IsA("Model") and inst) or inst:FindFirstAncestorOfClass("Model") or (inst.Parent and inst.Parent:IsA("Model") and inst.Parent) or nil
+    end
+    local pos = (typeof(p1) == "CFrame" and p1.Position) or (typeof(p1) == "Vector3" and p1)
+             or (typeof(p2) == "CFrame" and p2.Position) or (typeof(p2) == "Vector3" and p2)
+    if pos then
+        local bestModel, bestDist = nil, 12.0
+        for _, item in ipairs(CachedPallets) do
+            local m = item.Model
+            local rPart = item.Part
+            if m and rPart and rPart.Parent then
+                local d = (rPart.Position - pos).Magnitude
+                if d < bestDist then
+                    bestDist = d
+                    bestModel = m
+                end
+            end
+        end
+        return bestModel
+    end
+    return nil
+end
+
 pcall(function()
     local remPallet = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Pallet")
     if remPallet then
         local dropAnim = remPallet:FindFirstChild("PalletDropAnim")
         if dropAnim and dropAnim:IsA("RemoteEvent") then
             table.insert(ScriptConnections, dropAnim.OnClientEvent:Connect(function(p1, p2)
-                local target = p2 or p1
-                local win = target and (target:IsA("Model") and target or target:FindFirstAncestorOfClass("Model") or target.Parent)
+                local win = ResolvePalletModel(p1, p2)
                 if win then DroppedPallets[win] = true end
             end))
         end
         local dropEvent = remPallet:FindFirstChild("PalletDropEvent")
         if dropEvent and dropEvent:IsA("RemoteEvent") then
             table.insert(ScriptConnections, dropEvent.OnClientEvent:Connect(function(p1, p2)
-                local target = p2 or p1
-                local win = target and (target:IsA("Model") and target or target:FindFirstAncestorOfClass("Model") or target.Parent)
+                local win = ResolvePalletModel(p1, p2)
                 if win then DroppedPallets[win] = true end
             end))
         end
@@ -4078,8 +4162,7 @@ pcall(function()
                 local r = jason:FindFirstChild(rName)
                 if r and r:IsA("RemoteEvent") then
                     table.insert(ScriptConnections, r.OnClientEvent:Connect(function(p1, p2)
-                        local target = p1 or p2
-                        local win = target and (target:IsA("Model") and target or target:FindFirstAncestorOfClass("Model"))
+                        local win = ResolvePalletModel(p1, p2)
                         if win then
                             MarkPalletBroken(win)
                         else
@@ -4106,7 +4189,7 @@ pcall(function()
         if brokenEvt and (brokenEvt:IsA("RemoteEvent") or brokenEvt:IsA("BindableEvent")) then
             local connEvt = brokenEvt:IsA("RemoteEvent") and brokenEvt.OnClientEvent or brokenEvt.Event
             table.insert(ScriptConnections, connEvt:Connect(function(target)
-                local win = target and (target:IsA("Model") and target or target:FindFirstAncestorOfClass("Model"))
+                local win = ResolvePalletModel(target)
                 if win then MarkPalletBroken(win) end
             end))
         end
@@ -8083,7 +8166,10 @@ function RenderESP(dtArg)
                     end
                     if (not carriedByMe) and sChamsAlpha > 0.01 then
                         local hl = esp.Chams
-                        local aCol = inLobby and Color3.fromRGB(0, 210, 255) or (Config.Color_SurvivorChams or Color3.fromRGB(80, 255, 120))
+                        local sHum = char:FindFirstChildOfClass("Humanoid")
+                        local isSurvivorHit = not inLobby and ((sHum and sHum.Health < 99) or char:GetAttribute("Knocked") == true or char:GetAttribute("IsHooked") == true)
+                        local aCol = inLobby and Color3.fromRGB(0, 210, 255)
+                                  or (isSurvivorHit and Color3.fromRGB(255, 215, 0) or (Config.Color_SurvivorChams or Color3.fromRGB(80, 255, 120)))
                         if not hl or not hl.Parent then
                             hl = Instance.new("Highlight")
                             hl.Name = "Nexara_PlayerChams"
@@ -8979,20 +9065,6 @@ do
         end
     end)
 
-    local function IsAnyFlashlightGotPlaying()
-        local myChar = LocalPlayer.Character
-        if myChar then
-            local fl = myChar:FindFirstChild("Flashlight")
-            if fl then
-                local gotSnd = fl:FindFirstChild("got", true)
-                if gotSnd and gotSnd:IsA("Sound") and gotSnd.IsPlaying then
-                    return true
-                end
-            end
-        end
-        return false
-    end
-
     table.insert(ScriptConnections, RunService.Heartbeat:Connect(function(dt)
         if not ScriptRunning then
             if BlindContainer.Visible then BlindContainer.Visible = false end
@@ -9040,20 +9112,16 @@ do
             end
         end
 
-        if IsAnyFlashlightGotPlaying() then
-            blindHoldUntil = math.max(blindHoldUntil, now + 0.85)
-        end
-
         if rawBlindness ~= nil then
-            -- If server resets Blindness from >=85% down to 0 because the blind succeeded (100% reached), hold 100% briefly so user sees 100%
-            if lastRawBlindness >= 85 and rawBlindness <= 5 then
-                blindHoldUntil = math.max(blindHoldUntil, now + 0.85)
-            elseif rawBlindness >= 99.5 then
-                blindHoldUntil = math.max(blindHoldUntil, now + 0.85)
+            -- Only hold 100% briefly if the server instantaneously reset Blindness from >=88% straight down to 0 (meaning 100% blind succeeded)
+            if (lastRawBlindness >= 88 and rawBlindness <= 1) or rawBlindness >= 99.5 then
+                blindHoldUntil = math.max(blindHoldUntil, now + 0.65)
+            elseif rawBlindness > 1 and rawBlindness < 99.5 then
+                blindHoldUntil = 0
             end
             lastRawBlindness = rawBlindness
 
-            if now < blindHoldUntil and rawBlindness < 10 then
+            if now < blindHoldUntil and rawBlindness <= 1 then
                 blindProgress = 1
             else
                 local targetProg = math.clamp(rawBlindness / 100, 0, 1)
