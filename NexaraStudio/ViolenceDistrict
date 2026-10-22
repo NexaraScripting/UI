@@ -31,7 +31,10 @@ end
 getgenv().NexaraUI = nil
 getgenv().Nexara = nil
 _G.NexaraLibOnly = true
-local Nexara = loadstring(game:HttpGet("https://raw.githubusercontent.com/Surankannig/UI/refs/heads/main/UI-NexaraStudio"))()
+local uiCode = (typeof(HttpGet) == "function" and HttpGet("https://raw.githubusercontent.com/Surankannig/UI/refs/heads/main/UI-NexaraStudio"))
+    or (game.HttpGet and game.HttpGet(game, "https://raw.githubusercontent.com/Surankannig/UI/refs/heads/main/UI-NexaraStudio"))
+    or game:HttpGet("https://raw.githubusercontent.com/Surankannig/UI/refs/heads/main/UI-NexaraStudio")
+local Nexara = loadstring(uiCode)()
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -118,6 +121,22 @@ local Config = {
     CustomFOVEnabled = false,
     FOV = 80,
     WalkSpeed = 16,
+
+    -- Legit / Twist of Fate Combat
+    Tof_SilentAim = false,
+    Tof_Aimbot = false,
+    Tof_TargetMode = "Auto (Killer)",
+    Tof_AimKeyType = "None",
+    Tof_AimKeyCode = nil,
+    Tof_AimKeyName = "None",
+    Tof_Laser = false,
+    Tof_ShowFOV = false,
+    Tof_FOV = 250,
+    Tof_AimbotSmooth = 10,
+    Tof_LaserDuration = 0.6,
+    Color_Tof_FOV = Color3.fromRGB(255, 175, 45),
+    Color_Tof_Laser = Color3.fromRGB(255, 60, 60),
+    ShowKeybindsList = true,
 }
 
 -- Lighting Management (Restore proper map night lighting, prevent white fog blowout)
@@ -293,37 +312,52 @@ local function IsInLobby()
     end
     lastInLobbyCheck = now
 
-    -- 1. Check physical proximity to Lobby (Fastest & 100% reliable - 0ms delay on round end teleport)
+    -- 0. Check LocalPlayer's Team first: if not in 'Killer' or 'Survivors' (e.g. 'Spectator', 'Lobby', 'Choosing'), player is in Lobby!
+    local team = LocalPlayer.Team
+    if team then
+        local tName = team.Name
+        if tName ~= "Killer" and tName ~= "Survivors" then
+            cachedInLobby = true
+            return true
+        end
+    else
+        cachedInLobby = true
+        return true
+    end
+
+    -- 1. Check explicit lobby attributes on LocalPlayer
+    if LocalPlayer:GetAttribute("InLobby") == true or LocalPlayer:GetAttribute("WaitingInLobby") == true then
+        cachedInLobby = true
+        return true
+    end
+
+    -- 2. Check physical proximity to Lobby (Fastest & 100% reliable - 0ms delay on round end teleport)
     local myRoot = GetRoot(LocalPlayer)
     local lobbyPart = GetLobbyPart()
     if myRoot and lobbyPart then
         local distToLobby = (myRoot.Position - lobbyPart.Position).Magnitude
-        if distToLobby <= 350 then
+        if distToLobby <= 380 then
             cachedInLobby = true
             return true
         end
     end
 
-    -- 2. Check Match Timer: 00:00 means match has completed
+    -- 3. Check Match Timer: 00:00 means match has completed
     if IsMatchTimerZero() then
         cachedInLobby = true
         return true
     end
 
-    -- 3. Check Map folder contents (In match, Map has children; in lobby, map is missing or empty)
+    -- 4. Check Map folder contents (In match, Map has children; in lobby, map is missing or empty)
     local map = Workspace:FindFirstChild("Map")
     if not map or not map:FindFirstChildWhichIsA("Instance") then
         cachedInLobby = true
         return true
     end
 
-    -- 4. Check LocalPlayer's Team fallback
-    local team = LocalPlayer.Team
-    if team then
-        if team.Name == "Killer" or team.Name == "Survivors" then
-            cachedInLobby = false
-            return false
-        end
+    if team and (team.Name == "Killer" or team.Name == "Survivors") then
+        cachedInLobby = false
+        return false
     end
 
     cachedInLobby = false
@@ -4042,28 +4076,689 @@ local function GetWindowBlockTime(win, rootPart, ledgePart)
     return false, 0
 end
 
--- Network listeners & Local Hooks for Window Blocks & Killer Containment Perks
+-- ======== TWIST OF FATE COMBAT (LEGIT / SILENT AIM / AIMBOT / LASER) ========
+local TofCombat: { [string]: any } = {
+    AimbotToggle = nil,
+    AimKeyBtn = nil,
+    AimKeyRow = nil,
+    CachedPing = 0.045,
+    FovCircle = nil,
+    HrpHistory = {},
+    IsBindingToggleKey = false,
+    LastFireClock = 0,
+    LastFireTick = 0,
+    LastLaserSpawnClock = 0,
+    PendingLaserHitPos = nil,
+    PendingLaserOrigin = nil,
+    PendingLaserTick = 0,
+    ServerOriginLocalOffset = Vector3.new(0.7, 1.375, -2.5),
+    ServerReplicationDelay = 0.045,
+    TargetDropdown = nil,
+}
+do
+    pcall(function()
+        if Drawing and Drawing.new then
+            local c = Drawing.new("Circle")
+            c.Thickness = 1.2
+            c.NumSides = 64
+            c.Filled = false
+            c.Transparency = 1
+            c.Color = Config.Color_Tof_FOV or Color3.fromRGB(255, 175, 45)
+            c.Visible = false
+            TofCombat.FovCircle = c
+        end
+    end)
+
+    function TofCombat.BuildTargetOptions()
+        local opts = { "Auto (Killer)" }
+        local killerOpts = {}
+        local otherOpts = {}
+
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local isK = IsKiller(p)
+                if isK then
+                    local char = p.Character
+                    local kName = p:GetAttribute("SelectedKiller") or (char and char:GetAttribute("SelectedKiller")) or "Killer"
+                    if char then
+                        if char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") or char:GetAttribute("spearmode") then
+                            kName = "Veil"
+                        elseif char:FindFirstChild("Flask") or char:FindFirstChild("Curetool") or char:GetAttribute("corpsecharge") then
+                            kName = "Cure"
+                        elseif char:FindFirstChild("Knide") or char:FindFirstChild("Knife") or char:GetAttribute("preparem2") then
+                            kName = "Hidden"
+                        elseif char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
+                            kName = "Stalker"
+                        elseif char:FindFirstChild("Katana") or char:FindFirstChild("Sword") or char:FindFirstChild("pamela") or char:GetAttribute("Pursuit") ~= nil or char:GetAttribute("LakeMist") ~= nil then
+                            kName = "Slasher"
+                        elseif char:FindFirstChild("Abysswalker") or char:GetAttribute("corrupt") ~= nil then
+                            kName = "Abysswalker"
+                        elseif char:FindFirstChild("Mask") or char:GetAttribute("Mask") ~= nil then
+                            kName = "Masked"
+                        end
+                    end
+                    table.insert(killerOpts, string.format("%s [Killer - %s]", p.Name, tostring(kName)))
+                else
+                    table.insert(otherOpts, p.Name)
+                end
+            end
+        end
+
+        table.sort(killerOpts)
+        table.sort(otherOpts)
+        for _, v in ipairs(killerOpts) do table.insert(opts, v) end
+        for _, v in ipairs(otherOpts) do table.insert(opts, v) end
+        return opts
+    end
+
+    function TofCombat.RefreshTargetDropdown()
+        if not TofCombat.TargetDropdown then return end
+        pcall(function()
+            local opts = TofCombat.BuildTargetOptions()
+            local cur = Config.Tof_TargetMode or "Auto (Killer)"
+            local found = false
+            local curRawName = cur:match("^([^%s%[]+)")
+            for _, o in ipairs(opts) do
+                if o == cur then
+                    found = true
+                    break
+                elseif curRawName and cur ~= "Auto (Killer)" and o:match("^([^%s%[]+)") == curRawName then
+                    cur = o
+                    Config.Tof_TargetMode = o
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                cur = "Auto (Killer)"
+                Config.Tof_TargetMode = cur
+            end
+            TofCombat.TargetDropdown:Refresh(opts, cur)
+        end)
+    end
+
+    function TofCombat.GetPreferredBasePart(char)
+        if not char then return nil end
+        return char:FindFirstChild("Torso")
+            or char:FindFirstChild("UpperTorso")
+            or char:FindFirstChild("HumanoidRootPart")
+            or char:FindFirstChildWhichIsA("BasePart")
+    end
+
+    function TofCombat.GetTarget(maxFov)
+        local cam = Workspace.CurrentCamera
+        if not cam then return nil, nil end
+        local vp = cam.ViewportSize
+        local screenCenter = Vector2.new(vp.X / 2, vp.Y / 2)
+        local bestTarget, bestPart = nil, nil
+        local bestDist = maxFov or Config.Tof_FOV or 250
+        local fovLimit = bestDist
+
+        -- 0. Explicit Player / Killer Selection Override
+        local mode = Config.Tof_TargetMode or "Auto (Killer)"
+        if mode ~= "Auto (Killer)" then
+            local targetName = mode:match("^([^%s%[]+)")
+            if targetName then
+                local sp = Players:FindFirstChild(targetName)
+                if sp and sp ~= LocalPlayer and sp.Character and not IsPlayerDead(sp) then
+                    local part = TofCombat.GetPreferredBasePart(sp.Character)
+                    if part then
+                        local sPos, onScreen = cam:WorldToViewportPoint(part.Position)
+                        if onScreen and sPos.Z > 0 then
+                            local d2d = (Vector2.new(sPos.X, sPos.Y) - screenCenter).Magnitude
+                            if d2d <= fovLimit then
+                                return sp, part
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- 1. Prioritize Killer
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and not IsPlayerDead(p) then
+                if IsKiller(p) then
+                    local part = TofCombat.GetPreferredBasePart(p.Character)
+                    if part then
+                        local sPos, onScreen = cam:WorldToViewportPoint(part.Position)
+                        if onScreen and sPos.Z > 0 then
+                            local d2d = (Vector2.new(sPos.X, sPos.Y) - screenCenter).Magnitude
+                            if d2d <= bestDist then
+                                bestDist = d2d
+                                bestTarget = p
+                                bestPart = part
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if bestTarget and bestPart then
+            return bestTarget, bestPart
+        end
+
+        -- 2. Fallback: if killer is not yet identified by IsKiller (e.g. testing, lobby, or custom killer)
+        bestDist = fovLimit
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and not IsPlayerDead(p) then
+                local isCandidate = false
+                if IsInLobby() then
+                    isCandidate = true
+                elseif p.Team and LocalPlayer.Team and p.Team ~= LocalPlayer.Team then
+                    isCandidate = true
+                elseif not p.Team or p.Team.Name ~= "Survivors" then
+                    isCandidate = true
+                end
+
+                if isCandidate then
+                    local part = TofCombat.GetPreferredBasePart(p.Character)
+                    if part then
+                        local sPos, onScreen = cam:WorldToViewportPoint(part.Position)
+                        if onScreen and sPos.Z > 0 then
+                            local d2d = (Vector2.new(sPos.X, sPos.Y) - screenCenter).Magnitude
+                            if d2d <= bestDist then
+                                bestDist = d2d
+                                bestTarget = p
+                                bestPart = part
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return bestTarget, bestPart
+    end
+
+    -- Verified Server Bullet Origin: Server spawns Twist of Fate raycast at HRP.CFrame * Vector3(0.7, 1.375, -2.5) regardless of client gun animation
+    TofCombat.ServerOriginLocalOffset = Vector3.new(0.7, 1.375, -2.5)
+
+    -- Solves exact server aim point that bypasses Accessory.Handle shields (HairAccessory, etc.) when Killer turns sideways or is far away
+    function TofCombat.GetOptimalHitPosition(tChar, fallbackPart, shootOrigin)
+        if not tChar then return fallbackPart and fallbackPart.Position or shootOrigin end
+        local hrp = tChar:FindFirstChild("HumanoidRootPart")
+        local torso = tChar:FindFirstChild("Torso") or tChar:FindFirstChild("UpperTorso") or hrp or fallbackPart
+        local head = tChar:FindFirstChild("Head")
+        if not torso then return fallbackPart and fallbackPart.Position or shootOrigin end
+
+        -- Reconstruct Server-Authoritative Torso CFrame (Lookscript only bends RootJoint.C0 locally on clients; Server RootJoint.C0 is default R6 C0)
+        local serverTorsoCF = torso.CFrame
+        if hrp then
+            local rj = hrp:FindFirstChild("RootJoint")
+            if rj and rj:IsA("Motor6D") then
+                local defaultR6C0 = CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0)
+                serverTorsoCF = hrp.CFrame * defaultR6C0 * rj.Transform * rj.C1:Inverse()
+            else
+                serverTorsoCF = hrp.CFrame * CFrame.new(0, -0.35, 0)
+            end
+        end
+
+        -- Ping-scaled horizontal velocity lead (clamped for sideways movement stability)
+        local velLead = Vector3.zero
+        local velPart = hrp or torso
+        local vel = velPart.AssemblyLinearVelocity or Vector3.zero
+        local horizVel = Vector3.new(vel.X, 0, vel.Z)
+        if horizVel.Magnitude > 1.2 then
+            local ping = TofCombat.CachedPing or 0.045
+            local dist = (serverTorsoCF.Position - shootOrigin).Magnitude
+            local distFactor = math.clamp(dist / 65, 0.55, 1.15)
+            velLead = horizVel * (ping * 0.55 * distFactor)
+        end
+
+
+        -- Smart (Anti-Accessory): Raycast against target character to avoid hitting Accessory.Handle (which causes server hit-check to fail!)
+        local candidates = {
+            (serverTorsoCF * CFrame.new(0, -0.52, 0)).Position,
+            (serverTorsoCF * CFrame.new(0, -0.32, 0)).Position,
+            hrp and (hrp.Position + Vector3.new(0, -0.55, 0)) or serverTorsoCF.Position,
+            serverTorsoCF.Position,
+            head and (head.Position + Vector3.new(0, 0.16, 0)) or (serverTorsoCF * CFrame.new(0, 1.25, 0)).Position,
+            (serverTorsoCF * CFrame.new(0, -0.85, 0)).Position,
+        }
+
+        local rpChar = RaycastParams.new()
+        rpChar.FilterType = Enum.RaycastFilterType.Include
+        rpChar.FilterDescendantsInstances = { tChar }
+
+        local rpWorld = RaycastParams.new()
+        rpWorld.FilterType = Enum.RaycastFilterType.Exclude
+        rpWorld.FilterDescendantsInstances = { LocalPlayer.Character, Workspace.CurrentCamera }
+
+        local bestCleanPt = nil
+        local fallbackDirectPt = nil
+
+        for _, rawPt in ipairs(candidates) do
+            local dirVec = rawPt - shootOrigin
+            local dist = dirVec.Magnitude
+            if dist > 0.1 then
+                local unitDir = dirVec / dist
+                local charHit = Workspace:Raycast(shootOrigin, unitDir * (dist + 8), rpChar)
+                -- Server requires hit.Instance.Parent == KillerCharacter (NOT an Accessory.Handle!)
+                if charHit and charHit.Instance and charHit.Instance.Parent == tChar then
+                    if not fallbackDirectPt then
+                        fallbackDirectPt = rawPt
+                    end
+                    local worldHit = Workspace:Raycast(shootOrigin, unitDir * (dist + 6), rpWorld)
+                    if worldHit and worldHit.Instance and worldHit.Instance:IsDescendantOf(tChar) and worldHit.Instance.Parent == tChar then
+                        bestCleanPt = rawPt
+                        break
+                    end
+                end
+            end
+        end
+
+        local chosenBase = bestCleanPt or fallbackDirectPt or (serverTorsoCF * CFrame.new(0, -0.50, 0)).Position
+        return chosenBase + velLead
+    end
+
+    -- Checks if LocalPlayer is actively in a match (NOT Lobby/Spectator) AND currently holding/equipping Twist of Fate
+    function TofCombat.IsTwistOfFateActive()
+        if IsInLobby() or IsPlayerInLobby(LocalPlayer) or IsKiller(LocalPlayer) or IsPlayerDead(LocalPlayer) or IsCutsceneActive() then
+            return false
+        end
+        local char = LocalPlayer.Character
+        if not char then return false end
+        if char:FindFirstChild("Twist of Fate") then
+            return true
+        end
+        return false
+    end
+
+    -- Checks if LocalPlayer is actively in a match (NOT Lobby/Spectator) AND currently holding/equipping Flashlight
+    function TofCombat.IsFlashlightActive()
+        if IsInLobby() or IsPlayerInLobby(LocalPlayer) or IsKiller(LocalPlayer) or IsPlayerDead(LocalPlayer) or IsCutsceneActive() then
+            return false
+        end
+        local char = LocalPlayer.Character
+        if not char then return false end
+        if char:FindFirstChild("Flashlight") then
+            return true
+        end
+        local bp = LocalPlayer:FindFirstChildOfClass("Backpack")
+        if bp and bp:FindFirstChild("Flashlight") then
+            return true
+        end
+        return false
+    end
+
+    TofCombat.HrpHistory = TofCombat.HrpHistory or {}
+    TofCombat.ServerReplicationDelay = TofCombat.ServerReplicationDelay or 0.045
+
+    function TofCombat.RecordHrpHistory()
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local now = os.clock()
+        local hist = TofCombat.HrpHistory
+        table.insert(hist, { t = now, cf = hrp.CFrame })
+        while #hist > 60 and (now - hist[1].t) > 1.0 do
+            table.remove(hist, 1)
+        end
+    end
+
+    function TofCombat.GetHistoricalHrpCFrame(targetClock)
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local fallbackCF = hrp and hrp.CFrame or CFrame.identity
+        local hist = TofCombat.HrpHistory
+        if not hist or #hist == 0 then return fallbackCF end
+
+        for i = #hist, 1, -1 do
+            local e = hist[i]
+            if e.t <= targetClock then
+                local nextE = hist[i + 1]
+                if nextE and (nextE.t - e.t) > 0.0001 then
+                    local alpha = math.clamp((targetClock - e.t) / (nextE.t - e.t), 0, 1)
+                    return e.cf:Lerp(nextE.cf, alpha)
+                end
+                return e.cf
+            end
+        end
+        return hist[1].cf
+    end
+
+    -- Computes exact Server Bullet Origin (u3) using historical HRP CFrame buffer (solves Quick-Scope rotation lag & walking delay!)
+    function TofCombat.GetShootOrigin()
+        local char = LocalPlayer.Character
+        if not char then
+            local cam = Workspace.CurrentCamera
+            return cam and cam.CFrame.Position or Vector3.zero
+        end
+
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp then
+            local ping = TofCombat.CachedPing or 0.045
+            local repDelay = TofCombat.ServerReplicationDelay or math.clamp(ping * 0.85, 0.025, 0.11)
+            local serverHrpCF = TofCombat.GetHistoricalHrpCFrame(os.clock() - repDelay)
+            return serverHrpCF:PointToWorldSpace(Vector3.new(0.7, 1.375, -2.5))
+        end
+
+        local head = char:FindFirstChild("Head")
+        if head then return head.Position end
+
+        local cam = Workspace.CurrentCamera
+        return cam and cam.CFrame.Position or Vector3.zero
+    end
+
+    -- Returns the physical gun barrel muzzle world position on the Twist of Fate model (for visual Neon Laser Tracer)
+    function TofCombat.GetGunMuzzlePosition()
+        local char = LocalPlayer.Character
+        local tof = char and char:FindFirstChild("Twist of Fate")
+        if tof then
+            local barrel = tof:FindFirstChild("barrel")
+            if barrel then
+                local eff = barrel:FindFirstChild("Effect")
+                if eff and eff:IsA("Attachment") then
+                    return eff.WorldPosition, eff
+                elseif barrel:IsA("BasePart") then
+                    return barrel.Position, barrel
+                end
+            end
+            local smoke = tof:FindFirstChild("SmokePart")
+            if smoke and smoke:IsA("BasePart") then
+                return smoke.Position, smoke
+            end
+            local pp = tof:FindFirstChild("Primarypart") or tof.PrimaryPart
+            if pp and pp:IsA("BasePart") then
+                return pp.Position, pp
+            end
+        end
+        return TofCombat.GetShootOrigin(), nil
+    end
+
+    -- Single-beam Glowing Neon Laser Tracer bound directly from the Twist of Fate gun barrel to the impact target
+    function TofCombat.SpawnLaserTracer(startPos, endPos)
+        pcall(function()
+            local now = os.clock()
+            if TofCombat.LastLaserSpawnClock and (now - TofCombat.LastLaserSpawnClock) < 0.25 then
+                return
+            end
+            TofCombat.LastLaserSpawnClock = now
+
+            -- Clear any existing laser so there are NEVER 2 beams at once
+            for _, d in ipairs(Workspace:GetChildren()) do
+                if d.Name == "Nexara_TofLaser" then
+                    pcall(function() d:Destroy() end)
+                end
+            end
+
+            local muzzlePos, muzzleRef = TofCombat.GetGunMuzzlePosition()
+            local actualStart = muzzlePos or startPos
+            local dist = (endPos - actualStart).Magnitude
+            if dist < 0.5 then return end
+
+            local col = Config.Color_Tof_Laser or Color3.fromRGB(255, 60, 60)
+
+            local beamPart = Instance.new("Part")
+            beamPart.Name = "Nexara_TofLaser"
+            beamPart.Shape = Enum.PartType.Cylinder
+            beamPart.Material = Enum.Material.Neon
+            beamPart.Color = col
+            beamPart.Transparency = 0.02
+            beamPart.Anchored = true
+            beamPart.CanCollide = false
+            beamPart.CanQuery = false
+            beamPart.CanTouch = false
+            beamPart.CastShadow = false
+            beamPart.Size = Vector3.new(dist, 0.11, 0.11)
+            beamPart.CFrame = CFrame.lookAt((actualStart + endPos) / 2, endPos) * CFrame.Angles(0, math.rad(90), 0)
+            beamPart.Parent = Workspace
+
+            local dur = Config.Tof_LaserDuration or 0.6
+            task.spawn(function()
+                local startT = os.clock()
+                while true do
+                    local elapsed = os.clock() - startT
+                    if elapsed >= dur or not beamPart.Parent then break end
+                    if elapsed < 0.12 and muzzleRef and muzzleRef.Parent then
+                        local curMuzzle = muzzleRef:IsA("Attachment") and muzzleRef.WorldPosition or muzzleRef.Position
+                        local curDist = (endPos - curMuzzle).Magnitude
+                        if curDist >= 0.5 then
+                            beamPart.Size = Vector3.new(curDist, 0.11, 0.11)
+                            beamPart.CFrame = CFrame.lookAt((curMuzzle + endPos) / 2, endPos) * CFrame.Angles(0, math.rad(90), 0)
+                        end
+                    end
+                    local fade = elapsed / dur
+                    beamPart.Transparency = 0.02 + (0.98 * (fade * fade))
+                    task.wait()
+                end
+                pcall(function() beamPart:Destroy() end)
+            end)
+        end)
+    end
+
+    function TofCombat.StepAimbotAndFOV(dt)
+        pcall(function()
+            TofCombat.CachedPing = math.clamp(LocalPlayer:GetNetworkPing(), 0.015, 0.12)
+            TofCombat.RecordHrpHistory()
+        end)
+        local cam = Workspace.CurrentCamera
+        if not cam then
+            if TofCombat.FovCircle and TofCombat.FovCircle.Visible then
+                TofCombat.FovCircle.Visible = false
+            end
+            return
+        end
+
+        local inMenu = (Window and Window.Visible) == true
+        local hasActiveGun = TofCombat.IsTwistOfFateActive()
+
+        -- 1. FOV Circle (Strictly bound to Twist of Fate item AND active match â€” auto-hides in Lobby or when switching items!)
+        local c = TofCombat.FovCircle
+        if c then
+            if Config.Tof_ShowFOV and hasActiveGun and not inMenu then
+                local vp = cam.ViewportSize
+                c.Position = Vector2.new(vp.X / 2, vp.Y / 2)
+                c.Radius = Config.Tof_FOV or 250
+                c.Color = Config.Color_Tof_FOV or Color3.fromRGB(255, 175, 45)
+                if not c.Visible then c.Visible = true end
+            elseif c.Visible then
+                c.Visible = false
+            end
+        end
+
+        if not hasActiveGun then
+            return
+        end
+
+        local char = LocalPlayer.Character
+        if not char then return end
+
+        -- NOTE: Do NOT override HRP.CFrame while aiming! Game's ShiftLock already rotates HRP to Camera.LookVector.
+        -- Overriding HRP.CFrame locally desyncs client HRP from server HRP when walking or aiming at an angle!
+
+        -- 2. Aimbot (Aiming is locked to Right Click; custom keybind toggles Aimbot ON/OFF)
+        if Config.Tof_Aimbot and not inMenu then
+            if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
+                local _, targetPart = TofCombat.GetTarget(Config.Tof_FOV)
+                if targetPart then
+                    local shootOrigin = TofCombat.GetShootOrigin()
+                    local aimPos = TofCombat.GetOptimalHitPosition(targetPart.Parent, targetPart, shootOrigin)
+                    local targetCF = CFrame.lookAt(cam.CFrame.Position, aimPos)
+                    local smooth = math.clamp(Config.Tof_AimbotSmooth or 10, 1, 30)
+                    local step = math.clamp((type(dt) == "number" and dt or 0.016) * smooth, 0.05, 1)
+                    cam.CFrame = cam.CFrame:Lerp(targetCF, step)
+                end
+            end
+        end
+    end
+
+    function TofCombat.Cleanup()
+        if TofCombat.FovCircle then
+            pcall(function() TofCombat.FovCircle:Remove() end)
+            TofCombat.FovCircle = nil
+        end
+        TofCombat.AimKeyRow = nil
+        TofCombat.AimKeyBtn = nil
+        TofCombat.TargetDropdown = nil
+        pcall(function()
+            for _, d in ipairs(Workspace:GetChildren()) do
+                if d.Name == "Nexara_TofLaser" then d:Destroy() end
+            end
+            if Workspace.CurrentCamera then
+                for _, d in ipairs(Workspace.CurrentCamera:GetChildren()) do
+                    if d.Name == "Nexara_TofLaser" then d:Destroy() end
+                end
+            end
+        end)
+    end
+
+    function TofCombat.HandleFireServer(self, oldNamecall, ...)
+        local args = {...}
+        local onVault = _G.Nexara_VD_OnKillerVault
+        local nm = self.Name
+        if (nm == "VaultCommit" or nm == "VaultEvent-jason" or nm == "VaultEvent") and onVault then
+            local target = args[1]
+            if target then
+                task.defer(function()
+                    pcall(onVault, target)
+                end)
+            end
+        elseif nm == "Fire" and self.Parent and self.Parent.Name == "Twist of Fate" then
+            if not TofCombat.IsTwistOfFateActive() then
+                return self.FireServer(self, ...)
+            end
+
+            TofCombat.LastFireTick = tick()
+            TofCombat.LastFireClock = os.clock()
+            local shootOrigin = TofCombat.GetShootOrigin()
+
+            if Config.Tof_SilentAim then
+                local _, targetPart = TofCombat.GetTarget(Config.Tof_FOV)
+                if targetPart then
+                    local tChar = targetPart.Parent
+                    local hitPos = TofCombat.GetOptimalHitPosition(tChar, targetPart, shootOrigin)
+
+                    local delta = hitPos - shootOrigin
+                    if delta.Magnitude > 0.05 then
+                        args[2] = delta.Unit
+                    end
+
+                    TofCombat.PendingLaserHitPos = hitPos
+                    TofCombat.PendingLaserOrigin = shootOrigin
+                    TofCombat.PendingLaserTick = tick()
+
+                    return self.FireServer(self, table.unpack(args))
+                end
+            end
+
+            if typeof(args[2]) == "Vector3" then
+                TofCombat.PendingLaserHitPos = shootOrigin + (args[2] * 200)
+                TofCombat.PendingLaserOrigin = shootOrigin
+                TofCombat.PendingLaserTick = tick()
+            end
+        end
+
+        return self.FireServer(self, ...)
+    end
+end
+
+-- Dynamic Server Shoot Origin Tracker & Confirmed-Shot Laser Spawner:
+-- strictly spawns 1 single Neon Laser Tracer ONLY when VisualizeBullet fires (which NEVER fires on SelfDamage/backfire)
+-- AND hides the game's default white/cyan bullet part so there are NEVER 2 beams!
 pcall(function()
-    if hookmetamethod then
-        local oldNamecall
-        oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
-            local method = getnamecallmethod()
-            local args = {...}
-            if method == "FireServer" and self then
-                local nm = self.Name
-                if nm == "VaultCommit" or nm == "VaultEvent-jason" or nm == "VaultEvent" then
-                    local target = args[1]
-                    if target then
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    local items = remotes and remotes:FindFirstChild("Items")
+    local tof = items and items:FindFirstChild("Twist of Fate")
+    local visBullet = tof and tof:FindFirstChild("VisualizeBullet")
+    local fireRem = tof and tof:FindFirstChild("Fire")
+
+    if visBullet and visBullet:IsA("RemoteEvent") then
+        table.insert(ScriptConnections, visBullet.OnClientEvent:Connect(function(u3, u4, u5, p6)
+            if typeof(u3) == "Vector3" then
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                local isMyBullet = (hrp and (u3 - hrp.Position).Magnitude < 8.5)
+                if isMyBullet then
+                    TofCombat.ServerOriginLocalOffset = Vector3.new(0.7, 1.375, -2.5)
+                    local fireClk = TofCombat.LastFireClock
+                    local hist = TofCombat.HrpHistory
+                    if fireClk and hist and #hist > 2 then
+                        local bestErr = 999
+                        local bestDelay = nil
+                        for i = #hist, 1, -1 do
+                            local e = hist[i]
+                            local dtShot = fireClk - e.t
+                            if dtShot >= 0 and dtShot <= 0.20 then
+                                local predU3 = e.cf:PointToWorldSpace(Vector3.new(0.7, 1.375, -2.5))
+                                local err = (predU3 - u3).Magnitude
+                                if err < bestErr then
+                                    bestErr = err
+                                    bestDelay = dtShot
+                                end
+                            end
+                        end
+                        if bestDelay and bestErr < 0.6 then
+                            TofCombat.ServerReplicationDelay = math.clamp((TofCombat.ServerReplicationDelay * 0.5) + (bestDelay * 0.5), 0.015, 0.14)
+                        end
+                    end
+
+                    if Config.Tof_Laser and TofCombat.SpawnLaserTracer then
+                        local endPt = (typeof(u4) == "Vector3" and u4) or TofCombat.PendingLaserHitPos
+                        if endPt then
+                            TofCombat.SpawnLaserTracer(u3, endPt)
+                        end
+                        -- Hide ONLY the game's native tofhandler Bullet BasePart (NEVER touch Character Models!)
                         task.defer(function()
-                            OnKillerVault(target)
+                            for _, child in ipairs(Workspace:GetChildren()) do
+                                if child:IsA("BasePart") and child.Name == "Bullet" and (child.Position - u3).Magnitude < 8 then
+                                    pcall(function()
+                                        child.Transparency = 1
+                                        for _, d in ipairs(child:GetDescendants()) do
+                                            if d:IsA("Trail") or d:IsA("Beam") or d:IsA("ParticleEmitter") then
+                                                d.Enabled = false
+                                            end
+                                        end
+                                    end)
+                                end
+                            end
                         end)
                     end
                 end
             end
-            return oldNamecall(self, ...)
-        end)
+        end))
+    end
+
+    if fireRem and fireRem:IsA("RemoteEvent") then
+        table.insert(ScriptConnections, fireRem.OnClientEvent:Connect(function(status)
+            if status == "SelfDamage" then
+                TofCombat.PendingLaserHitPos = nil
+                pcall(function()
+                    for _, d in ipairs(Workspace:GetChildren()) do
+                        if d.Name == "Nexara_TofLaser" then d:Destroy() end
+                    end
+                end)
+            end
+        end))
     end
 end)
+
+-- Network listeners & Local Hooks for Window Blocks & Killer Containment Perks
+_G.Nexara_VD_Config = Config
+_G.Nexara_VD_TofCombat = TofCombat
+_G.Nexara_VD_OnKillerVault = OnKillerVault
+
+if not getgenv()._Nexara_VD_Hooked then
+    getgenv()._Nexara_VD_Hooked = true
+    pcall(function()
+        if hookmetamethod then
+            local oldNamecall
+            oldNamecall = hookmetamethod(game, "__namecall", function(self, ...)
+                local method = getnamecallmethod()
+                if method == "FireServer" and self then
+                    local curTof = _G.Nexara_VD_TofCombat
+                    if curTof and curTof.HandleFireServer then
+                        return curTof.HandleFireServer(self, oldNamecall, ...)
+                    end
+                    return self.FireServer(self, ...)
+                end
+                if setnamecallmethod then setnamecallmethod(method) end
+                return oldNamecall(self, ...)
+            end)
+        end
+    end)
+end
 
 table.insert(ScriptConnections, RunService.Heartbeat:Connect(function()
     for _, p in ipairs(Players:GetPlayers()) do
@@ -4349,6 +5044,10 @@ local function UnloadScript()
         ChamsContainer = nil
     end
     
+    pcall(function()
+        if TofCombat and TofCombat.Cleanup then TofCombat.Cleanup() end
+    end)
+
     pcall(function()
         for _, d in ipairs(workspace:GetDescendants()) do
             if (d:IsA("Highlight") or d:IsA("BoxHandleAdornment") or d:IsA("SelectionBox")) and (d.Name:find("Nexara") or d.Name:find("Aura") or d.Name:find("WindowBox") or d.Name:find("WindowGlow")) then
@@ -5167,34 +5866,34 @@ TabVisuals.View:GetPropertyChangedSignal("Visible"):Connect(function()
 end)
 end
 
--- ======== AUTO TAB (FLOATING TOP WARNING BANNER ABOVE WINDOW + SEGMENTED SUB-TABS: TWIST OF FATE / VEIL / PARRY) ========
+-- ======== LEGIT TAB (FLOATING TOP WARNING BANNER ABOVE WINDOW + SUB-TABS: TWIST OF FATE / VEIL / PARRY) ========
 do
-local TabAuto = Window:CreateTab("Auto", "rbxassetid://7733916988")
+local TabLegit = Window:CreateTab("Legit", "rbxassetid://7733916988")
 
-local autoViewLayout = TabAuto.View:FindFirstChildOfClass("UIListLayout")
-if autoViewLayout then
-    autoViewLayout:Destroy()
+local legitViewLayout = TabLegit.View:FindFirstChildOfClass("UIListLayout")
+if legitViewLayout then
+    legitViewLayout:Destroy()
 end
 
--- 1. Floating Warning Banner above the Nexara Window (Fades in when Auto tab is active, fades out otherwise)
-local AutoWarnBanner = Instance.new("Frame")
-AutoWarnBanner.Name = "Nexara_AutoWarnFloating"
-AutoWarnBanner.Size = UDim2.fromOffset(720, 32)
-AutoWarnBanner.Position = UDim2.fromOffset(0, 0)
-AutoWarnBanner.BackgroundColor3 = Color3.fromRGB(28, 17, 15)
-AutoWarnBanner.BackgroundTransparency = 1
-AutoWarnBanner.BorderSizePixel = 0
-AutoWarnBanner.ClipsDescendants = true
-AutoWarnBanner.Visible = false
-AutoWarnBanner.ZIndex = 50
-AutoWarnBanner.Parent = Window.Gui or (Window.MainFrame and Window.MainFrame.Parent)
-Instance.new("UICorner", AutoWarnBanner).CornerRadius = UDim.new(0, 7)
+-- 1. Floating Warning Banner above the Nexara Window (Fades in when Legit tab is active, fades out otherwise)
+local LegitWarnBanner = Instance.new("Frame")
+LegitWarnBanner.Name = "Nexara_AutoWarnFloating"
+LegitWarnBanner.Size = UDim2.fromOffset(720, 32)
+LegitWarnBanner.Position = UDim2.fromOffset(0, 0)
+LegitWarnBanner.BackgroundColor3 = Color3.fromRGB(28, 17, 15)
+LegitWarnBanner.BackgroundTransparency = 1
+LegitWarnBanner.BorderSizePixel = 0
+LegitWarnBanner.ClipsDescendants = true
+LegitWarnBanner.Visible = false
+LegitWarnBanner.ZIndex = 50
+LegitWarnBanner.Parent = Window.Gui or (Window.MainFrame and Window.MainFrame.Parent)
+Instance.new("UICorner", LegitWarnBanner).CornerRadius = UDim.new(0, 7)
 
 local warnStroke = Instance.new("UIStroke")
 warnStroke.Color = Color3.fromRGB(255, 170, 50)
 warnStroke.Thickness = 1.2
 warnStroke.Transparency = 1
-warnStroke.Parent = AutoWarnBanner
+warnStroke.Parent = LegitWarnBanner
 
 local warnAccentBar = Instance.new("Frame")
 warnAccentBar.Name = "WarnAccentBar"
@@ -5204,7 +5903,7 @@ warnAccentBar.BackgroundColor3 = Color3.fromRGB(255, 175, 45)
 warnAccentBar.BackgroundTransparency = 1
 warnAccentBar.BorderSizePixel = 0
 warnAccentBar.ZIndex = 51
-warnAccentBar.Parent = AutoWarnBanner
+warnAccentBar.Parent = LegitWarnBanner
 
 local warnIcon = Instance.new("ImageLabel")
 warnIcon.Name = "WarnIcon"
@@ -5215,7 +5914,7 @@ warnIcon.Image = "rbxassetid://10709753149"
 warnIcon.ImageColor3 = Color3.fromRGB(255, 185, 55)
 warnIcon.ImageTransparency = 1
 warnIcon.ZIndex = 51
-warnIcon.Parent = AutoWarnBanner
+warnIcon.Parent = LegitWarnBanner
 
 local warnText = Instance.new("TextLabel")
 warnText.Name = "WarnText"
@@ -5230,14 +5929,14 @@ warnText.TextXAlignment = Enum.TextXAlignment.Left
 warnText.TextTruncate = Enum.TextTruncate.AtEnd
 warnText.FontFace = Font.fromEnum(Enum.Font.GothamBold)
 warnText.ZIndex = 51
-warnText.Parent = AutoWarnBanner
+warnText.Parent = LegitWarnBanner
 
 local warnAlpha = 0
 local warnSlideOffset = 10
 
 table.insert(ScriptConnections, RunService.RenderStepped:Connect(function(dt)
     local mf = Window and Window.MainFrame
-    local shouldShowWarn = (Window and Window.Visible and mf and mf.Visible and TabAuto.View and TabAuto.View.Visible) == true
+    local shouldShowWarn = (Window and Window.Visible and mf and mf.Visible and TabLegit.View and TabLegit.View.Visible) == true
     if shouldShowWarn then
         warnAlpha = math.min(1, warnAlpha + dt * 5.5)
         warnSlideOffset = warnSlideOffset + (0 - warnSlideOffset) * math.clamp(dt * 12, 0, 1)
@@ -5247,123 +5946,331 @@ table.insert(ScriptConnections, RunService.RenderStepped:Connect(function(dt)
     end
 
     if warnAlpha <= 0.01 then
-        if AutoWarnBanner.Visible then AutoWarnBanner.Visible = false end
+        if LegitWarnBanner.Visible then LegitWarnBanner.Visible = false end
         return
     end
 
-    if not AutoWarnBanner.Visible then
-        AutoWarnBanner.Visible = true
+    if not LegitWarnBanner.Visible then
+        LegitWarnBanner.Visible = true
     end
 
     if mf then
-        local guiParent = AutoWarnBanner.Parent
+        local guiParent = LegitWarnBanner.Parent
         local guiAbs = (guiParent and guiParent:IsA("GuiBase2d")) and guiParent.AbsolutePosition or Vector2.zero
         local absPos = mf.AbsolutePosition
         local absSize = mf.AbsoluteSize
-        AutoWarnBanner.Size = UDim2.fromOffset(absSize.X, 32)
-        AutoWarnBanner.Position = UDim2.fromOffset(math.floor(absPos.X - guiAbs.X), math.floor(absPos.Y - guiAbs.Y - 36 + warnSlideOffset))
+        LegitWarnBanner.Size = UDim2.fromOffset(absSize.X, 32)
+        LegitWarnBanner.Position = UDim2.fromOffset(math.floor(absPos.X - guiAbs.X), math.floor(absPos.Y - guiAbs.Y - 36 + warnSlideOffset))
     end
 
-    AutoWarnBanner.BackgroundTransparency = 1 - (0.94 * warnAlpha)
+    LegitWarnBanner.BackgroundTransparency = 1 - (0.94 * warnAlpha)
     warnStroke.Transparency = 1 - (0.68 * warnAlpha)
     warnAccentBar.BackgroundTransparency = 1 - warnAlpha
     warnIcon.ImageTransparency = 1 - warnAlpha
     warnText.TextTransparency = 1 - warnAlpha
 end))
 
--- 2. Sub-Category Navigation Bar (Twist of Fate | Veil | Parry) at top of Auto Tab (matching Visuals Tab)
-local TopAutoNav = Instance.new("Frame")
-TopAutoNav.Name = "TopAutoNav"
-TopAutoNav.Size = UDim2.new(1, 0, 0, 32)
-TopAutoNav.Position = UDim2.new(0, 0, 0, 0)
-TopAutoNav.BackgroundColor3 = Window.Theme.Section
-TopAutoNav.BackgroundTransparency = Window.TransparentEnabled and 0.25 or 0
-TopAutoNav.BorderSizePixel = 0
-TopAutoNav.Parent = TabAuto.View
-Instance.new("UICorner", TopAutoNav).CornerRadius = UDim.new(0, 6)
-Window:RegisterThemeElement(TopAutoNav, "BackgroundColor3", "Surface")
+-- 2. Sub-Category Navigation Bar (Twist of Fate | Veil | Parry) at top of Legit Tab (matching Visuals Tab)
+local TopLegitNav = Instance.new("Frame")
+TopLegitNav.Name = "TopAutoNav"
+TopLegitNav.Size = UDim2.new(1, 0, 0, 32)
+TopLegitNav.Position = UDim2.new(0, 0, 0, 0)
+TopLegitNav.BackgroundColor3 = Window.Theme.Section
+TopLegitNav.BackgroundTransparency = Window.TransparentEnabled and 0.25 or 0
+TopLegitNav.BorderSizePixel = 0
+TopLegitNav.Parent = TabLegit.View
+Instance.new("UICorner", TopLegitNav).CornerRadius = UDim.new(0, 6)
+Window:RegisterThemeElement(TopLegitNav, "BackgroundColor3", "Surface")
 
-local autoNavStroke = Instance.new("UIStroke")
-autoNavStroke.Color = Window.Theme.SectionBorder
-autoNavStroke.Thickness = 1
-autoNavStroke.Parent = TopAutoNav
+local legitNavStroke = Instance.new("UIStroke")
+legitNavStroke.Color = Window.Theme.SectionBorder
+legitNavStroke.Thickness = 1
+legitNavStroke.Parent = TopLegitNav
 
-local autoNavLayout = Instance.new("UIListLayout")
-autoNavLayout.FillDirection = Enum.FillDirection.Horizontal
-autoNavLayout.SortOrder = Enum.SortOrder.LayoutOrder
-autoNavLayout.Padding = UDim.new(0, 4)
-autoNavLayout.Parent = TopAutoNav
+local legitNavLayout = Instance.new("UIListLayout")
+legitNavLayout.FillDirection = Enum.FillDirection.Horizontal
+legitNavLayout.SortOrder = Enum.SortOrder.LayoutOrder
+legitNavLayout.Padding = UDim.new(0, 4)
+legitNavLayout.Parent = TopLegitNav
 
-local autoNavPad = Instance.new("UIPadding")
-autoNavPad.PaddingTop = UDim.new(0, 3)
-autoNavPad.PaddingBottom = UDim.new(0, 3)
-autoNavPad.PaddingLeft = UDim.new(0, 4)
-autoNavPad.PaddingRight = UDim.new(0, 4)
-autoNavPad.Parent = TopAutoNav
+local legitNavPad = Instance.new("UIPadding")
+legitNavPad.PaddingTop = UDim.new(0, 3)
+legitNavPad.PaddingBottom = UDim.new(0, 3)
+legitNavPad.PaddingLeft = UDim.new(0, 4)
+legitNavPad.PaddingRight = UDim.new(0, 4)
+legitNavPad.Parent = TopLegitNav
 
--- 3. Container Frame for 2 Columns (50% / 50% split below TopAutoNav)
-local AutoColumnsFrame = Instance.new("Frame")
-AutoColumnsFrame.Name = "AutoColumnsFrame"
-AutoColumnsFrame.Size = UDim2.new(1, 0, 1, -38)
-AutoColumnsFrame.Position = UDim2.new(0, 0, 0, 38)
-AutoColumnsFrame.BackgroundTransparency = 1
-AutoColumnsFrame.BorderSizePixel = 0
-AutoColumnsFrame.Parent = TabAuto.View
+-- 3. Container Frame for 2 Columns (50% / 50% split below TopLegitNav)
+local LegitColumnsFrame = Instance.new("Frame")
+LegitColumnsFrame.Name = "AutoColumnsFrame"
+LegitColumnsFrame.Size = UDim2.new(1, 0, 1, -38)
+LegitColumnsFrame.Position = UDim2.new(0, 0, 0, 38)
+LegitColumnsFrame.BackgroundTransparency = 1
+LegitColumnsFrame.BorderSizePixel = 0
+LegitColumnsFrame.Parent = TabLegit.View
 
-local autoColLayout = Instance.new("UIListLayout")
-autoColLayout.FillDirection = Enum.FillDirection.Horizontal
-autoColLayout.SortOrder = Enum.SortOrder.LayoutOrder
-autoColLayout.Padding = UDim.new(0, 8)
-autoColLayout.Parent = AutoColumnsFrame
+local legitColLayout = Instance.new("UIListLayout")
+legitColLayout.FillDirection = Enum.FillDirection.Horizontal
+legitColLayout.SortOrder = Enum.SortOrder.LayoutOrder
+legitColLayout.Padding = UDim.new(0, 8)
+legitColLayout.Parent = LegitColumnsFrame
 
-local colA1 = TabAuto:CreateColumn()
-local colA2 = TabAuto:CreateColumn()
-colA1.Frame.Parent = AutoColumnsFrame
-colA2.Frame.Parent = AutoColumnsFrame
+local colA1 = TabLegit:CreateColumn()
+local colA2 = TabLegit:CreateColumn()
+colA1.Frame.Parent = LegitColumnsFrame
+colA2.Frame.Parent = LegitColumnsFrame
 colA1.Frame.Size = UDim2.new(0.5, -4, 1, 0)
 colA2.Frame.Size = UDim2.new(0.5, -4, 1, 0)
 colA1.Frame.Visible = true
 colA2.Frame.Visible = true
 
 -- ==== SUB-TAB 1: TWIST OF FATE ====
-local secTwist1 = colA1:CreateSection("Twist of Fate")
-local secTwist2 = colA2:CreateSection("Twist of Fate Settings")
+local secTwist1 = colA1:CreateSection("Twist of Fate: Combat")
+secTwist1:AddToggle({
+    Name = "Silent Aim",
+    Default = false,
+    Callback = function(v)
+        Config.Tof_SilentAim = v
+    end
+})
 
--- ==== SUB-TAB 2: VEIL ====
-local secVeil1 = colA1:CreateSection("Veil")
-local secVeil2 = colA2:CreateSection("Veil Settings")
+TofCombat.AimbotToggle = secTwist1:AddToggle({
+    Name = "Aimbot",
+    Default = false,
+    Callback = function(v)
+        Config.Tof_Aimbot = v
+    end
+})
 
--- ==== SUB-TAB 3: PARRY ====
-local secParry1 = colA1:CreateSection("Parry")
-local secParry2 = colA2:CreateSection("Parry Settings")
+-- Inline Custom Hotkey Button on the Aimbot Toggle Row (Toggles Aimbot ON/OFF; Aiming itself is locked to Right Click)
+pcall(function()
+    local elems = secTwist1.Box and secTwist1.Box:FindFirstChild("Elements")
+    local aimRow = elems and elems:FindFirstChild("ToggleRow_Aimbot")
+    if aimRow then
+        local trig = aimRow:FindFirstChild("Trigger")
+        local lbl = trig and trig:FindFirstChild("Label")
+        if lbl then
+            lbl.Size = UDim2.new(1, -110, 1, 0)
+        end
 
-local currentAutoCategory = "TwistOfFate"
-local autoCategoryButtons = {}
-local isInitialAutoSelect = true
+        local aimKeyBtn = Instance.new("TextButton")
+        TofCombat.AimKeyBtn = aimKeyBtn
+        aimKeyBtn.Name = "AimbotKeyBtn"
+        aimKeyBtn.Size = UDim2.fromOffset(64, 16)
+        aimKeyBtn.Position = UDim2.new(1, -104, 0.5, -8)
+        aimKeyBtn.BackgroundColor3 = Window.Theme.Inline
+        aimKeyBtn.BorderSizePixel = 0
+        aimKeyBtn.Text = "[" .. (Config.Tof_AimKeyName or "None") .. "]"
+        aimKeyBtn.TextColor3 = Window.Theme.Accent
+        aimKeyBtn.TextSize = 10
+        aimKeyBtn.FontFace = GetPreferredFont()
+        aimKeyBtn.AutoButtonColor = false
+        aimKeyBtn.ZIndex = 5
+        aimKeyBtn.Parent = aimRow
+        Instance.new("UICorner", aimKeyBtn).CornerRadius = UDim.new(0, 4)
 
-local autoCategories = {
+        local keyStroke = Instance.new("UIStroke")
+        keyStroke.Color = Window.Theme.ElementBorder
+        keyStroke.Thickness = 1
+        keyStroke.Parent = aimKeyBtn
+
+        local isBindingKey = false
+        aimKeyBtn.MouseButton1Click:Connect(function()
+            if isBindingKey then return end
+            isBindingKey = true
+            TofCombat.IsBindingToggleKey = true
+            aimKeyBtn.Text = "[...]"
+            aimKeyBtn.TextColor3 = Color3.fromRGB(255, 175, 45)
+
+            local conn
+            conn = UserInputService.InputBegan:Connect(function(input)
+                local keyName = nil
+                local inputType = input.UserInputType
+                local keyCode = input.KeyCode
+
+                if inputType == Enum.UserInputType.Keyboard and (keyCode == Enum.KeyCode.Backspace or keyCode == Enum.KeyCode.Escape) then
+                    keyName = "None"
+                    Config.Tof_AimKeyType = "None"
+                    Config.Tof_AimKeyCode = nil
+                elseif inputType == Enum.UserInputType.MouseButton3 then
+                    keyName = "MB3"
+                    Config.Tof_AimKeyType = "Mouse"
+                    Config.Tof_AimKeyCode = Enum.UserInputType.MouseButton3
+                elseif inputType == Enum.UserInputType.Keyboard and keyCode ~= Enum.KeyCode.Unknown then
+                    keyName = keyCode.Name
+                    Config.Tof_AimKeyType = "Keyboard"
+                    Config.Tof_AimKeyCode = keyCode
+                end
+
+                if keyName then
+                    Config.Tof_AimKeyName = keyName
+                    aimKeyBtn.Text = "[" .. keyName .. "]"
+                    aimKeyBtn.TextColor3 = Window.Theme.Accent
+                    isBindingKey = false
+                    task.delay(0.05, function() TofCombat.IsBindingToggleKey = false end)
+                    conn:Disconnect()
+                    Window.ConfigValues["Aimbot Toggle Key"] = keyName
+                    if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
+                end
+            end)
+        end)
+
+        table.insert(ScriptConnections, UserInputService.InputBegan:Connect(function(input, gp)
+            if gp or TofCombat.IsBindingToggleKey or UserInputService:GetFocusedTextBox() then return end
+            if not Config.Tof_AimKeyCode or Config.Tof_AimKeyType == "None" then return end
+
+            local matched = false
+            if Config.Tof_AimKeyType == "Keyboard" and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Config.Tof_AimKeyCode then
+                matched = true
+            elseif Config.Tof_AimKeyType == "Mouse" and input.UserInputType == Config.Tof_AimKeyCode then
+                matched = true
+            end
+
+            if matched then
+                local newState = not Config.Tof_Aimbot
+                local flagItem = Window.ConfigFlags and Window.ConfigFlags["Aimbot"]
+                if flagItem and flagItem.Set then
+                    flagItem:Set(newState)
+                elseif TofCombat.AimbotToggle and TofCombat.AimbotToggle.Set then
+                    TofCombat.AimbotToggle:Set(newState)
+                elseif trig and firesignal then
+                    pcall(function() firesignal(trig.MouseButton1Click) end)
+                else
+                    Config.Tof_Aimbot = newState
+                end
+            end
+        end))
+    end
+end)
+
+secTwist1:AddToggle({
+    Name = "Laser Tracer",
+    Default = false,
+    Color = Config.Color_Tof_Laser,
+    Callback = function(v, col)
+        Config.Tof_Laser = v
+        if col then Config.Color_Tof_Laser = col end
+    end
+})
+
+TofCombat.TargetDropdown = secTwist1:AddDropdown({
+    Name = "Target Killer / Player",
+    Flag = "Target Killer / Player",
+    Options = TofCombat.BuildTargetOptions(),
+    Default = "Auto (Killer)",
+    Callback = function(v)
+        Config.Tof_TargetMode = v or "Auto (Killer)"
+    end
+})
+
+
+secTwist1:AddButton({
+    Name = "Refresh Target List",
+    Callback = function()
+        TofCombat.RefreshTargetDropdown()
+    end
+})
+
+table.insert(ScriptConnections, Players.PlayerAdded:Connect(function()
+    task.delay(0.5, TofCombat.RefreshTargetDropdown)
+end))
+table.insert(ScriptConnections, Players.PlayerRemoving:Connect(function()
+    task.delay(0.2, TofCombat.RefreshTargetDropdown)
+end))
+task.spawn(function()
+    while task.wait(3) do
+        if not _G.Nexara_VD_Cleanup then break end
+        TofCombat.RefreshTargetDropdown()
+    end
+end)
+
+local secTwist2 = colA2:CreateSection("Twist of Fate: Settings")
+secTwist2:AddToggle({
+    Name = "Show FOV Circle",
+    Default = false,
+    Color = Config.Color_Tof_FOV,
+    Callback = function(v, col)
+        Config.Tof_ShowFOV = v
+        if col then
+            Config.Color_Tof_FOV = col
+            if TofCombat.FovCircle then TofCombat.FovCircle.Color = col end
+        end
+    end
+})
+secTwist2:AddSlider({
+    Name = "FOV Radius",
+    Min = 30,
+    Max = 800,
+    Default = 220,
+    Callback = function(v)
+        Config.Tof_FOV = v
+        if TofCombat.FovCircle then TofCombat.FovCircle.Radius = v end
+    end
+})
+secTwist2:AddSlider({
+    Name = "Aimbot Smoothness",
+    Min = 1,
+    Max = 25,
+    Default = 10,
+    Callback = function(v)
+        Config.Tof_AimbotSmooth = v
+    end
+})
+secTwist2:AddSlider({
+    Name = "Laser Beam Duration",
+    Min = 0.2,
+    Max = 2.0,
+    Default = 0.6,
+    Decimals = 1,
+    Suffix = "s",
+    Callback = function(v)
+        Config.Tof_LaserDuration = v
+    end
+})
+
+-- Centered "Coming Soon." frame for unreleased categories (Veil, Parry)
+local ComingSoonFrame = Instance.new("Frame")
+ComingSoonFrame.Name = "LegitComingSoon"
+ComingSoonFrame.Size = UDim2.new(1, 0, 1, -44)
+ComingSoonFrame.Position = UDim2.new(0, 0, 0, 44)
+ComingSoonFrame.BackgroundTransparency = 1
+ComingSoonFrame.Visible = false
+ComingSoonFrame.Parent = TabLegit.View
+
+local csLabel = Instance.new("TextLabel")
+csLabel.Name = "Label"
+csLabel.Size = UDim2.new(1, 0, 1, 0)
+csLabel.Position = UDim2.new(0, 0, 0, 0)
+csLabel.BackgroundTransparency = 1
+csLabel.Text = "Coming Soon."
+csLabel.TextColor3 = Window.Theme.SubText or Color3.fromRGB(150, 155, 170)
+csLabel.TextSize = 16
+csLabel.TextXAlignment = Enum.TextXAlignment.Center
+csLabel.TextYAlignment = Enum.TextYAlignment.Center
+csLabel.FontFace = Font.fromEnum(Enum.Font.GothamMedium)
+csLabel.Parent = ComingSoonFrame
+
+local currentLegitCategory = "TwistOfFate"
+local legitCategoryButtons = {}
+local isInitialLegitSelect = true
+
+local legitCategories = {
     { Id = "TwistOfFate", Name = "Twist of Fate" },
     { Id = "Veil", Name = "Veil" },
     { Id = "Parry", Name = "Parry" },
 }
 
-local function selectAutoCategory(catId)
-    currentAutoCategory = catId
+local function selectLegitCategory(catId)
+    currentLegitCategory = catId
 
     local showTwist = (catId == "TwistOfFate")
-    local showVeil = (catId == "Veil")
-    local showParry = (catId == "Parry")
 
     secTwist1.Box.Visible = showTwist
     secTwist2.Box.Visible = showTwist
+    LegitColumnsFrame.Visible = showTwist
+    ComingSoonFrame.Visible = not showTwist
 
-    secVeil1.Box.Visible = showVeil
-    secVeil2.Box.Visible = showVeil
-
-    secParry1.Box.Visible = showParry
-    secParry2.Box.Visible = showParry
-
-    for _, btnData in ipairs(autoCategoryButtons) do
+    for _, btnData in ipairs(legitCategoryButtons) do
         local isSelected = (btnData.Id == catId)
         if isSelected then
             TweenService:Create(btnData.Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -5371,7 +6278,7 @@ local function selectAutoCategory(catId)
                 TextColor3 = Window.Theme.Text
             }):Play()
             btnData.Indicator.Visible = true
-            if not isInitialAutoSelect then
+            if not isInitialLegitSelect then
                 btnData.Indicator.Size = UDim2.new(0, 0, 0, 2)
             end
             TweenService:Create(btnData.Indicator, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
@@ -5388,7 +6295,7 @@ local function selectAutoCategory(catId)
                 })
                 shrinkTw:Play()
                 task.delay(0.18, function()
-                    if currentAutoCategory ~= btnData.Id then
+                    if currentLegitCategory ~= btnData.Id then
                         btnData.Indicator.Visible = false
                     end
                 end)
@@ -5396,17 +6303,17 @@ local function selectAutoCategory(catId)
         end
     end
 
-    if not isInitialAutoSelect and TabAuto.View.Visible then
-        AutoColumnsFrame.Position = UDim2.new(0, 0, 0, 48)
-        TweenService:Create(AutoColumnsFrame, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+    if not isInitialLegitSelect and TabLegit.View.Visible then
+        LegitColumnsFrame.Position = UDim2.new(0, 0, 0, 48)
+        TweenService:Create(LegitColumnsFrame, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
             Position = UDim2.new(0, 0, 0, 38)
         }):Play()
     end
 end
 
-for _, catData in ipairs(autoCategories) do
+for _, catData in ipairs(legitCategories) do
     local itemBtn = Instance.new("TextButton")
-    itemBtn.Name = "AutoNavBtn_" .. catData.Id
+    itemBtn.Name = "LegitNavBtn_" .. catData.Id
     itemBtn.Size = UDim2.new(1 / 3, -4, 1, 0)
     itemBtn.BackgroundColor3 = Window.Theme.Inline
     itemBtn.BackgroundTransparency = 1
@@ -5416,7 +6323,7 @@ for _, catData in ipairs(autoCategories) do
     itemBtn.TextSize = 11
     itemBtn.FontFace = GetPreferredFont()
     itemBtn.AutoButtonColor = false
-    itemBtn.Parent = TopAutoNav
+    itemBtn.Parent = TopLegitNav
     Instance.new("UICorner", itemBtn).CornerRadius = UDim.new(0, 4)
 
     local activeIndicator = Instance.new("Frame")
@@ -5431,14 +6338,14 @@ for _, catData in ipairs(autoCategories) do
     Instance.new("UICorner", activeIndicator).CornerRadius = UDim.new(0, 1)
     Window:RegisterAccent(activeIndicator, "BackgroundColor3")
 
-    table.insert(autoCategoryButtons, {
+    table.insert(legitCategoryButtons, {
         Id = catData.Id,
         Button = itemBtn,
         Indicator = activeIndicator
     })
 
     itemBtn.MouseEnter:Connect(function()
-        if currentAutoCategory ~= catData.Id then
+        if currentLegitCategory ~= catData.Id then
             TweenService:Create(itemBtn, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 BackgroundTransparency = 0.8,
                 TextColor3 = Window.Theme.Text
@@ -5446,7 +6353,7 @@ for _, catData in ipairs(autoCategories) do
         end
     end)
     itemBtn.MouseLeave:Connect(function()
-        if currentAutoCategory ~= catData.Id then
+        if currentLegitCategory ~= catData.Id then
             TweenService:Create(itemBtn, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 BackgroundTransparency = 1,
                 TextColor3 = Window.Theme.SubText
@@ -5454,32 +6361,32 @@ for _, catData in ipairs(autoCategories) do
         end
     end)
     itemBtn.MouseButton1Click:Connect(function()
-        selectAutoCategory(catData.Id)
+        selectLegitCategory(catData.Id)
     end)
 end
 
-selectAutoCategory("TwistOfFate")
-isInitialAutoSelect = false
+selectLegitCategory("TwistOfFate")
+isInitialLegitSelect = false
 
-local function playAutoEntrance()
-    if not TabAuto.View.Visible then return end
+local function playLegitEntrance()
+    if not TabLegit.View.Visible then return end
 
     warnSlideOffset = 10
 
-    TopAutoNav.Position = UDim2.new(0, 0, 0, -22)
-    TweenService:Create(TopAutoNav, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+    TopLegitNav.Position = UDim2.new(0, 0, 0, -22)
+    TweenService:Create(TopLegitNav, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
         Position = UDim2.new(0, 0, 0, 0)
     }):Play()
 
-    AutoColumnsFrame.Position = UDim2.new(0, 0, 0, 50)
-    TweenService:Create(AutoColumnsFrame, TweenInfo.new(0.32, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+    LegitColumnsFrame.Position = UDim2.new(0, 0, 0, 50)
+    TweenService:Create(LegitColumnsFrame, TweenInfo.new(0.32, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
         Position = UDim2.new(0, 0, 0, 38)
     }):Play()
 end
 
-TabAuto.View:GetPropertyChangedSignal("Visible"):Connect(function()
-    if TabAuto.View.Visible then
-        playAutoEntrance()
+TabLegit.View:GetPropertyChangedSignal("Visible"):Connect(function()
+    if TabLegit.View.Visible then
+        playLegitEntrance()
     end
 end)
 end
@@ -6770,6 +7677,380 @@ pcall(function()
     end
 end)
 
+-- ======== FLOATING KEYBINDS HUD (SLEEK DRAGGABLE OVERLAY WITH SMOOTH FADE IN/OUT) ========
+local KeybindsHUD: { [string]: any } = {}
+do
+    pcall(function()
+        if _G.Nexara_VD_KeybindsHUD then
+            _G.Nexara_VD_KeybindsHUD:Destroy()
+            _G.Nexara_VD_KeybindsHUD = nil
+        end
+    end)
+
+    local hudFrame = Instance.new("CanvasGroup")
+    hudFrame.Name = "Nexara_KeybindsHUD"
+    hudFrame.Size = UDim2.fromOffset(185, 0)
+    hudFrame.AutomaticSize = Enum.AutomaticSize.Y
+    hudFrame.Position = UDim2.new(0, 24, 0, 280)
+    hudFrame.BackgroundColor3 = Color3.fromRGB(16, 17, 22)
+    hudFrame.BackgroundTransparency = 0.12
+    hudFrame.BorderSizePixel = 0
+    hudFrame.ZIndex = 60
+    hudFrame.Parent = Window.Gui or (gethui and gethui()) or game:GetService("CoreGui")
+    _G.Nexara_VD_KeybindsHUD = hudFrame
+
+    local uiScale = Instance.new("UIScale")
+    uiScale.Name = "HUDScale"
+    uiScale.Scale = 1.0
+    uiScale.Parent = hudFrame
+
+    local hudCorner = Instance.new("UICorner")
+    hudCorner.CornerRadius = UDim.new(0, 8)
+    hudCorner.Parent = hudFrame
+
+    local hudStroke = Instance.new("UIStroke")
+    hudStroke.Color = Color3.fromRGB(38, 40, 52)
+    hudStroke.Thickness = 1
+    hudStroke.Parent = hudFrame
+
+    -- Draggable Header
+    local header = Instance.new("Frame")
+    header.Name = "Header"
+    header.Size = UDim2.new(1, 0, 0, 28)
+    header.BackgroundTransparency = 1
+    header.ZIndex = 61
+    header.Parent = hudFrame
+
+    local headerIcon = Instance.new("ImageLabel")
+    headerIcon.Name = "Icon"
+    headerIcon.Size = UDim2.fromOffset(14, 14)
+    headerIcon.Position = UDim2.fromOffset(10, 7)
+    headerIcon.AnchorPoint = Vector2.new(0, 0)
+    headerIcon.BackgroundTransparency = 1
+    headerIcon.Image = "rbxassetid://10709791437"
+    headerIcon.Rotation = 90 -- pointing down (expanded)
+    headerIcon.ImageColor3 = Window.Theme.Accent or Color3.fromRGB(245, 245, 250)
+    headerIcon.ZIndex = 62
+    headerIcon.Parent = header
+    Window:RegisterAccent(headerIcon, "ImageColor3")
+
+    local headerTitle = Instance.new("TextLabel")
+    headerTitle.Name = "Title"
+    headerTitle.Size = UDim2.new(1, -34, 1, 0)
+    headerTitle.Position = UDim2.fromOffset(30, 0)
+    headerTitle.BackgroundTransparency = 1
+    headerTitle.Text = "Keybinds"
+    headerTitle.TextColor3 = Window.Theme.Text or Color3.fromRGB(245, 245, 250)
+    headerTitle.TextSize = 12
+    headerTitle.TextXAlignment = Enum.TextXAlignment.Left
+    headerTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    headerTitle.ZIndex = 62
+    headerTitle.Parent = header
+
+    -- Item Container
+    local listContainer = Instance.new("Frame")
+    listContainer.Name = "List"
+    listContainer.Size = UDim2.new(1, 0, 0, 0)
+    listContainer.Position = UDim2.fromOffset(0, 28)
+    listContainer.AutomaticSize = Enum.AutomaticSize.Y
+    listContainer.BackgroundTransparency = 1
+    listContainer.ZIndex = 61
+    listContainer.Parent = hudFrame
+
+    local listPadding = Instance.new("UIPadding")
+    listPadding.PaddingLeft = UDim.new(0, 10)
+    listPadding.PaddingRight = UDim.new(0, 10)
+    listPadding.PaddingBottom = UDim.new(0, 8)
+    listPadding.PaddingTop = UDim.new(0, 2)
+    listPadding.Parent = listContainer
+
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Padding = UDim.new(0, 4)
+    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    listLayout.Parent = listContainer
+
+    -- Dragging Logic
+    local dragging = false
+    local dragInput, dragStart, startPos
+    header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = hudFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    header.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    table.insert(ScriptConnections, UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            hudFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end))
+
+    local entries = {
+        {
+            Id = "Menu",
+            Name = "Menu",
+            GetKey = function() return (Window.ToggleKey and Window.ToggleKey.Name) or "RightControl" end,
+            IsActive = function() return Window.Visible == true end,
+            IsVisible = function() return true end,
+            LayoutOrder = 1,
+        },
+        {
+            Id = "Aimbot",
+            Name = "Aimbot",
+            GetKey = function() return Config.Tof_AimKeyName or "None" end,
+            IsActive = function() return Config.Tof_Aimbot == true end,
+            IsVisible = function()
+                local kn = Config.Tof_AimKeyName
+                return kn and kn ~= "None" and kn ~= ""
+            end,
+            LayoutOrder = 2,
+        }
+    }
+
+    local renderedRows = {}
+
+    local function updateRows()
+        for _, entry in ipairs(entries) do
+            local visible = entry.IsVisible()
+            local row = renderedRows[entry.Id]
+
+            if visible then
+                if not row then
+                    row = {}
+                    local rowFrame = Instance.new("Frame")
+                    rowFrame.Name = "Row_" .. entry.Id
+                    rowFrame.Size = UDim2.new(1, 0, 0, 18)
+                    rowFrame.BackgroundTransparency = 1
+                    rowFrame.LayoutOrder = entry.LayoutOrder or 1
+                    rowFrame.ZIndex = 62
+                    rowFrame.Parent = listContainer
+
+                    local nameLbl = Instance.new("TextLabel")
+                    nameLbl.Name = "Name"
+                    nameLbl.Size = UDim2.new(1, -60, 1, 0)
+                    nameLbl.BackgroundTransparency = 1
+                    nameLbl.Text = entry.Name
+                    nameLbl.TextColor3 = Color3.fromRGB(115, 115, 125)
+                    nameLbl.TextSize = 11
+                    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+                    nameLbl.FontFace = GetPreferredFont()
+                    nameLbl.ZIndex = 63
+                    nameLbl.Parent = rowFrame
+
+                    local keyLbl = Instance.new("TextLabel")
+                    keyLbl.Name = "Key"
+                    keyLbl.Size = UDim2.new(0, 56, 1, 0)
+                    keyLbl.Position = UDim2.new(1, -56, 0, 0)
+                    keyLbl.BackgroundTransparency = 1
+                    keyLbl.Text = "[" .. entry.GetKey() .. "]"
+                    keyLbl.TextColor3 = Color3.fromRGB(100, 100, 110)
+                    keyLbl.TextSize = 11
+                    keyLbl.TextXAlignment = Enum.TextXAlignment.Right
+                    keyLbl.FontFace = GetPreferredFont()
+                    keyLbl.ZIndex = 63
+                    keyLbl.Parent = rowFrame
+
+                    row.Frame = rowFrame
+                    row.NameLabel = nameLbl
+                    row.KeyLabel = keyLbl
+                    row.WasActive = nil
+                    renderedRows[entry.Id] = row
+                end
+
+                row.Frame.Visible = true
+                local keyText = "[" .. entry.GetKey() .. "]"
+                if row.KeyLabel.Text ~= keyText then
+                    row.KeyLabel.Text = keyText
+                end
+
+                local active = entry.IsActive()
+                if row.WasActive ~= active then
+                    row.WasActive = active
+                    local targetColor = active and Color3.fromRGB(245, 245, 255) or Color3.fromRGB(115, 115, 125)
+                    local targetKeyColor = active and (Window.Theme.Accent or Color3.fromRGB(245, 245, 255)) or Color3.fromRGB(100, 100, 110)
+                    TweenService:Create(row.NameLabel, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        TextColor3 = targetColor
+                    }):Play()
+                    TweenService:Create(row.KeyLabel, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        TextColor3 = targetKeyColor
+                    }):Play()
+                end
+            elseif row then
+                row.Frame.Visible = false
+            end
+        end
+    end
+
+    KeybindsHUD.Frame = hudFrame
+    KeybindsHUD.Scale = uiScale
+    KeybindsHUD.Update = updateRows
+
+    -- Super Smooth Fade In & Fade Out Animations
+    local isVisible = (Config.ShowKeybindsList ~= false)
+    local currentFadeTween = nil
+    local currentScaleTween = nil
+    local animToken = 0
+
+    local function playFadeIn()
+        animToken = animToken + 1
+        if currentFadeTween then currentFadeTween:Cancel() end
+        if currentScaleTween then currentScaleTween:Cancel() end
+
+        hudFrame.Visible = true
+        updateRows()
+
+        currentFadeTween = TweenService:Create(hudFrame, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+            GroupTransparency = 0
+        })
+        currentScaleTween = TweenService:Create(uiScale, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Scale = 1.0
+        })
+
+        currentFadeTween:Play()
+        currentScaleTween:Play()
+    end
+
+    local function playFadeOut()
+        animToken = animToken + 1
+        local myToken = animToken
+        if currentFadeTween then currentFadeTween:Cancel() end
+        if currentScaleTween then currentScaleTween:Cancel() end
+
+        currentFadeTween = TweenService:Create(hudFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            GroupTransparency = 1
+        })
+        currentScaleTween = TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Scale = 0.90
+        })
+
+        currentFadeTween.Completed:Connect(function()
+            if animToken == myToken and hudFrame.GroupTransparency >= 0.95 then
+                hudFrame.Visible = false
+            end
+        end)
+
+        currentFadeTween:Play()
+        currentScaleTween:Play()
+    end
+
+    if isVisible then
+        hudFrame.Visible = true
+        hudFrame.GroupTransparency = 1
+        uiScale.Scale = 0.90
+        task.defer(playFadeIn)
+    else
+        hudFrame.Visible = false
+        hudFrame.GroupTransparency = 1
+        uiScale.Scale = 0.90
+    end
+
+    KeybindsHUD.SetVisible = function(vis)
+        if vis then
+            playFadeIn()
+        else
+            playFadeOut()
+        end
+    end
+
+    local lastUpdateClock = 0
+    table.insert(ScriptConnections, RunService.Heartbeat:Connect(function()
+        local now = os.clock()
+        if (now - lastUpdateClock) > 0.08 and hudFrame and hudFrame.Visible and hudFrame.GroupTransparency < 0.9 then
+            lastUpdateClock = now
+            updateRows()
+        end
+    end))
+end
+
+-- Add "Show Keybinds List" Toggle in Section_Menu (Settings Tab)
+pcall(function()
+    local contentArea = Window.ContentArea or (Window.MainFrame and Window.MainFrame:FindFirstChild("ContentArea"))
+    local secMenu = contentArea and contentArea:FindFirstChild("Section_Menu", true)
+    local elems = secMenu and secMenu:FindFirstChild("Elements")
+    if elems and not elems:FindFirstChild("ToggleRow_Show Keybinds List") then
+        local toggleRow = Instance.new("Frame")
+        toggleRow.Name = "ToggleRow_Show Keybinds List"
+        toggleRow.Size = UDim2.new(1, 0, 0, 20)
+        toggleRow.BackgroundTransparency = 1
+        toggleRow.LayoutOrder = 3
+
+        local trigger = Instance.new("TextButton")
+        trigger.Name = "Trigger"
+        trigger.Size = UDim2.new(1, 0, 1, 0)
+        trigger.BackgroundTransparency = 1
+        trigger.Text = ""
+        trigger.Parent = toggleRow
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Name = "Label"
+        lbl.Size = UDim2.new(1, -44, 1, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = "Show Keybinds List"
+        lbl.TextColor3 = Window.Theme.SubText
+        lbl.TextSize = 11
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.FontFace = GetPreferredFont()
+        lbl.Parent = trigger
+
+        local pill = Instance.new("Frame")
+        pill.Name = "Pill"
+        pill.Size = UDim2.fromOffset(34, 18)
+        pill.Position = UDim2.new(1, -34, 0.5, -9)
+        local initialOn = (Config.ShowKeybindsList ~= false)
+        pill.BackgroundColor3 = initialOn and Window.Theme.Accent or Window.Theme.Inline
+        pill.BorderSizePixel = 0
+        pill.Parent = trigger
+        Instance.new("UICorner", pill).CornerRadius = UDim.new(0, 9)
+
+        local pillStroke = Instance.new("UIStroke")
+        pillStroke.Color = Window.Theme.ElementBorder
+        pillStroke.Thickness = 1
+        pillStroke.Parent = pill
+
+        local knob = Instance.new("Frame")
+        knob.Name = "Knob"
+        knob.Size = UDim2.fromOffset(14, 14)
+        knob.Position = initialOn and UDim2.new(1, -16, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+        knob.AnchorPoint = Vector2.new(0, 0.5)
+        knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        knob.BorderSizePixel = 0
+        knob.Parent = pill
+        Instance.new("UICorner", knob).CornerRadius = UDim.new(0, 7)
+
+        local function updateToggleVisual(on)
+            local targetPos = on and UDim2.new(1, -16, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+            local targetCol = on and Window.Theme.Accent or Window.Theme.Inline
+            TweenService:Create(knob, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Position = targetPos }):Play()
+            TweenService:Create(pill, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = targetCol }):Play()
+        end
+
+        KeybindsHUD.UpdateSettingToggle = updateToggleVisual
+
+        trigger.MouseButton1Click:Connect(function()
+            Config.ShowKeybindsList = not Config.ShowKeybindsList
+            updateToggleVisual(Config.ShowKeybindsList)
+            if KeybindsHUD and KeybindsHUD.SetVisible then
+                KeybindsHUD.SetVisible(Config.ShowKeybindsList)
+            end
+            Window.ConfigValues["Show Keybinds List"] = Config.ShowKeybindsList
+            if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
+        end)
+
+        toggleRow.Parent = elems
+    end
+end)
+
 -- ======== REAL MULTI-LAYER ANTI-AFK ENGINE ========
 -- Fixes UI-NexaraStudio.lua's default Anti-AFK which never runs its callback on initial Default=true
 -- and adds Engine C-Signal Disable (getconnections) + VirtualUser + VirtualInputManager fallback
@@ -7924,6 +9205,45 @@ local function SynchronizeConfigState()
         return resolved
     end
 
+    Config.Color_Tof_FOV = syncCol("Show FOV Circle", Config.Color_Tof_FOV)
+    Config.Color_Tof_Laser = syncCol("Laser Tracer", Config.Color_Tof_Laser)
+
+    if cv["Silent Aim"] ~= nil then Config.Tof_SilentAim = (cv["Silent Aim"] == true) end
+    if cv["Aimbot"] ~= nil then
+        Config.Tof_Aimbot = (cv["Aimbot"] == true)
+    end
+    if cv["Aimbot Toggle Key"] ~= nil then
+        local kn = tostring(cv["Aimbot Toggle Key"])
+        Config.Tof_AimKeyName = kn
+        if kn == "None" or kn == "" then
+            Config.Tof_AimKeyType = "None"
+            Config.Tof_AimKeyCode = nil
+        elseif kn == "MB3" or kn == "Middle Click" then
+            Config.Tof_AimKeyType = "Mouse"
+            Config.Tof_AimKeyCode = Enum.UserInputType.MouseButton3
+        elseif Enum.KeyCode[kn] then
+            Config.Tof_AimKeyType = "Keyboard"
+            Config.Tof_AimKeyCode = Enum.KeyCode[kn]
+        end
+        if TofCombat.AimKeyBtn then TofCombat.AimKeyBtn.Text = "[" .. kn .. "]" end
+    end
+    if cv["Laser Tracer"] ~= nil then Config.Tof_Laser = (cv["Laser Tracer"] == true) end
+    if cv["Target Killer / Player"] ~= nil then Config.Tof_TargetMode = tostring(cv["Target Killer / Player"]) end
+    if cv["Show FOV Circle"] ~= nil then Config.Tof_ShowFOV = (cv["Show FOV Circle"] == true) end
+    if cv["FOV Radius"] ~= nil then Config.Tof_FOV = tonumber(cv["FOV Radius"]) or Config.Tof_FOV end
+    if cv["Aimbot Smoothness"] ~= nil then Config.Tof_AimbotSmooth = tonumber(cv["Aimbot Smoothness"]) or Config.Tof_AimbotSmooth end
+    if cv["Laser Beam Duration"] ~= nil then Config.Tof_LaserDuration = tonumber(cv["Laser Beam Duration"]) or Config.Tof_LaserDuration end
+    if cv["Show Keybinds List"] ~= nil then
+        Config.ShowKeybindsList = (cv["Show Keybinds List"] == true)
+        if KeybindsHUD and KeybindsHUD.SetVisible then
+            KeybindsHUD.SetVisible(Config.ShowKeybindsList)
+        end
+        if KeybindsHUD and KeybindsHUD.UpdateSettingToggle then
+            KeybindsHUD.UpdateSettingToggle(Config.ShowKeybindsList)
+        end
+    end
+    if TofCombat.RefreshTargetDropdown then TofCombat.RefreshTargetDropdown() end
+
     Config.Color_SurvivorBox = syncCol("Survivor 2D Boxes", Config.Color_SurvivorBox)
     Config.Color_SurvivorSkeleton = syncCol("Survivor Skeleton", Config.Color_SurvivorSkeleton)
     Config.Color_SurvivorChams = syncCol("Survivor Chams", Config.Color_SurvivorChams)
@@ -8201,6 +9521,11 @@ table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
         if Camera.FieldOfView ~= Config.FOV then
             Camera.FieldOfView = Config.FOV
         end
+    end
+
+    -- Twist of Fate Combat Aimbot & FOV Circle Step
+    if TofCombat and TofCombat.StepAimbotAndFOV then
+        TofCombat.StepAimbotAndFOV(0.016)
     end
 
     -- Fullbright continuous enforcement (prevents map/lobby/killer scripts from resetting lighting)
@@ -9511,7 +10836,7 @@ do
             return
         end
 
-        local shouldShowBlind = Config.BlindProgressEnabled and not IsInLobby() and not IsPlayerInLobby(LocalPlayer) and not IsKiller(LocalPlayer) and not IsPlayerDead(LocalPlayer) and not IsCutsceneActive()
+        local shouldShowBlind = Config.BlindProgressEnabled and TofCombat.IsFlashlightActive()
         if shouldShowBlind then
             blindUiAlpha = math.min(1, blindUiAlpha + dt * 4.5)
         else
