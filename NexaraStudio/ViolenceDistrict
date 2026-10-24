@@ -8,7 +8,26 @@ if _G.Nexara_VD_Cleanup then
     _G.Nexara_VD_Cleanup = nil
 end
 pcall(function()
-    game:GetService("RunService"):UnbindFromRenderStep("Nexara_MouseUnlock")
+    local RunService = game:GetService("RunService")
+    RunService:UnbindFromRenderStep("NexaraESP_Render")
+    RunService:UnbindFromRenderStep("Nexara_MouseUnlock")
+end)
+pcall(function()
+    if typeof(getconnections) == "function" then
+        local RunService = game:GetService("RunService")
+        for _, event in ipairs({RunService.RenderStepped, RunService.Heartbeat, RunService.Stepped}) do
+            for _, conn in ipairs(getconnections(event)) do
+                pcall(function()
+                    if conn.Function and typeof(conn.Function) == "function" then
+                        local src = tostring(debug.info(conn.Function, "s"))
+                        if src:find("\xE2\x80\x8B") or src == "" or src:find("VD_Test") or src:find("ViolenceDistrict") then
+                            conn:Disconnect()
+                        end
+                    end
+                end)
+            end
+        end
+    end
 end)
 if _G.Nexara_CurrentWindow then
     pcall(function()
@@ -94,13 +113,15 @@ local Config = {
     ESP_Windows = false,
     ESP_WindowAura = false,      -- 3D Cyan Blue Highlight (Vault Sill Only)
     ESP_ExitGates = false,
-    PalletMaxDist = 150,
-    WindowMaxDist = 150,
+    ESP_BearTraps = true,
+    PalletMaxDist = 1500,
+    WindowMaxDist = 1500,
+    BearTrapMaxDist = 1000,
 
     -- Custom ESP Colors
     Color_SurvivorBox = Color3.fromRGB(80, 255, 120),
-    Color_SurvivorSkeleton = Color3.fromRGB(80, 255, 160),
-    Color_SurvivorChams = Color3.fromRGB(80, 255, 120),
+    Color_SurvivorSkeleton = Color3.fromRGB(255, 255, 255),
+    Color_SurvivorChams = Color3.fromRGB(255, 255, 255),
     Color_SurvivorNames = Color3.fromRGB(80, 255, 120),
     Color_KillerSkeleton = Color3.fromRGB(255, 60, 140),
     Color_KillerChams = Color3.fromRGB(255, 60, 60),
@@ -113,6 +134,7 @@ local Config = {
     Color_WindowAura = Color3.fromRGB(60, 200, 240),
     Color_WindowNames = Color3.fromRGB(80, 210, 255),
     Color_ExitGates = Color3.fromRGB(50, 255, 120),
+    Color_BearTraps = Color3.fromRGB(255, 65, 65),
     
     -- Player / QoL
     BlindProgressEnabled = false,
@@ -125,6 +147,7 @@ local Config = {
     -- Legit / Twist of Fate Combat
     Tof_SilentAim = false,
     Tof_Aimbot = false,
+    Tof_Prediction = true,
     Tof_TargetMode = "Auto (Killer)",
     Tof_AimKeyType = "None",
     Tof_AimKeyCode = nil,
@@ -136,6 +159,13 @@ local Config = {
     Tof_LaserDuration = 0.6,
     Color_Tof_FOV = Color3.fromRGB(255, 175, 45),
     Color_Tof_Laser = Color3.fromRGB(255, 60, 60),
+    Hitmarker = true,
+    HitmarkerMode = "On Killer",
+    HitmarkerSound = "CoD",
+    HitmarkerVolume = 1.0,
+    Color_Hitmarker = Color3.fromRGB(255, 255, 255),
+    HitLog = true,
+    HitLogType = "Top-Right Stack",
     ShowKeybindsList = true,
 }
 
@@ -307,12 +337,31 @@ local lastInLobbyCheck = 0
 
 local function IsInLobby()
     local now = os.clock()
-    if now - lastInLobbyCheck < 0.2 then
+    if now - lastInLobbyCheck < 0.15 then
         return cachedInLobby
     end
     lastInLobbyCheck = now
 
-    -- 0. Check LocalPlayer's Team first: if not in 'Killer' or 'Survivors' (e.g. 'Spectator', 'Lobby', 'Choosing'), player is in Lobby!
+    -- 1. Fast World Coordinates Check (Lobby island is high in the sky: Y > 300 and Z > 2000; match maps are Y < 150 and Z < 1000)
+    local myRoot = GetRoot(LocalPlayer)
+    if myRoot then
+        local p = myRoot.Position
+        if p.Y > 300 or p.Z > 2000 then
+            cachedInLobby = true
+            return true
+        end
+    else
+        local cam = Workspace.CurrentCamera or Camera
+        if cam then
+            local cp = cam.CFrame.Position
+            if cp.Y > 300 or cp.Z > 2000 then
+                cachedInLobby = true
+                return true
+            end
+        end
+    end
+
+    -- 2. Check LocalPlayer's Team: if not in 'Killer' or 'Survivors' (e.g. 'Spectator', 'Lobby', 'Choosing'), player is in Lobby!
     local team = LocalPlayer.Team
     if team then
         local tName = team.Name
@@ -325,30 +374,26 @@ local function IsInLobby()
         return true
     end
 
-    -- 1. Check explicit lobby attributes on LocalPlayer
+    -- 3. Match round active attribute: active match characters have RoundScriptsActive = true; lobby characters do not
+    local myChar = LocalPlayer.Character
+    if myChar and myChar:GetAttribute("RoundScriptsActive") ~= true then
+        cachedInLobby = true
+        return true
+    end
+
+    -- 4. Check explicit lobby attributes on LocalPlayer
     if LocalPlayer:GetAttribute("InLobby") == true or LocalPlayer:GetAttribute("WaitingInLobby") == true then
         cachedInLobby = true
         return true
     end
 
-    -- 2. Check physical proximity to Lobby (Fastest & 100% reliable - 0ms delay on round end teleport)
-    local myRoot = GetRoot(LocalPlayer)
-    local lobbyPart = GetLobbyPart()
-    if myRoot and lobbyPart then
-        local distToLobby = (myRoot.Position - lobbyPart.Position).Magnitude
-        if distToLobby <= 380 then
-            cachedInLobby = true
-            return true
-        end
-    end
-
-    -- 3. Check Match Timer: 00:00 means match has completed
+    -- 5. Check Match Timer: 00:00 means match has completed
     if IsMatchTimerZero() then
         cachedInLobby = true
         return true
     end
 
-    -- 4. Check Map folder contents (In match, Map has children; in lobby, map is missing or empty)
+    -- 6. Check Map folder contents (In match, Map has children; in lobby, map is missing or empty)
     local map = Workspace:FindFirstChild("Map")
     if not map or not map:FindFirstChildWhichIsA("Instance") then
         cachedInLobby = true
@@ -408,14 +453,25 @@ local function IsPlayerInLobby(player)
         return true
     end
 
-    -- 3. Check explicit lobby attributes
+    -- 3. World Coordinates Check: Any player at Y > 300 or Z > 2000 is physically in the Lobby
+    local root = GetRoot(player)
+    if root then
+        local p = root.Position
+        if p.Y > 300 or p.Z > 2000 then
+            return true
+        end
+    else
+        return true
+    end
+
+    -- 4. Check explicit lobby attributes
     if player:GetAttribute("InLobby") == true or (player.Character and player.Character:GetAttribute("InLobby") == true) or
        player:GetAttribute("Spectating") == true or (player.Character and player.Character:GetAttribute("Spectating") == true) or
        player:GetAttribute("WaitingInLobby") == true then
         return true
     end
 
-    -- 4. Check Team (In an active match, match participants are in 'Survivors' or 'Killer')
+    -- 5. Check Team (In an active match, match participants are in 'Survivors' or 'Killer')
     if player.Team then
         local tName = player.Team.Name
         if tName == "Lobby" or tName == "Spectator" or tName == "Spectators" or tName == "Choosing" then
@@ -426,103 +482,112 @@ local function IsPlayerInLobby(player)
         end
     end
 
-    local root = GetRoot(player)
-    if not root then return true end
-
-    -- 5. Check physical proximity to the Lobby structure
-    local lobbyPart = GetLobbyPart()
-    if lobbyPart then
-        local distToLobby = (root.Position - lobbyPart.Position).Magnitude
-        if distToLobby <= 350 then
-            return true
-        end
-    end
-
     -- 6. Match distance check: in Violence District, the lobby island is >320 studs away from the match map
     local myRoot = GetRoot(LocalPlayer)
     if myRoot then
         local distFromMe = (root.Position - myRoot.Position).Magnitude
         if distFromMe >= 320 then
-            if lobbyPart then
-                local distToLobby = (root.Position - lobbyPart.Position).Magnitude
-                if distToLobby <= 450 then
-                    return true
-                end
-            else
-                return true
-            end
-        end
-    end
-
-    return false
-end
-
-local function IsCutsceneActive()
-    -- 1. Camera mode check (Any cinematic, intro, mori, or round-end animation switches Camera to Scriptable)
-    local cam = Workspace.CurrentCamera or Camera
-    if cam and cam.CameraType == Enum.CameraType.Scriptable then
-        return true
-    end
-
-    -- 2. Local character mori / cutscene / dead attributes
-    local myChar = LocalPlayer.Character
-    if myChar then
-        if myChar:GetAttribute("Mori") == true or myChar:GetAttribute("IsMori") == true or
-           myChar:GetAttribute("Cutscene") == true or myChar:GetAttribute("InCutscene") == true or
-           LocalPlayer:GetAttribute("InCutscene") == true or LocalPlayer:GetAttribute("Cutscene") == true then
             return true
         end
     end
 
-    -- 3. Check PlayerGui for cutscene / cinematic / black bars GUIs
-    local pg = LocalPlayer:FindFirstChild("PlayerGui")
-    if pg then
-        for _, name in ipairs({"Cutscene", "Cutscenes", "Cinematic", "Cinematics", "Intro", "Ending", "Outro", "Mori", "BlackBars", "Letterbox", "Bars", "CinematicBars"}) do
-            local g = pg:FindFirstChild(name)
-            if g and ((g:IsA("ScreenGui") and g.Enabled) or (g:IsA("GuiObject") and g.Visible)) then
-                return true
-            end
-        end
+    return false
+end
 
-        for _, g in ipairs(pg:GetChildren()) do
-            if g:IsA("ScreenGui") and g.Enabled and g.Name ~= "NexaraStudio" and g.Name ~= "Nexara_ScreenGui" then
-                local gName = g.Name:lower()
-                if gName:find("cutscene") or gName:find("cinematic") or gName:find("intro") or gName:find("mori") then
-                    return true
-                end
-                local topBar = g:FindFirstChild("TopBar") or g:FindFirstChild("Top") or g:FindFirstChild("Bar1")
-                local btmBar = g:FindFirstChild("BottomBar") or g:FindFirstChild("Bottom") or g:FindFirstChild("Bar2")
-                if topBar and btmBar and topBar:IsA("GuiObject") and btmBar:IsA("GuiObject") and topBar.Visible and btmBar.Visible then
-                    if topBar.BackgroundColor3 == Color3.new(0, 0, 0) or topBar.BackgroundTransparency < 0.5 then
-                        return true
-                    end
-                end
-            end
-        end
+local cachedCutscene = false
+local lastCutsceneCheck = 0
 
-        -- 4. Match HUD check: if in match (Map folder populated) but all in-game HUDs are disabled, round is in cinematic
-        local map = Workspace:FindFirstChild("Map")
-        if map and #map:GetChildren() >= 10 then
-            local survivorGui = pg:FindFirstChild("Survivor")
-            local killerGui = pg:FindFirstChild("Killer")
-            local hudGui = pg:FindFirstChild("HUD") or pg:FindFirstChild("InGame")
-            local hasHud = (survivorGui or killerGui or hudGui)
-            local anyHudEnabled = (survivorGui and survivorGui.Enabled) or (killerGui and killerGui.Enabled) or (hudGui and hudGui.Enabled)
-            if hasHud and not anyHudEnabled then
-                return true
+local function IsCutsceneActive()
+    local now = os.clock()
+    if (now - lastCutsceneCheck) < 0.15 then
+        return cachedCutscene
+    end
+    lastCutsceneCheck = now
+
+    local result = false
+
+    -- 1. Camera mode check (Any cinematic, intro, mori, or round-end animation switches Camera to Scriptable)
+    local cam = Workspace.CurrentCamera or Camera
+    if cam and cam.CameraType == Enum.CameraType.Scriptable then
+        result = true
+    end
+
+    -- 2. Local character mori / cutscene / dead attributes
+    if not result then
+        local myChar = LocalPlayer.Character
+        if myChar then
+            if myChar:GetAttribute("Mori") == true or myChar:GetAttribute("IsMori") == true or
+               myChar:GetAttribute("Cutscene") == true or myChar:GetAttribute("InCutscene") == true or
+               LocalPlayer:GetAttribute("InCutscene") == true or LocalPlayer:GetAttribute("Cutscene") == true then
+                result = true
             end
         end
     end
 
-    return false
+    -- 3. Check PlayerGui for cutscene / cinematic / black bars GUIs
+    if not result then
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if pg then
+            for _, name in ipairs({"Cutscene", "Cutscenes", "Cinematic", "Cinematics", "Intro", "Ending", "Outro", "Mori", "BlackBars", "Letterbox", "Bars", "CinematicBars"}) do
+                local g = pg:FindFirstChild(name)
+                if g and ((g:IsA("ScreenGui") and g.Enabled) or (g:IsA("GuiObject") and g.Visible)) then
+                    result = true
+                    break
+                end
+            end
+
+            if not result then
+                for _, g in ipairs(pg:GetChildren()) do
+                    if g:IsA("ScreenGui") and g.Enabled and g.Name ~= "NexaraStudio" and g.Name ~= "Nexara_ScreenGui" then
+                        local gName = g.Name:lower()
+                        if gName:find("cutscene") or gName:find("cinematic") or gName:find("intro") or gName:find("mori") then
+                            result = true
+                            break
+                        end
+                        local topBar = g:FindFirstChild("TopBar") or g:FindFirstChild("Top") or g:FindFirstChild("Bar1")
+                        local btmBar = g:FindFirstChild("BottomBar") or g:FindFirstChild("Bottom") or g:FindFirstChild("Bar2")
+                        if topBar and btmBar and topBar:IsA("GuiObject") and btmBar:IsA("GuiObject") and topBar.Visible and btmBar.Visible then
+                            if topBar.BackgroundColor3 == Color3.new(0, 0, 0) or topBar.BackgroundTransparency < 0.5 then
+                                result = true
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- 4. Match HUD check: if in match (Map folder populated) but all in-game HUDs are disabled, round is in cinematic
+            if not result then
+                local map = Workspace:FindFirstChild("Map")
+                if map and #map:GetChildren() >= 10 then
+                    local survivorGui = pg:FindFirstChild("Survivor")
+                    local killerGui = pg:FindFirstChild("Killer")
+                    local hudGui = pg:FindFirstChild("HUD") or pg:FindFirstChild("InGame")
+                    local hasHud = (survivorGui or killerGui or hudGui)
+                    local anyHudEnabled = (survivorGui and survivorGui.Enabled) or (killerGui and killerGui.Enabled) or (hudGui and hudGui.Enabled)
+                    if hasHud and not anyHudEnabled then
+                        result = true
+                    end
+                end
+            end
+        end
+    end
+
+    cachedCutscene = result
+    return result
 end
+
+local CurrentKillerPlayer = nil
 
 local function IsKiller(player)
     if not player then return false end
+    if CurrentKillerPlayer ~= nil and CurrentKillerPlayer.Parent then
+        return (player == CurrentKillerPlayer)
+    end
     if IsInLobby() or IsPlayerInLobby(player) or IsPlayerDead(player) then return false end
     if player.Team then
         if player.Team.Name == "Killer" then return true end
-        if player.Team.Name == "Survivors" then return false end
+        if player.Team.Name == "Survivors" or player.Team.Name == "Spectator" then return false end
     end
     local char = player.Character
     if char then
@@ -535,7 +600,7 @@ local function IsKiller(player)
             return true
         end
         -- Stalker
-        if char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") or char:GetAttribute("StalkStage") or char:GetAttribute("IsStalking") then
+        if char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") or char:GetAttribute("StalkerStage2Remaining") ~= nil or char:GetAttribute("Stage") ~= nil or char:GetAttribute("StalkStage") or char:GetAttribute("IsStalking") then
             return true
         end
         -- Hidden
@@ -554,11 +619,20 @@ local function IsKiller(player)
         if char:FindFirstChild("Abysswalker") then
             return true
         end
+        -- Butcher
+        if char:FindFirstChild("Beartrap") or char:FindFirstChild("BearTrap") or char:GetAttribute("Butcher") == true 
+            or char:GetAttribute("MorphedKiller") == "Butcher" or (char:FindFirstChild("Weapon") and char.Weapon:FindFirstChild("Main")) 
+            or char:GetAttribute("PlacingTrap") ~= nil or char:GetAttribute("ChainLatched") ~= nil 
+            or char:GetAttribute("ChainThrowUntil") ~= nil or char:GetAttribute("ChainMove1CD") ~= nil 
+            or char:GetAttribute("Beartraps") ~= nil or char:GetAttribute("ChainInUse") ~= nil 
+            or char:GetAttribute("ChainThrows") ~= nil then
+            return true
+        end
         -- Generic Killer attributes
         if char:GetAttribute("BloodLust") or char:GetAttribute("IsCarrying") or char:GetAttribute("Carrying") then
             return true
         end
-        if char:GetAttribute("SelectedKiller") then
+        if char:GetAttribute("SelectedKiller") or char:GetAttribute("MorphedKiller") then
             return true
         end
     end
@@ -588,6 +662,7 @@ local ItemIcons = {
     ["Adrenaline Shot"] = "rbxassetid://137929638334333",
     ["Shadow Clone"] = "rbxassetid://134088840518889",
     ["WaxBound Candle"] = "rbxassetid://106285555718658",
+    ["Monkey Paw"] = "rbxassetid://126833563081304",
     ["Holy Water"] = "rbxassetid://87891828424217",
     ["Riot Shield"] = "rbxassetid://74132675904402",
 }
@@ -606,13 +681,22 @@ local LastSlasherMist = false
 local LastSlasherPursuit = false
 local StalkerGraspCooldownEnd = 0
 local StalkerHunterEnd = 0
+local StalkerStalkPct = 0
+local LastStalkTime = 0
 local MaskedActiveEnd = 0
 local MaskedCooldownEnd = 0
 local LastMaskedState = "Richard"
 local KillerFrenzyActiveEnd = 0
 local KillerFrenzyCooldownEnd = 0
+local LastKillerFrenzy = false
+local LastStalkerStage = 1
+local LastCurePrepareFlask = false
 local AbyssSlashCooldownEnd = 0
 local AbyssBurstCooldownEnd = 0
+local LastAbyssSlash = false
+local LastAbyssBurst = false
+local ButcherChainCooldownEnd = 0
+local ButcherTrapCooldownEnd = 0
 
 -- THE MASKED: REAL-TIME MASK POWER DATABASE & SURVIVOR HUD ALERTS
 local MaskDatabase = {
@@ -1096,6 +1180,7 @@ end
 
 local function SetItemCooldown(player, itemName, duration)
     if not player or not itemName or not duration then return end
+    if itemName == "Twist of Fate" then return end
     if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
     local endTime = os.clock() + (tonumber(duration) or 0)
     local pName = typeof(player) == "Instance" and player.Name or tostring(player)
@@ -1108,6 +1193,7 @@ end
 
 local function GetItemCooldown(player, itemName)
     if not player or not itemName then return 0 end
+    if itemName == "Twist of Fate" then return 0 end
     if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return 0 end
     local now = os.clock()
     local pName = typeof(player) == "Instance" and player.Name or tostring(player)
@@ -1156,19 +1242,25 @@ local function SetupPlayerCooldownHooks(player)
         ClearPlayerCooldowns(player)
         PersistentPerksCache[player] = nil
 
-        -- 0. Real-time Perk Detection: Server clones perk scripts directly into char during match
-        table.insert(ScriptConnections, char.ChildAdded:Connect(function(child)
-            pcall(function()
-                if GetPlayerPerks then GetPlayerPerks(player) end
-            end)
-        end))
-
-        -- 1. Character Attribute: Parry (triggers on Parrying Dagger use) & Item Aiming/Overridelook
+        -- 1. Character Attribute: Fast Whitelist (ignores non-cooldown attributes like CamLook/CamPos/Speed)
+        local TrackedCooldownAttrs = {
+            Parry = true,
+            IsStunned = true,
+            LakeMist = true,
+            Pursuit = true,
+            Mask = true,
+            Frenzy = true,
+            FrenzyEnding = true,
+            Stage = true,
+            StalkStage = true,
+            EvolveStage = true,
+            prepareflask = true,
+            overridelookscript = true,
+            Aiming = true
+        }
         table.insert(ScriptConnections, char.AttributeChanged:Connect(function(attrName)
+            if not TrackedCooldownAttrs[attrName] then return end
             if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
-            pcall(function()
-                if GetPlayerPerks then GetPlayerPerks(player) end
-            end)
             if attrName == "Parry" and char:GetAttribute("Parry") == true then
                 SetItemCooldown(player, "Parrying Dagger", 60)
             elseif attrName == "IsStunned" and char:GetAttribute("IsStunned") == true and IsKiller(player) then
@@ -1220,6 +1312,53 @@ local function SetupPlayerCooldownHooks(player)
                     MaskedCooldownEnd = os.clock() + 30
                     TriggerMaskAlert(prevMask, false)
                 end
+            elseif attrName == "Frenzy" then
+                local fActive = char:GetAttribute("Frenzy") == true
+                if fActive and not LastKillerFrenzy then
+                    LastKillerFrenzy = true
+                    KillerFrenzyActiveEnd = os.clock() + 13
+                    KillerFrenzyCooldownEnd = 0
+                elseif not fActive and LastKillerFrenzy then
+                    LastKillerFrenzy = false
+                    KillerFrenzyActiveEnd = 0
+                    KillerFrenzyCooldownEnd = os.clock() + 20
+                end
+            elseif attrName == "FrenzyEnding" then
+                local fEnding = char:GetAttribute("FrenzyEnding") == true
+                if fEnding then
+                    LastKillerFrenzy = false
+                    KillerFrenzyActiveEnd = 0
+                    if (KillerFrenzyCooldownEnd - os.clock()) <= 0 then
+                        KillerFrenzyCooldownEnd = os.clock() + 20
+                    end
+                end
+            elseif attrName == "Stage" or attrName == "StalkStage" or attrName == "EvolveStage" then
+                local stage = tonumber(char:GetAttribute(attrName)) or 1
+                if stage ~= LastStalkerStage then
+                    StalkerStalkPct = 0
+                    LastStalkTime = 0
+                end
+                if stage >= 3 and LastStalkerStage < 3 then
+                    StalkerHunterEnd = os.clock() + 70
+                    StalkerGraspCooldownEnd = 0
+                    LastStalkerStage = stage
+                elseif stage < 3 and LastStalkerStage >= 3 then
+                    StalkerHunterEnd = 0
+                    StalkerGraspCooldownEnd = os.clock() + 15
+                    LastStalkerStage = stage
+                else
+                    LastStalkerStage = stage
+                end
+            elseif attrName == "prepareflask" then
+                local isPrep = char:GetAttribute("prepareflask") == true
+                if isPrep and not LastCurePrepareFlask then
+                    LastCurePrepareFlask = true
+                elseif not isPrep and LastCurePrepareFlask then
+                    LastCurePrepareFlask = false
+                    if not char:FindFirstChild("Flask") and not char:FindFirstChild("Curetool") then
+                        CureFlaskCooldownEnd = os.clock() + 15
+                    end
+                end
             elseif (attrName == "overridelookscript" or attrName == "Aiming") and char:GetAttribute(attrName) == true then
                 local eqItem = player:GetAttribute("EquippedItem")
                 if eqItem == "Gate" or char:FindFirstChild("Gate") then
@@ -1268,6 +1407,14 @@ local function SetupPlayerCooldownHooks(player)
                     -- Shadow Clone hand signs animation: 106585152202320 (60s cd)
                     elseif id:find("106585152202320") then
                         SetItemCooldown(player, "Shadow Clone", 60)
+                    -- Abysswalker Skill 1 (Dark Severance slash): 80411309607666 (30s CD)
+                    elseif id:find("80411309607666") then
+                        LastAbyssSlash = true
+                        AbyssSlashCooldownEnd = os.clock() + 33
+                    -- Abysswalker Skill 2 (Abyssal Burst corrupt): 117886494230451, 100092272524635 (30s CD)
+                    elseif id:find("117886494230451") or id:find("100092272524635") then
+                        LastAbyssBurst = true
+                        AbyssBurstCooldownEnd = os.clock() + 30
                     end
                 end))
 
@@ -1393,11 +1540,6 @@ local function SetupPlayerCooldownHooks(player)
             esp.Chams = nil
         end
     end))
-    table.insert(ScriptConnections, player.AttributeChanged:Connect(function(attrName)
-        pcall(function()
-            if GetPlayerPerks then GetPlayerPerks(player) end
-        end)
-    end))
 end
 
 for _, p in ipairs(Players:GetPlayers()) do
@@ -1422,6 +1564,20 @@ local function HookKillerStun(kChar)
     table.insert(ScriptConnections, kChar:GetAttributeChangedSignal("IsStunned"):Connect(function()
         if kChar:GetAttribute("IsStunned") == true then
             CheckKillerStunned()
+            if TofCombat and TofCombat.TriggerHitmarker then
+                local myChar = LocalPlayer.Character
+                local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                local kHrp = kChar:FindFirstChild("HumanoidRootPart")
+                local kTorso = kChar:FindFirstChild("Torso") or kChar:FindFirstChild("UpperTorso") or kHrp
+                if myHrp and kHrp and (myHrp.Position - kHrp.Position).Magnitude < 45 then
+                    TofCombat.TriggerHitmarker(true, (kTorso and kTorso.Position) or kHrp.Position, kTorso or kHrp)
+                    if TofCombat.LogHit then
+                        local dist = (myHrp.Position - kHrp.Position).Magnitude
+                        local kPlr = Players:GetPlayerFromCharacter(kChar)
+                        TofCombat.LogHit(kPlr, kChar, kTorso or kHrp, dist, true)
+                    end
+                end
+            end
         end
     end))
 end
@@ -1615,18 +1771,7 @@ pcall(function()
     local visBullet = tof and tof:FindFirstChild("VisualizeBullet")
     if visBullet and visBullet:IsA("RemoteEvent") then
         table.insert(ScriptConnections, visBullet.OnClientEvent:Connect(function(origin)
-            if typeof(origin) == "Vector3" then
-                local closest, minD = nil, 25
-                for _, p in ipairs(Players:GetPlayers()) do
-                    if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                        local d = (p.Character.HumanoidRootPart.Position - origin).Magnitude
-                        if d < minD then minD = d; closest = p end
-                    end
-                end
-                if closest then
-                    SetItemCooldown(closest, "Twist of Fate", 60)
-                end
-            end
+            -- Twist of Fate gun cooldown & shots are handled server-authoritatively via tool attributes: tofState, tofStateDur (80s), shots (3)
         end))
     end
 end)
@@ -1795,6 +1940,17 @@ task.spawn(function()
                     StalkerHunterEnd = os.clock() + 70
                 end))
             end
+            local updRem = stalkerRem:FindFirstChild("UpdateStalking")
+            if updRem then
+                table.insert(ScriptConnections, updRem.OnClientEvent:Connect(function(pct, stg)
+                    local rawPct: number = tonumber(pct) or 0
+                    StalkerStalkPct = math.clamp(math.floor(rawPct), 0, 100)
+                    local nStg = tonumber(stg)
+                    if nStg then
+                        LastStalkerStage = nStg
+                    end
+                end))
+            end
             local grabRem = stalkerRem:FindFirstChild("grab") or stalkerRem:FindFirstChild("StartGrabHitbox")
             if grabRem then
                 table.insert(ScriptConnections, grabRem.OnClientEvent:Connect(function()
@@ -1830,37 +1986,78 @@ task.spawn(function()
             end
         end
 
-        -- 5. Abysswalker (Dark Severance: 15s CD & Abyssal Burst: 25s CD)
+        -- 5. Abysswalker (Dark Severance: 30s CD & Abyssal Burst: 30s CD)
         local abyssRem = kRem:FindFirstChild("Abysswalker")
         if abyssRem then
             local burstRem = abyssRem:FindFirstChild("corrupt")
             if burstRem then
                 table.insert(ScriptConnections, burstRem.OnClientEvent:Connect(function()
-                    AbyssBurstCooldownEnd = os.clock() + 25
+                    LastAbyssBurst = true
+                    AbyssBurstCooldownEnd = os.clock() + 30
                 end))
             end
-            local slashRem = abyssRem:FindFirstChild("visualize")
-            if slashRem then
-                table.insert(ScriptConnections, slashRem.OnClientEvent:Connect(function()
-                    AbyssSlashCooldownEnd = os.clock() + 15
+            -- visualize is the Wave projectile broadcast for Abyssal Burst (Skill 2)
+            local waveRem = abyssRem:FindFirstChild("visualize")
+            if waveRem then
+                table.insert(ScriptConnections, waveRem.OnClientEvent:Connect(function()
+                    LastAbyssBurst = true
+                    AbyssBurstCooldownEnd = os.clock() + 30
                 end))
             end
         end
+        local soundPlayerRem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("SoundPlayer")
+        if soundPlayerRem then
+            table.insert(ScriptConnections, soundPlayerRem.OnClientEvent:Connect(function(sndId)
+                if sndId and tostring(sndId):find("70398808450410") then
+                    LastAbyssBurst = true
+                    AbyssBurstCooldownEnd = os.clock() + 30
+                end
+            end))
+        end
 
-        -- 6. The Killer (Classic Frenzy: 15s active, 20s CD after active ends)
+        -- 6. The Killer (Classic Frenzy: 13s active, 20s CD after active ends)
         local killerRem = kRem:FindFirstChild("Killer")
         if killerRem then
             local actP = killerRem:FindFirstChild("ActivatePower")
             if actP then
                 table.insert(ScriptConnections, actP.OnClientEvent:Connect(function()
-                    KillerFrenzyActiveEnd = os.clock() + 15
+                    LastKillerFrenzy = true
+                    KillerFrenzyActiveEnd = os.clock() + 13
+                    KillerFrenzyCooldownEnd = 0
+                end))
+            end
+            local hitEvt = killerRem:FindFirstChild("FrenzyHitEvent")
+            if hitEvt then
+                table.insert(ScriptConnections, hitEvt.OnClientEvent:Connect(function()
+                    if LastKillerFrenzy then
+                        KillerFrenzyActiveEnd = os.clock() + 13
+                    end
                 end))
             end
             local cdEvt = killerRem:FindFirstChild("CooldownEvent") or killerRem:FindFirstChild("Deactivate")
             if cdEvt then
-                table.insert(ScriptConnections, cdEvt.OnClientEvent:Connect(function()
+                table.insert(ScriptConnections, cdEvt.OnClientEvent:Connect(function(cdTime)
+                    LastKillerFrenzy = false
                     KillerFrenzyActiveEnd = 0
-                    KillerFrenzyCooldownEnd = os.clock() + 20
+                    local dur = tonumber(cdTime) or 20
+                    KillerFrenzyCooldownEnd = os.clock() + dur
+                end))
+            end
+        end
+
+        -- 7. The Butcher (Chain Throw: 15s CD & Bear Trap)
+        local butcherRem = kRem:FindFirstChild("Butcher")
+        if butcherRem then
+            local chainRem = butcherRem:FindFirstChild("ChainThrow")
+            if chainRem then
+                table.insert(ScriptConnections, chainRem.OnClientEvent:Connect(function()
+                    ButcherChainCooldownEnd = os.clock() + 15
+                end))
+            end
+            local trapRem = butcherRem:FindFirstChild("PlaceTrap")
+            if trapRem then
+                table.insert(ScriptConnections, trapRem.OnClientEvent:Connect(function()
+                    ButcherTrapCooldownEnd = os.clock() + 3
                 end))
             end
         end
@@ -1962,7 +2159,9 @@ pcall(function()
                 UserInputService.MouseIconEnabled = true
                 return
             end
-            return CameraHooks.origSetMouseBehavior(val)
+            if type(CameraHooks.origSetMouseBehavior) == "function" then
+                return CameraHooks.origSetMouseBehavior(val)
+            end
         end
 
         cu.restoreMouseBehavior = function()
@@ -1971,14 +2170,18 @@ pcall(function()
                 UserInputService.MouseIconEnabled = true
                 return
             end
-            return CameraHooks.origRestoreMouseBehavior()
+            if type(CameraHooks.origRestoreMouseBehavior) == "function" then
+                pcall(CameraHooks.origRestoreMouseBehavior)
+            end
         end
 
         cu.setMouseIconOverride = function(icon)
             if Window and Window.Visible then
                 return
             end
-            return CameraHooks.origSetMouseIcon(icon)
+            if type(CameraHooks.origSetMouseIcon) == "function" then
+                pcall(CameraHooks.origSetMouseIcon, icon)
+            end
         end
     end
 
@@ -2280,6 +2483,7 @@ local KnownKillerPerks = {
     ["deep wound"] = "Deep Wound", ["all seeing eye"] = "All Seeing Eye", ["touch of death"] = "Touch Of Death",
     ["murderous acrobatics"] = "Murderous Acrobatics", ["exposure therapy"] = "Exposure Therapy", ["eyes of hell"] = "Eyes Of Hell",
     ["stage fright"] = "Stage Fright", ["trade off"] = "Trade Off", ["containment"] = "Containment", ["king's scourge"] = "King's Scourge",
+    ["split the pain"] = "Split The Pain", ["bloodhound"] = "Bloodhound", ["rotten stench"] = "Rotten Stench",
 }
 
 local KnownSurvivorPerks = {
@@ -2536,19 +2740,18 @@ GetPlayerPerks = function(player)
     local perks = {}
     if not player then return perks end
 
-    -- Reset cache if player is in lobby so match data never bleeds across sessions
+    -- Lobby guard: never traverse descendants in lobby!
     if IsInLobby() or IsPlayerInLobby(player) then
-        PersistentPerksCache[player] = nil
-        LastPerkScanTime[player] = nil
+        return perks
     end
 
     -- Fast-path: If perks already resolved in match, return immediately without re-scanning descendants!
-    if not IsInLobby() and PersistentPerksCache[player] and #PersistentPerksCache[player] > 0 then
+    if PersistentPerksCache[player] and #PersistentPerksCache[player] > 0 then
         return PersistentPerksCache[player]
     end
 
     local now = os.clock()
-    if not IsInLobby() and LastPerkScanTime[player] and (now - LastPerkScanTime[player] < 4.0) then
+    if LastPerkScanTime[player] and (now - LastPerkScanTime[player] < 5.0) then
         return PersistentPerksCache[player] or perks
     end
     LastPerkScanTime[player] = now
@@ -2812,7 +3015,7 @@ GetPlayerPerks = function(player)
     end
 
     -- Vector F: ReplicatedStorage player data container (if exists)
-    local pData = rs:FindFirstChild(player.Name) or (rs:FindFirstChild("PlayerData") and rs.PlayerData:FindFirstChild(player.Name)) or (rs:FindFirstChild("Players") and rs.Players:FindFirstChild(player.Name))
+    local pData = ReplicatedStorage:FindFirstChild(player.Name) or (ReplicatedStorage:FindFirstChild("PlayerData") and ReplicatedStorage.PlayerData:FindFirstChild(player.Name)) or (ReplicatedStorage:FindFirstChild("Players") and ReplicatedStorage.Players:FindFirstChild(player.Name))
     if pData then
         local pf = pData:FindFirstChild("Perks") or pData:FindFirstChild("EquippedPerks")
         if pf then
@@ -2837,6 +3040,7 @@ end
 
 -- Player disconnect cleanup: only clear caches when player genuinely leaves the server
 table.insert(ScriptConnections, Players.PlayerRemoving:Connect(function(leavingPlr)
+    if leavingPlr == CurrentKillerPlayer then CurrentKillerPlayer = nil end
     PersistentPerksCache[leavingPlr] = nil
     PlayerPerkTiers[leavingPlr] = nil
     if cachedRosterRows[leavingPlr] then
@@ -2852,22 +3056,24 @@ local function GetPlayerSkillInfo(player)
     local char = player.Character
     if IsKiller(player) then
         PlayerItemCache[player] = nil
-        local kName = player:GetAttribute("SelectedKiller") or (char and char:GetAttribute("SelectedKiller")) or "Killer"
+        local kName = player:GetAttribute("SelectedKiller") or (char and char:GetAttribute("SelectedKiller")) or (char and char:GetAttribute("MorphedKiller")) or "Killer"
         if char then
             if char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") or char:GetAttribute("spearmode") then
                 kName = "Veil"
             elseif char:FindFirstChild("Flask") or char:FindFirstChild("Curetool") or char:GetAttribute("corpsecharge") then
                 kName = "Cure"
+            elseif char:GetAttribute("StalkerStage2Remaining") ~= nil or char:GetAttribute("Stage") ~= nil or char:GetAttribute("StalkStage") ~= nil or char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
+                kName = "Stalker"
             elseif char:FindFirstChild("Knide") or char:FindFirstChild("Knife") or char:GetAttribute("preparem2") then
                 kName = "Hidden"
-            elseif char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
-                kName = "Stalker"
             elseif char:FindFirstChild("Katana") or char:FindFirstChild("Sword") or char:FindFirstChild("pamela") or char:GetAttribute("Pursuit") ~= nil or char:GetAttribute("LakeMist") ~= nil then
                 kName = "Slasher"
             elseif char:FindFirstChild("Abysswalker") or char:FindFirstChild("Wave") then
                 kName = "Abysswalker"
             elseif char:GetAttribute("Mask") or char:GetAttribute("MaskExpired") then
                 kName = "Masked"
+            elseif char:FindFirstChild("Beartrap") or char:FindFirstChild("BearTrap") or char:GetAttribute("Butcher") == true or char:GetAttribute("MorphedKiller") == "Butcher" or (char:FindFirstChild("Weapon") and char.Weapon:FindFirstChild("Main")) or char:GetAttribute("PlacingTrap") ~= nil or char:GetAttribute("ChainLatched") ~= nil or char:GetAttribute("ChainThrowUntil") ~= nil or char:GetAttribute("ChainMove1CD") ~= nil or char:GetAttribute("Beartraps") ~= nil or kName == "Butcher" then
+                kName = "Butcher"
             end
         end
         local skillEntries = {}
@@ -3104,24 +3310,106 @@ local function GetPlayerSkillInfo(player)
             table.insert(skillEntries, "Pursuit [" .. pursuitStatus .. "]")
 
         elseif kName == "Stalker" then
-            -- Mode 1: Stalker Mode (Undetectable, 18.7 studs/s, 6 charges to unlock Grasp)
-            local _stage = char:GetAttribute("StalkStage") or char:GetAttribute("EvolveStage") or 1
-            local charges = tonumber(char:GetAttribute("StalkCharges")) or (char:GetAttribute("IsStalking") and 6 or 0)
-            local stalkStatus = char:GetAttribute("IsStalking") and "[STALKING]" or ("Charges " .. tostring(charges) .. "/6")
+            local stage = tonumber(char:GetAttribute("Stage") or char:GetAttribute("StalkStage") or char:GetAttribute("EvolveStage")) or 1
+            if stage ~= LastStalkerStage then
+                StalkerStalkPct = 0
+                LastStalkTime = 0
+                LastStalkerStage = stage
+            end
+
+            -- Stalking Detection (Holding Right-Click on Killer or Physics + LoS on Survivor)
+            local isStalking = false
+            if player == LocalPlayer then
+                local m2Down = false
+                pcall(function()
+                    m2Down = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+                end)
+                local speed = tonumber(char:GetAttribute("Speed")) or 18.7
+                isStalking = m2Down or (speed <= 9.5) or (char:GetAttribute("IsStalking") == true)
+            else
+                local kHrp = char:FindFirstChild("HumanoidRootPart")
+                if kHrp then
+                    local vel = kHrp.AssemblyLinearVelocity
+                    local horizSpeed = Vector3.new(vel.X, 0, vel.Z).Magnitude
+                    if horizSpeed <= 9.5 then
+                        local kPos = kHrp.Position
+                        local kLook = kHrp.CFrame.LookVector
+                        for _, surv in ipairs(Players:GetPlayers()) do
+                            if surv ~= player and not IsKiller(surv) and not IsPlayerDead(surv) and surv.Character then
+                                local sHrp = surv.Character:FindFirstChild("HumanoidRootPart")
+                                if sHrp then
+                                    local toSurv = sHrp.Position - kPos
+                                    local dist = toSurv.Magnitude
+                                    if dist <= 125 then
+                                        local dot = kLook:Dot(toSurv.Unit)
+                                        if dot > 0.65 then
+                                            local rayParams = RaycastParams.new()
+                                            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                                            rayParams.FilterDescendantsInstances = {char, surv.Character}
+                                            local hit = Workspace:Raycast(kPos, toSurv, rayParams)
+                                            if not hit or (hit.Instance and hit.Instance.CanCollide == false) then
+                                                isStalking = true
+                                                break
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- Real-time 0-100% Stalk Accumulator (Smooth 5.0s charge rate during active right-click stalk)
+            if isStalking then
+                if LastStalkTime == 0 then
+                    LastStalkTime = now
+                end
+                local dt = math.clamp(now - LastStalkTime, 0, 0.2)
+                LastStalkTime = now
+                StalkerStalkPct = math.min(100, StalkerStalkPct + (dt / 5.0) * 100)
+            else
+                LastStalkTime = 0
+            end
+
+            local pctFloor = math.floor(StalkerStalkPct)
+            local stalkStatus = ""
+            if stage >= 3 then
+                stalkStatus = "MAX (Stage 3)"
+            elseif isStalking then
+                stalkStatus = string.format("STALKING %d%%", pctFloor)
+            elseif pctFloor >= 100 then
+                stalkStatus = "100% (Ready to Evolve)"
+            else
+                stalkStatus = string.format("%d%% (Stage %d)", pctFloor, stage)
+            end
             table.insert(skillEntries, "Stalk Mode [" .. stalkStatus .. "]")
 
-            -- Mode 2 / Ability: Evil's Grasp / Hunter Mode (70s Hunter duration)
+            -- State machine for Stalker Hunter Mode / Evil's Grasp
+            local stage2Rem = tonumber(char:GetAttribute("StalkerStage2Remaining")) or 0
+            if stage >= 3 and LastStalkerStage < 3 then
+                StalkerHunterEnd = now + 70
+                StalkerGraspCooldownEnd = 0
+            elseif stage < 3 and LastStalkerStage >= 3 then
+                StalkerHunterEnd = 0
+                StalkerGraspCooldownEnd = now + 15
+            end
+
             local hunterLeft = math.max(0, math.ceil(StalkerHunterEnd - now))
+            if stage2Rem > 0 and hunterLeft <= 0 and stage >= 2 then
+                hunterLeft = math.ceil(stage2Rem)
+            end
+
             local graspCD = math.max(0, math.ceil(StalkerGraspCooldownEnd - now))
             local graspStatus = "Ready"
             if hunterLeft > 0 then
-                graspStatus = "[HUNTER MODE (" .. hunterLeft .. "s)]"
+                graspStatus = string.format("HUNTER MODE (%ds)", hunterLeft)
             elseif graspCD > 0 then
-                graspStatus = "CD " .. graspCD .. "s"
-            elseif charges < 6 and not char:GetAttribute("IsStalking") then
-                graspStatus = "[Locked (Need 6 Charges)]"
+                graspStatus = string.format("CD %ds", graspCD)
+            elseif stage < 3 and pctFloor < 100 then
+                graspStatus = string.format("Locked (%d%% / 100%%)", pctFloor)
             else
-                graspStatus = "[UNLOCKED!]"
+                graspStatus = "UNLOCKED!"
             end
             table.insert(skillEntries, "Evil's Grasp [" .. graspStatus .. "]")
 
@@ -3159,25 +3447,137 @@ local function GetPlayerSkillInfo(player)
             end
 
         elseif kName == "Killer" or kName == "The Killer" then
-            -- Skill 1: Frenzy Sprint (Frenzy Buff - 20s CD after Frenzy ends)
+            -- Skill 1: Frenzy Sprint (Frenzy Buff: 13s duration, 20s CD after Frenzy ends)
+            local isFrenzy = char:GetAttribute("Frenzy") == true
+            local isFrenzyEnding = char:GetAttribute("FrenzyEnding") == true
+
+            -- Transition detection from replicated attributes (works for both Killer & Survivors!)
+            if isFrenzy and not LastKillerFrenzy then
+                LastKillerFrenzy = true
+                KillerFrenzyActiveEnd = now + 13
+                KillerFrenzyCooldownEnd = 0
+            elseif (not isFrenzy or isFrenzyEnding) and LastKillerFrenzy then
+                LastKillerFrenzy = false
+                KillerFrenzyActiveEnd = 0
+                KillerFrenzyCooldownEnd = now + 20
+            elseif isFrenzyEnding and (KillerFrenzyCooldownEnd - now) <= 0 then
+                LastKillerFrenzy = false
+                KillerFrenzyActiveEnd = 0
+                KillerFrenzyCooldownEnd = now + 20
+            end
+
+            -- If Frenzy is still active on character and timer ran out, keep active alive
+            if isFrenzy and (KillerFrenzyActiveEnd - now) <= 0 then
+                KillerFrenzyActiveEnd = now + 5
+            end
+
             local frenzyActive = math.max(0, math.ceil(KillerFrenzyActiveEnd - now))
             local frenzyCD = math.max(0, math.ceil(KillerFrenzyCooldownEnd - now))
             local frenzyStatus = "Ready"
-            if frenzyActive > 0 or char:GetAttribute("Frenzy") then
-                frenzyStatus = "[ACTIVE]"
+
+            if isFrenzy or (frenzyActive > 0 and not isFrenzyEnding) then
+                frenzyStatus = frenzyActive > 0 and ("[ACTIVE (" .. frenzyActive .. "s)]") or "[ACTIVE]"
+            elseif isFrenzyEnding then
+                local cdLeft = frenzyCD > 0 and frenzyCD or 20
+                frenzyStatus = "Fatigue (CD " .. cdLeft .. "s)"
             elseif frenzyCD > 0 then
                 frenzyStatus = "CD " .. frenzyCD .. "s"
+            else
+                frenzyStatus = "Ready"
             end
             table.insert(skillEntries, "Frenzy Sprint [" .. frenzyStatus .. "]")
 
         elseif kName == "Abysswalker" then
-            -- Skill 1: Dark Severance (Horizontal Slash - 15s CD)
-            local slashCD = math.max(0, math.ceil(AbyssSlashCooldownEnd - now))
-            table.insert(skillEntries, "Dark Severance [" .. (slashCD > 0 and ("CD " .. slashCD .. "s") or "Ready") .. "]")
+            -- Check real-time playing animations on Abysswalker
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local animator = hum and hum:FindFirstChildOfClass("Animator")
+            local tracks = {}
+            if animator then
+                pcall(function()
+                    for _, t in ipairs(animator:GetPlayingAnimationTracks()) do table.insert(tracks, t) end
+                end)
+            end
+            if hum and #tracks == 0 then
+                pcall(function()
+                    for _, t in ipairs(hum:GetPlayingAnimationTracks()) do table.insert(tracks, t) end
+                end)
+            end
 
-            -- Skill 2: Abyssal Burst (Corruption Wave - 25s CD)
+            local isSlashing = false
+            local isCorrupting = false
+            for _, t in ipairs(tracks) do
+                local aId = (t.Animation and t.Animation.AnimationId or ""):lower()
+                if aId:find("80411309607666") then
+                    isSlashing = true
+                elseif aId:find("117886494230451") or aId:find("100092272524635") then
+                    isCorrupting = true
+                end
+            end
+
+            -- Skill 1 State Machine (Dark Severance - 30s CD)
+            if isSlashing and not LastAbyssSlash then
+                LastAbyssSlash = true
+                AbyssSlashCooldownEnd = now + 33
+            elseif not isSlashing and LastAbyssSlash then
+                LastAbyssSlash = false
+            end
+
+            -- Skill 2 State Machine (Abyssal Burst - 30s CD)
+            if isCorrupting and not LastAbyssBurst then
+                LastAbyssBurst = true
+                AbyssBurstCooldownEnd = now + 30
+            elseif not isCorrupting and LastAbyssBurst then
+                LastAbyssBurst = false
+            end
+
+            -- Skill 1: Dark Severance (Horizontal Slash - 30s CD)
+            local slashCD = math.max(0, math.ceil(AbyssSlashCooldownEnd - now))
+            local slashStatus = "Ready"
+            if isSlashing then
+                slashStatus = "[LUNGING]"
+            elseif slashCD > 0 then
+                slashStatus = "CD " .. slashCD .. "s"
+            end
+            table.insert(skillEntries, "Dark Severance [" .. slashStatus .. "]")
+
+            -- Skill 2: Abyssal Burst (Corruption Wave - 30s CD)
             local burstCD = math.max(0, math.ceil(AbyssBurstCooldownEnd - now))
-            table.insert(skillEntries, "Abyssal Burst [" .. (burstCD > 0 and ("CD " .. burstCD .. "s") or "Ready") .. "]")
+            local burstStatus = "Ready"
+            if isCorrupting then
+                burstStatus = "[CASTING]"
+            elseif burstCD > 0 then
+                burstStatus = "CD " .. burstCD .. "s"
+            end
+            table.insert(skillEntries, "Abyssal Burst [" .. burstStatus .. "]")
+
+        elseif kName == "Butcher" or char:FindFirstChild("Beartrap") or char:FindFirstChild("BearTrap") or char:GetAttribute("Butcher") == true or char:GetAttribute("MorphedKiller") == "Butcher" or char:GetAttribute("PlacingTrap") ~= nil or char:GetAttribute("ChainLatched") ~= nil or char:GetAttribute("ChainMove1CD") ~= nil then
+            -- Skill 1: Chain Hook / Throw (15s CD)
+            local attrCD = tonumber(char:GetAttribute("ChainMove1CD")) or 0
+            local timerCD = math.max(0, math.ceil(ButcherChainCooldownEnd - now))
+            local chainCD = math.max(attrCD, timerCD)
+            local chainStatus = "Ready"
+            if char:GetAttribute("ChainLatched") then
+                chainStatus = "[HOOKED!]"
+            elseif char:GetAttribute("ChainInUse") or char:GetAttribute("ChainBusy") or (char:GetAttribute("ChainThrowUntil") and char:GetAttribute("ChainThrowUntil") > now) then
+                chainStatus = "[THROWING!]"
+            elseif chainCD > 0 then
+                chainStatus = "CD " .. chainCD .. "s"
+            end
+            table.insert(skillEntries, "Chain Throw [" .. chainStatus .. "]")
+
+            -- Skill 2: Bear Trap
+            local trapCount = tonumber(char:GetAttribute("Beartraps"))
+            local trapCountStr = trapCount and (" (" .. trapCount .. ")") or ""
+            local trapStatus = "Ready" .. trapCountStr
+            if char:GetAttribute("PlacingTrap") then
+                trapStatus = "[PLACING TRAP!]"
+            else
+                local trapCD = math.max(0, math.ceil(ButcherTrapCooldownEnd - now))
+                if trapCD > 0 then
+                    trapStatus = "CD " .. trapCD .. "s" .. trapCountStr
+                end
+            end
+            table.insert(skillEntries, "Bear Trap [" .. trapStatus .. "]")
 
         else
             table.insert(skillEntries, kName .. " Skill 1 [Ready]")
@@ -3274,7 +3674,16 @@ local function GetPlayerSkillInfo(player)
             end
 
             local usesNum, maxUsesNum = tonumber(uses), tonumber(maxUses)
-            if usesNum then
+            if item == "Twist of Fate" or item:find("Twist") then
+                local shots = itemInst and itemInst:GetAttribute("shots")
+                local maxShots = itemInst and itemInst:GetAttribute("MaxShots") or 3
+                local tofState = itemInst and itemInst:GetAttribute("tofState")
+                local tofDur = itemInst and tonumber(itemInst:GetAttribute("tofStateDur")) or 80
+                local tofStart = itemInst and tonumber(itemInst:GetAttribute("tofStateStart")) or 0
+                local sNow = workspace:GetServerTimeNow()
+                local sCount = tonumber(shots) or (tofState == "cooldown" and 0 or 3)
+                qtyStr = string.format(" [%d/%d]", sCount, maxShots)
+            elseif usesNum then
                 if item == "Bandage" or item:find("Bandage") then
                     local pct = math.clamp(math.floor((usesNum / 20.0) * 100), 0, 100)
                     qtyStr = string.format(" [%d%%]", pct)
@@ -3294,6 +3703,15 @@ local function GetPlayerSkillInfo(player)
             end
 
             local cdSec = GetItemCooldown(player, item)
+            if (item == "Twist of Fate" or item:find("Twist")) and itemInst then
+                local tofState = itemInst:GetAttribute("tofState")
+                local tofDur = tonumber(itemInst:GetAttribute("tofStateDur")) or 80
+                local tofStart = tonumber(itemInst:GetAttribute("tofStateStart")) or 0
+                if tofState == "cooldown" then
+                    local remTof = math.max(0, math.ceil(tofDur - (workspace:GetServerTimeNow() - tofStart)))
+                    if remTof > 0 then cdSec = remTof end
+                end
+            end
             local itemStr = "Item: " .. item .. qtyStr
 
             if cdSec > 0 then
@@ -3390,12 +3808,38 @@ local function IsPalletBroken(model, prim)
     if BrokenPallets[model] then
         return true
     end
-    if model:GetAttribute("Destroyed") == true or model:GetAttribute("Broken") == true
-       or model:GetAttribute("isBroken") == true or model:GetAttribute("isDestroyed") == true
-       or model:GetAttribute("State") == "Broken" or model:GetAttribute("State") == "Destroyed" then
+
+    -- 1. Game State Attributes (Set by Violence District PalletVisualsClient & Server)
+    local state = model:GetAttribute("PalletState") or model:GetAttribute("State")
+    if state == "Broken" or state == "Destroyed" then
         BrokenPallets[model] = true
         return true
     end
+    if model:GetAttribute("BrokenAt") ~= nil or model:GetAttribute("Destroyed") == true or model:GetAttribute("Broken") == true
+       or model:GetAttribute("isBroken") == true or model:GetAttribute("isDestroyed") == true then
+        BrokenPallets[model] = true
+        return true
+    end
+
+    -- 2. Visual Model Check (Newpallet structure: Intact vs Broken)
+    local intact = model:FindFirstChild("Intact")
+    if intact then
+        local pIntact = intact:FindFirstChild("Pallet") or intact:FindFirstChildWhichIsA("BasePart")
+        if pIntact and (pIntact.Transparency >= 0.85 or pIntact.LocalTransparencyModifier >= 0.85) then
+            BrokenPallets[model] = true
+            return true
+        end
+    end
+
+    local broken = model:FindFirstChild("Broken")
+    if broken then
+        local pBroken = broken:FindFirstChild("Pallet_Broken")
+        if pBroken and pBroken.Transparency < 0.85 and pBroken.LocalTransparencyModifier < 0.85 then
+            BrokenPallets[model] = true
+            return true
+        end
+    end
+
     return false
 end
 
@@ -3404,7 +3848,58 @@ local function UpdateBackgroundCache()
         local inLobby = IsInLobby()
         local now = os.clock()
         
-        -- Cache player perks and skills every 0.3s (fast iteration over players only)
+        -- In Lobby: immediately bypass player perks/items scan and purge match objects
+        if inLobby then
+            CurrentKillerPlayer = nil
+            if #CachedGenerators > 0 then table.clear(CachedGenerators) end
+            if #CachedPallets > 0 then table.clear(CachedPallets) end
+            if #CachedWindows > 0 then table.clear(CachedWindows) end
+            if #CachedGates > 0 then table.clear(CachedGates) end
+            table.clear(BrokenPallets)
+            table.clear(DroppedPallets)
+            for _, hl in pairs(GenAuras) do pcall(function() hl:Destroy() end) end
+            table.clear(GenAuras)
+            for _, hl in pairs(PalletAuras) do pcall(function() hl:Destroy() end) end
+            table.clear(PalletAuras)
+            for _, txt in pairs(PalletDrawings) do pcall(function() txt:Remove() end) end
+            table.clear(PalletDrawings)
+            for _, txt in pairs(WindowDrawings) do pcall(function() txt:Remove() end) end
+            table.clear(WindowDrawings)
+            for _, hl in pairs(WindowAuras) do pcall(function() hl:Destroy() end) end
+            table.clear(WindowAuras)
+            for _, bha in pairs(WindowAdornments) do pcall(function() bha:Destroy() end) end
+            table.clear(WindowAdornments)
+            for _, txt in pairs(GateDrawings) do pcall(function() txt:Remove() end) end
+            table.clear(GateDrawings)
+            for _, txt in pairs(TrapDrawings) do pcall(function() txt:Remove() end) end
+            table.clear(TrapDrawings)
+            for _, hl in pairs(TrapAuras) do pcall(function() hl:Destroy() end) end
+            table.clear(TrapAuras)
+            return
+        end
+
+        -- Cache killer player and player perks/skills every 0.3s (fast iteration over players only)
+        local foundKiller = nil
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p.Character and not inLobby and not IsPlayerDead(p) and not IsPlayerInLobby(p) then
+                if (p.Team and p.Team.Name == "Killer") or (p.Character and (p.Character:GetAttribute("SelectedKiller") ~= nil or p.Character:GetAttribute("MorphedKiller") ~= nil or p.Character:GetAttribute("Butcher") == true or p.Character:GetAttribute("Killer") == true or p.Character:GetAttribute("isKiller") == true)) then
+                    foundKiller = p
+                    break
+                end
+            end
+        end
+        if not foundKiller then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p.Character and not inLobby and not IsPlayerDead(p) and not IsPlayerInLobby(p) then
+                    if IsKiller(p) then
+                        foundKiller = p
+                        break
+                    end
+                end
+            end
+        end
+        CurrentKillerPlayer = inLobby and nil or foundKiller
+
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer and p.Character then
                 if not inLobby and (IsPlayerDead(p) or IsPlayerInLobby(p)) then
@@ -3416,7 +3911,7 @@ local function UpdateBackgroundCache()
                     if isK then
                         PlayerItemCache[p] = nil
                     end
-                    local perks = GetPlayerPerks(p)
+                    local perks = (Config.ESP_SurvivorPerks or Config.ESP_KillerPerks) and GetPlayerPerks(p) or nil
                     local skill, isReady, itemNm, itemQty, otherDet = GetPlayerSkillInfo(p)
                     if isK and type(skill) == "string" then
                         if skill:find("^Skill:") then
@@ -3452,23 +3947,7 @@ local function UpdateBackgroundCache()
             end
         end
 
-        -- Map objects: only scan once per match when needed (saves 100% recurring CPU spikes)
-        if inLobby then
-            if #CachedGenerators > 0 then table.clear(CachedGenerators) end
-            if #CachedPallets > 0 then table.clear(CachedPallets) end
-            if #CachedWindows > 0 then table.clear(CachedWindows) end
-            if #CachedGates > 0 then table.clear(CachedGates) end
-            table.clear(BrokenPallets)
-            table.clear(DroppedPallets)
-            for _, hl in pairs(GenAuras) do pcall(function() hl:Destroy() end) end
-            table.clear(GenAuras)
-            for _, hl in pairs(PalletAuras) do pcall(function() hl:Destroy() end) end
-            table.clear(PalletAuras)
-            for _, txt in pairs(PalletDrawings) do pcall(function() txt:Remove() end) end
-            table.clear(PalletDrawings)
-            if PruneDeadDrawings then PruneDeadDrawings() end
-            return
-        end
+
 
         -- If map objects are already cached for this match, never re-scan GetDescendants
         if #CachedGenerators > 0 and #CachedPallets > 0 then
@@ -3594,7 +4073,10 @@ local function UpdateBackgroundCache()
                     local model = p:IsA("Model") and p or p:FindFirstAncestorOfClass("Model") or (p.Parent and p.Parent:IsA("Model") and p.Parent)
                     if model and not palletSeen[model] and not IsPalletBroken(model) then
                         palletSeen[model] = true
-                        local bestPart = model:FindFirstChild("PrimaryPartPallet")
+                        local intact = model:FindFirstChild("Intact")
+                        local intactPallet = intact and (intact:FindFirstChild("Pallet") or intact:FindFirstChildWhichIsA("BasePart"))
+                        local bestPart = intactPallet
+                                      or model:FindFirstChild("PrimaryPartPallet")
                                       or model:FindFirstChild("Wood")
                                       or model:FindFirstChild("PalletWood")
                                       or model:FindFirstChild("Plank")
@@ -3611,7 +4093,7 @@ local function UpdateBackgroundCache()
                             bestPart = p:IsA("BasePart") and p or model:FindFirstChildWhichIsA("BasePart")
                         end
                         if bestPart then
-                            local woodTarget = model:FindFirstChild("Wood") or model:FindFirstChild("PalletWood") or model
+                            local woodTarget = intact or model:FindFirstChild("Wood") or model:FindFirstChild("PalletWood") or intactPallet or model
                             table.insert(pallets, { Model = model, Part = bestPart, PalletWood = woodTarget })
                         end
                     end
@@ -3658,7 +4140,10 @@ local function UpdateBackgroundCache()
                                          (d:FindFirstChild("PalletPointSlide") ~= nil)
                         if isPallet and not IsPalletBroken(d) then
                             palletSeen[d] = true
-                            local bestPart = d:FindFirstChild("PrimaryPartPallet")
+                            local intact = d:FindFirstChild("Intact")
+                            local intactPallet = intact and (intact:FindFirstChild("Pallet") or intact:FindFirstChildWhichIsA("BasePart"))
+                            local bestPart = intactPallet
+                                          or d:FindFirstChild("PrimaryPartPallet")
                                           or d:FindFirstChild("Wood")
                                           or d:FindFirstChild("PalletWood")
                                           or d:FindFirstChild("Plank")
@@ -3675,7 +4160,7 @@ local function UpdateBackgroundCache()
                                 bestPart = d:FindFirstChildWhichIsA("BasePart")
                             end
                             if bestPart then
-                                local woodTarget = d:FindFirstChild("Wood") or d:FindFirstChild("PalletWood") or d
+                                local woodTarget = intact or d:FindFirstChild("Wood") or d:FindFirstChild("PalletWood") or intactPallet or d
                                 table.insert(pallets, { Model = d, Part = bestPart, PalletWood = woodTarget })
                             end
                         end
@@ -3873,6 +4358,8 @@ local GenDrawings = {}
 PalletDrawings = PalletDrawings or {}
 local WindowDrawings = {}
 local GateDrawings = {}
+local TrapDrawings = {}
+local TrapAuras = {}
 
 -- Top Screen Killer Skill Display (Rendered under in-game match timer)
 local TopKillerSkillText = Drawing.new("Text")
@@ -4081,8 +4568,12 @@ local TofCombat: { [string]: any } = {
     AimbotToggle = nil,
     AimKeyBtn = nil,
     AimKeyRow = nil,
+    BulletSpeed = 300,
     CachedPing = 0.045,
     FovCircle = nil,
+    AimChargeText = nil,
+    AimStartTime = 0,
+    IsAiming = false,
     HrpHistory = {},
     IsBindingToggleKey = false,
     LastFireClock = 0,
@@ -4093,7 +4584,15 @@ local TofCombat: { [string]: any } = {
     PendingLaserTick = 0,
     ServerOriginLocalOffset = Vector3.new(0.7, 1.375, -2.5),
     ServerReplicationDelay = 0.045,
+    StatusText = nil,
+    HitmarkerLines = {},
+    HitmarkerAlpha = 0,
+    HitmarkerIsCrit = false,
+    HitmarkerWorldPos = nil,
+    HitmarkerTargetPart = nil,
+    ActiveHitLogs = {},
     TargetDropdown = nil,
+    TargetVelocities = {},
 }
 do
     pcall(function()
@@ -4106,8 +4605,405 @@ do
             c.Color = Config.Color_Tof_FOV or Color3.fromRGB(255, 175, 45)
             c.Visible = false
             TofCombat.FovCircle = c
+
+            local hmList = {}
+            for i = 1, 4 do
+                local l = Drawing.new("Line")
+                l.Thickness = 1.8
+                l.Transparency = 0
+                l.Visible = false
+                l.Color = Config.Color_Hitmarker or Color3.fromRGB(255, 255, 255)
+                table.insert(hmList, l)
+            end
+            TofCombat.HitmarkerLines = hmList
         end
     end)
+
+    local HitSounds = {
+        ["CoD"] = "rbxassetid://8679627751",
+        ["Neverlose"] = "rbxassetid://6534947240",
+        ["Skeet"] = "rbxassetid://5633695679",
+        ["Bell"] = "rbxassetid://6534947588",
+        ["Rust"] = "rbxassetid://5043539486",
+        ["Bonk"] = "rbxassetid://6607204501",
+        ["Minecraft"] = "rbxassetid://4018616850",
+        ["None"] = "",
+    }
+    TofCombat.HitSounds = HitSounds
+
+    local lastHitSoundTick = 0
+    function TofCombat.PlayHitSound(name, vol)
+        local now = os.clock()
+        if (now - lastHitSoundTick) < 0.05 then return end
+        lastHitSoundTick = now
+        local sndName = name or Config.HitmarkerSound or "CoD"
+        if sndName == "None" or sndName == "" then return end
+        local rbxId = HitSounds[sndName] or HitSounds["CoD"]
+        if not rbxId or rbxId == "" then return end
+        task.spawn(function()
+            pcall(function()
+                local s = Instance.new("Sound")
+                s.Name = "Nexara_HitSound"
+                s.SoundId = rbxId
+                s.Volume = math.clamp(tonumber(vol or Config.HitmarkerVolume) or 1.0, 0.1, 2.0)
+                s.Parent = game:GetService("SoundService")
+                s:Play()
+                task.delay(1.5, function()
+                    pcall(function() s:Destroy() end)
+                end)
+            end)
+        end)
+    end
+
+    function TofCombat.TriggerHitmarker(isCrit, worldPos, targetPart)
+        if not Config.Hitmarker then return end
+        TofCombat.HitmarkerAlpha = 1.0
+        TofCombat.HitmarkerIsCrit = (isCrit == true)
+        TofCombat.HitmarkerWorldPos = (typeof(worldPos) == "Vector3" and worldPos) or nil
+        TofCombat.HitmarkerTargetPart = (targetPart and targetPart:IsA("BasePart") and targetPart) or nil
+        TofCombat.PlayHitSound(Config.HitmarkerSound, Config.HitmarkerVolume)
+    end
+
+    -- ======== MODERN STACKING HIT LOG HUD (STYLED LIKE KEYBINDS HUD WITH TWEEN ANIMATIONS) ========
+    local hitLogContainer = nil
+    local activeHitCards = {}
+
+    local function getOrCreateHitLogContainer()
+        if hitLogContainer and hitLogContainer.Parent then
+            return hitLogContainer
+        end
+        local parentGui = Window.Gui or (gethui and gethui()) or game:GetService("CoreGui")
+        local existing = parentGui:FindFirstChild("Nexara_HitLogContainer")
+        if existing then
+            hitLogContainer = existing
+            return hitLogContainer
+        end
+
+        local container = Instance.new("Frame")
+        container.Name = "Nexara_HitLogContainer"
+        container.Size = UDim2.new(0, 315, 0, 0)
+        container.AutomaticSize = Enum.AutomaticSize.Y
+        container.Position = UDim2.new(1, -22, 0, 48)
+        container.AnchorPoint = Vector2.new(1, 0)
+        container.BackgroundTransparency = 1
+        container.ZIndex = 80
+        container.Parent = parentGui
+        _G.Nexara_VD_HitLogContainer = container
+
+        local layout = Instance.new("UIListLayout")
+        layout.Name = "Layout"
+        layout.Padding = UDim.new(0, 5)
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+        layout.VerticalAlignment = Enum.VerticalAlignment.Top
+        layout.Parent = container
+
+        hitLogContainer = container
+        return container
+    end
+
+    function TofCombat.PushHitLogCard(targetPlr, targetChar, hitPart, dist, isCrit)
+        if not Config.HitLog then return end
+        local container = getOrCreateHitLogContainer()
+        if not container then return end
+
+        local kName = (targetPlr and targetPlr:GetAttribute("SelectedKiller"))
+            or (targetChar and targetChar:GetAttribute("SelectedKiller"))
+            or (targetPlr and targetPlr.DisplayName)
+            or "The Killer"
+        local pName = (hitPart and hitPart.Name) or "Torso"
+        local distStuds = math.floor(dist or 0)
+        local tag = isCrit and "[CRIT]" or "[HIT]"
+        local effect = isCrit and "Stunned!" or "Slowed 10% (4s)"
+        local _, _, shots = TofCombat.GetGunCooldown()
+        local shotsStr = string.format(" | %d/3 Shots", shots)
+
+        -- If more than 4 cards exist, dismiss the oldest with a smooth exit animation
+        while #activeHitCards >= 5 do
+            local oldest = table.remove(activeHitCards, 1)
+            if oldest and oldest.Card and oldest.Card.Parent then
+                pcall(function()
+                    local t = TweenService:Create(oldest.Card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                        GroupTransparency = 1,
+                        Position = UDim2.fromOffset(25, 0)
+                    })
+                    t:Play()
+                    t.Completed:Connect(function() pcall(function() oldest.Card:Destroy() end) end)
+                end)
+            end
+        end
+
+        local card = Instance.new("CanvasGroup")
+        card.Name = "HitCard"
+        card.Size = UDim2.fromOffset(295, 26)
+        card.BackgroundColor3 = Color3.fromRGB(16, 17, 22)
+        card.BackgroundTransparency = 0.12
+        card.BorderSizePixel = 0
+        card.GroupTransparency = 1
+        card.Position = UDim2.fromOffset(24, 0)
+        card.ZIndex = 82
+        card.LayoutOrder = math.floor(os.clock() * 1000)
+
+        local cardScale = Instance.new("UIScale")
+        cardScale.Name = "Scale"
+        cardScale.Scale = 0.88
+        cardScale.Parent = card
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 6)
+        corner.Parent = card
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = isCrit and Color3.fromRGB(120, 35, 45) or Color3.fromRGB(38, 40, 52)
+        stroke.Thickness = 1
+        stroke.Parent = card
+
+        -- Left indicator accent bar
+        local bar = Instance.new("Frame")
+        bar.Name = "AccentBar"
+        bar.Size = UDim2.new(0, 3, 1, -8)
+        bar.Position = UDim2.new(0, 4, 0.5, 0)
+        bar.AnchorPoint = Vector2.new(0, 0.5)
+        bar.BackgroundColor3 = isCrit and Color3.fromRGB(255, 75, 75) or (Window.Theme.Accent or Color3.fromRGB(60, 230, 130))
+        bar.BorderSizePixel = 0
+        bar.ZIndex = 83
+        bar.Parent = card
+        Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 2)
+
+        -- Badge: [HIT] / [CRIT]
+        local badge = Instance.new("TextLabel")
+        badge.Name = "Tag"
+        badge.Size = UDim2.new(0, 38, 1, 0)
+        badge.Position = UDim2.fromOffset(12, 0)
+        badge.BackgroundTransparency = 1
+        badge.Text = tag
+        badge.TextColor3 = isCrit and Color3.fromRGB(255, 80, 80) or (Window.Theme.Accent or Color3.fromRGB(80, 255, 140))
+        badge.TextSize = 10.5
+        badge.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+        badge.TextXAlignment = Enum.TextXAlignment.Left
+        badge.ZIndex = 83
+        badge.Parent = card
+
+        -- Detail text: Veil in Torso (86 studs) | Slowed 10% (4s) | 2/3 Shots
+        local detail = Instance.new("TextLabel")
+        detail.Name = "Detail"
+        detail.Size = UDim2.new(1, -54, 1, 0)
+        detail.Position = UDim2.fromOffset(50, 0)
+        detail.BackgroundTransparency = 1
+        detail.Text = string.format("%s in %s (%d studs) | %s%s", kName, pName, distStuds, effect, shotsStr)
+        detail.TextColor3 = Color3.fromRGB(235, 235, 245)
+        detail.TextSize = 10
+        detail.FontFace = GetPreferredFont()
+        detail.TextXAlignment = Enum.TextXAlignment.Left
+        detail.ZIndex = 83
+        detail.Parent = card
+
+        card.Parent = container
+
+        -- Super smooth pop-in animation (Slide in + scale up + fade in like Keybinds HUD)
+        TweenService:Create(card, TweenInfo.new(0.26, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+            GroupTransparency = 0,
+            Position = UDim2.fromOffset(0, 0)
+        }):Play()
+        TweenService:Create(cardScale, TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Scale = 1.0
+        }):Play()
+
+        local cardData = { Card = card, Scale = cardScale, SpawnTime = os.clock(), Expired = false }
+        table.insert(activeHitCards, cardData)
+
+        -- Auto-dismiss after 3.8s with smooth exit animation
+        task.delay(3.8, function()
+            if not cardData.Expired and card.Parent then
+                cardData.Expired = true
+                for idx, c in ipairs(activeHitCards) do
+                    if c == cardData then table.remove(activeHitCards, idx) break end
+                end
+                pcall(function()
+                    local fadeOut = TweenService:Create(card, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                        GroupTransparency = 1,
+                        Position = UDim2.fromOffset(25, 0)
+                    })
+                    local scaleDown = TweenService:Create(cardScale, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                        Scale = 0.88
+                    })
+                    fadeOut:Play()
+                    scaleDown:Play()
+                    fadeOut.Completed:Connect(function()
+                        pcall(function() card:Destroy() end)
+                    end)
+                end)
+            end
+        end)
+    end
+
+    function TofCombat.StepHitLogs(dt) end
+
+    function TofCombat.LogHit(targetPlr, targetChar, hitPart, dist, isCrit)
+        TofCombat.PushHitLogCard(targetPlr, targetChar, hitPart, dist, isCrit)
+    end
+
+    function TofCombat.StepHitmarker(dt)
+        local lines = TofCombat.HitmarkerLines
+        if not lines or #lines == 0 then return end
+        if TofCombat.HitmarkerAlpha and TofCombat.HitmarkerAlpha > 0.01 then
+            local stepDt = (type(dt) == "number" and dt) or 0.016
+            TofCombat.HitmarkerAlpha = math.max(0, TofCombat.HitmarkerAlpha - (stepDt * 3.8))
+            local cam = Workspace.CurrentCamera
+            if not cam then return end
+            local vp = cam.ViewportSize
+            local cx, cy = vp.X * 0.5, vp.Y * 0.5
+
+            local isModeOnKiller = (Config.HitmarkerMode ~= "Screen Center")
+            if isModeOnKiller then
+                local targetWorld = nil
+                local tp = TofCombat.HitmarkerTargetPart
+                if tp and tp.Parent then
+                    targetWorld = tp.Position
+                elseif typeof(TofCombat.HitmarkerWorldPos) == "Vector3" then
+                    targetWorld = TofCombat.HitmarkerWorldPos
+                end
+
+                if targetWorld then
+                    local sPos, onScreen = cam:WorldToViewportPoint(targetWorld)
+                    if onScreen and sPos.Z > 0 then
+                        cx, cy = sPos.X, sPos.Y
+                    else
+                        for _, l in ipairs(lines) do
+                            if l.Visible then l.Visible = false end
+                        end
+                        return
+                    end
+                end
+            end
+
+            local gap = 4.5
+            local len = 11.5
+            local col = TofCombat.HitmarkerIsCrit and Color3.fromRGB(255, 65, 65) or (Config.Color_Hitmarker or Color3.fromRGB(255, 255, 255))
+            local a = TofCombat.HitmarkerAlpha
+
+            lines[1].From = Vector2.new(cx - gap, cy - gap)
+            lines[1].To = Vector2.new(cx - len, cy - len)
+
+            lines[2].From = Vector2.new(cx + gap, cy - gap)
+            lines[2].To = Vector2.new(cx + len, cy - len)
+
+            lines[3].From = Vector2.new(cx - gap, cy + gap)
+            lines[3].To = Vector2.new(cx - len, cy + len)
+
+            lines[4].From = Vector2.new(cx + gap, cy + gap)
+            lines[4].To = Vector2.new(cx + len, cy + len)
+
+            for _, l in ipairs(lines) do
+                l.Color = col
+                l.Transparency = a
+                if not l.Visible then l.Visible = true end
+            end
+        else
+            TofCombat.HitmarkerWorldPos = nil
+            TofCombat.HitmarkerTargetPart = nil
+            for _, l in ipairs(lines) do
+                if l.Visible then l.Visible = false end
+            end
+        end
+    end
+
+    function TofCombat.GetGunCooldown()
+        local char = LocalPlayer.Character
+        local tof = char and char:FindFirstChild("Twist of Fate")
+        if not tof then
+            local bp = LocalPlayer:FindFirstChildOfClass("Backpack")
+            tof = bp and bp:FindFirstChild("Twist of Fate")
+        end
+        if not tof then return false, 0, 0 end
+        local state = tof:GetAttribute("tofState")
+        local dur = tonumber(tof:GetAttribute("tofStateDur")) or 80
+        local start = tonumber(tof:GetAttribute("tofStateStart")) or 0
+        local shots = tonumber(tof:GetAttribute("shots")) or 0
+        if state == "cooldown" or shots <= 0 then
+            local now = workspace:GetServerTimeNow()
+            local remaining = math.max(0, math.ceil(dur - (now - start)))
+            if remaining > 0 then
+                return true, remaining, shots
+            end
+        end
+        return false, 0, shots
+    end
+
+    function TofCombat.UpdateTargetVelocities()
+        local now = os.clock()
+        local validPlrs = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            validPlrs[p] = true
+            local char = p.Character
+            local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso"))
+            if root and root:IsA("BasePart") then
+                local pos = root.Position
+                local record = TofCombat.TargetVelocities[p]
+                if not record then
+                    TofCombat.TargetVelocities[p] = {
+                        lastPos = pos,
+                        lastTime = now,
+                        smoothVel = Vector3.zero,
+                    }
+                else
+                    local elapsed = now - record.lastTime
+                    if elapsed >= 0.015 then
+                        local instVel = (pos - record.lastPos) / elapsed
+                        if instVel.Magnitude < 55 then
+                            record.smoothVel = record.smoothVel:Lerp(instVel, 0.65)
+                        else
+                            record.smoothVel = Vector3.zero
+                        end
+                        record.lastPos = pos
+                        record.lastTime = now
+                    end
+                end
+            else
+                TofCombat.TargetVelocities[p] = nil
+            end
+        end
+        for p in pairs(TofCombat.TargetVelocities) do
+            if not validPlrs[p] then
+                TofCombat.TargetVelocities[p] = nil
+            end
+        end
+    end
+
+    function TofCombat.GetPlayerVelocity(p, char)
+        -- 1. Exact Humanoid MoveDirection & Speed (Replicated smoothly by Roblox engine, zero network jitter!)
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local moveDir = hum and hum.MoveDirection
+            if moveDir and moveDir.Magnitude > 0.05 then
+                local speed = tonumber(char:GetAttribute("Speed")) or (hum and hum.WalkSpeed) or 18.7
+                local bl = tonumber(char:GetAttribute("BloodLust")) or 0
+                if bl > 0 then
+                    speed = speed + (bl * 0.8)
+                end
+                return moveDir.Unit * speed
+            end
+        end
+
+        -- 2. AssemblyLinearVelocity from RootPart
+        local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso"))
+        if root and root:IsA("BasePart") then
+            local rVel = root.AssemblyLinearVelocity
+            if rVel and rVel.Magnitude > 0.4 then
+                return rVel
+            end
+        end
+
+        -- 3. Smoothed Position Differential
+        if p and TofCombat.TargetVelocities[p] then
+            local vel = TofCombat.TargetVelocities[p].smoothVel
+            if vel and vel.Magnitude > 0.4 then
+                return vel
+            end
+        end
+
+        return Vector3.zero
+    end
 
     function TofCombat.BuildTargetOptions()
         local opts = { "Auto (Killer)" }
@@ -4125,16 +5021,18 @@ do
                             kName = "Veil"
                         elseif char:FindFirstChild("Flask") or char:FindFirstChild("Curetool") or char:GetAttribute("corpsecharge") then
                             kName = "Cure"
+                        elseif char:GetAttribute("StalkerStage2Remaining") ~= nil or char:GetAttribute("Stage") ~= nil or char:GetAttribute("StalkStage") ~= nil or char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
+                            kName = "Stalker"
                         elseif char:FindFirstChild("Knide") or char:FindFirstChild("Knife") or char:GetAttribute("preparem2") then
                             kName = "Hidden"
-                        elseif char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
-                            kName = "Stalker"
                         elseif char:FindFirstChild("Katana") or char:FindFirstChild("Sword") or char:FindFirstChild("pamela") or char:GetAttribute("Pursuit") ~= nil or char:GetAttribute("LakeMist") ~= nil then
                             kName = "Slasher"
                         elseif char:FindFirstChild("Abysswalker") or char:GetAttribute("corrupt") ~= nil then
                             kName = "Abysswalker"
                         elseif char:FindFirstChild("Mask") or char:GetAttribute("Mask") ~= nil then
                             kName = "Masked"
+                        elseif char:FindFirstChild("Beartrap") or (char:FindFirstChild("Weapon") and char.Weapon:FindFirstChild("Main")) or char:GetAttribute("PlacingTrap") ~= nil or char:GetAttribute("ChainLatched") ~= nil or char:GetAttribute("ChainThrowUntil") ~= nil or kName == "Butcher" then
+                            kName = "Butcher"
                         end
                     end
                     table.insert(killerOpts, string.format("%s [Killer - %s]", p.Name, tostring(kName)))
@@ -4273,48 +5171,55 @@ do
 
     -- Verified Server Bullet Origin: Server spawns Twist of Fate raycast at HRP.CFrame * Vector3(0.7, 1.375, -2.5) regardless of client gun animation
     TofCombat.ServerOriginLocalOffset = Vector3.new(0.7, 1.375, -2.5)
+    TofCombat.BulletSpeed = 300
 
-    -- Solves exact server aim point that bypasses Accessory.Handle shields (HairAccessory, etc.) when Killer turns sideways or is far away
+    -- Solves exact server aim point targeting the pure Torso/Body while bypassing Accessory.Handles
     function TofCombat.GetOptimalHitPosition(tChar, fallbackPart, shootOrigin)
         if not tChar then return fallbackPart and fallbackPart.Position or shootOrigin end
         local hrp = tChar:FindFirstChild("HumanoidRootPart")
         local torso = tChar:FindFirstChild("Torso") or tChar:FindFirstChild("UpperTorso") or hrp or fallbackPart
-        local head = tChar:FindFirstChild("Head")
         if not torso then return fallbackPart and fallbackPart.Position or shootOrigin end
 
-        -- Reconstruct Server-Authoritative Torso CFrame (Lookscript only bends RootJoint.C0 locally on clients; Server RootJoint.C0 is default R6 C0)
-        local serverTorsoCF = torso.CFrame
-        if hrp then
-            local rj = hrp:FindFirstChild("RootJoint")
-            if rj and rj:IsA("Motor6D") then
-                local defaultR6C0 = CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0)
-                serverTorsoCF = hrp.CFrame * defaultR6C0 * rj.Transform * rj.C1:Inverse()
-            else
-                serverTorsoCF = hrp.CFrame * CFrame.new(0, -0.35, 0)
+        -- Pure center of the body / chest (Torso in R6 is 2x2x1, chest center is at torso.Position + (0, 0.05, 0))
+        local torsoCenter = torso.Position + Vector3.new(0, 0.05, 0)
+
+        -- Bullet Flight Time & Motion Lead Prediction (Accounts for Target Velocity + Ping/Replication Delay)
+        local velLead = Vector3.zero
+        if Config.Tof_Prediction ~= false then
+            local targetPlr = Players:GetPlayerFromCharacter(tChar)
+            local targetVel = TofCombat.GetPlayerVelocity(targetPlr, tChar)
+            local targetSpeed = targetVel.Magnitude
+
+            if targetSpeed > 0.5 then
+                local clampedSpeed = math.min(targetSpeed, 22)
+                local velDir = targetVel / targetSpeed
+                local effVel = velDir * clampedSpeed
+                effVel = Vector3.new(effVel.X, math.clamp(effVel.Y, -4, 4), effVel.Z)
+
+                local dist0 = (torsoCenter - shootOrigin).Magnitude
+                local bulletSpeed = math.clamp(tonumber(TofCombat.BulletSpeed) or 300, 100, 1500)
+                local ping = TofCombat.CachedPing or 0.045
+                local repDelay = TofCombat.ServerReplicationDelay or (ping * 0.75)
+
+                local tFlight = (dist0 / bulletSpeed) + repDelay
+                local rawLead = effVel * tFlight
+
+                -- Clamp lead tightly within central Torso width (Torso is 2 studs wide; clamp to 0.3 studs to prevent drifting into arms)
+                local horizLead = Vector3.new(rawLead.X, 0, rawLead.Z)
+                if horizLead.Magnitude > 0.3 then
+                    horizLead = horizLead.Unit * 0.3
+                end
+                velLead = Vector3.new(horizLead.X, math.clamp(rawLead.Y, -0.15, 0.15), horizLead.Z)
             end
         end
 
-        -- Ping-scaled horizontal velocity lead (clamped for sideways movement stability)
-        local velLead = Vector3.zero
-        local velPart = hrp or torso
-        local vel = velPart.AssemblyLinearVelocity or Vector3.zero
-        local horizVel = Vector3.new(vel.X, 0, vel.Z)
-        if horizVel.Magnitude > 1.2 then
-            local ping = TofCombat.CachedPing or 0.045
-            local dist = (serverTorsoCF.Position - shootOrigin).Magnitude
-            local distFactor = math.clamp(dist / 65, 0.55, 1.15)
-            velLead = horizVel * (ping * 0.55 * distFactor)
-        end
-
-
-        -- Smart (Anti-Accessory): Raycast against target character to avoid hitting Accessory.Handle (which causes server hit-check to fail!)
+        -- Candidates located squarely on the Torso/Body (avoiding limb edges and accessory handles)
         local candidates = {
-            (serverTorsoCF * CFrame.new(0, -0.52, 0)).Position,
-            (serverTorsoCF * CFrame.new(0, -0.32, 0)).Position,
-            hrp and (hrp.Position + Vector3.new(0, -0.55, 0)) or serverTorsoCF.Position,
-            serverTorsoCF.Position,
-            head and (head.Position + Vector3.new(0, 0.16, 0)) or (serverTorsoCF * CFrame.new(0, 1.25, 0)).Position,
-            (serverTorsoCF * CFrame.new(0, -0.85, 0)).Position,
+            torso.Position + Vector3.new(0, -0.05, 0), -- Mid-chest (dead center of body)
+            torso.Position,                             -- Dead center of Torso
+            hrp and hrp.Position or torso.Position,     -- HumanoidRootPart center
+            torso.Position + Vector3.new(0, -0.25, 0), -- Mid-lower torso
+            torso.Position + Vector3.new(0, 0.15, 0),  -- Upper chest
         }
 
         local rpChar = RaycastParams.new()
@@ -4325,7 +5230,7 @@ do
         rpWorld.FilterType = Enum.RaycastFilterType.Exclude
         rpWorld.FilterDescendantsInstances = { LocalPlayer.Character, Workspace.CurrentCamera }
 
-        local bestCleanPt = nil
+        local bestTorsoPt = nil
         local fallbackDirectPt = nil
 
         for _, rawPt in ipairs(candidates) do
@@ -4336,25 +5241,49 @@ do
                 local charHit = Workspace:Raycast(shootOrigin, unitDir * (dist + 8), rpChar)
                 -- Server requires hit.Instance.Parent == KillerCharacter (NOT an Accessory.Handle!)
                 if charHit and charHit.Instance and charHit.Instance.Parent == tChar then
+                    local pName = charHit.Instance.Name
+                    local isPureBody = (pName == "Torso" or pName == "UpperTorso" or pName == "HumanoidRootPart")
+
                     if not fallbackDirectPt then
                         fallbackDirectPt = rawPt
                     end
+
                     local worldHit = Workspace:Raycast(shootOrigin, unitDir * (dist + 6), rpWorld)
                     if worldHit and worldHit.Instance and worldHit.Instance:IsDescendantOf(tChar) and worldHit.Instance.Parent == tChar then
-                        bestCleanPt = rawPt
-                        break
+                        if isPureBody then
+                            bestTorsoPt = rawPt
+                            break
+                        end
                     end
                 end
             end
         end
 
-        local chosenBase = bestCleanPt or fallbackDirectPt or (serverTorsoCF * CFrame.new(0, -0.50, 0)).Position
-        return chosenBase + velLead
+        local chosenBase = bestTorsoPt or fallbackDirectPt or (torso.Position + Vector3.new(0, -0.05, 0))
+        local finalHitPos = chosenBase + velLead
+
+        -- Wall occlusion check on predicted lead point (if lead point is occluded by wall but direct body is visible, fall back to body)
+        if velLead.Magnitude > 0.3 then
+            local rpWall = RaycastParams.new()
+            rpWall.FilterType = Enum.RaycastFilterType.Exclude
+            rpWall.FilterDescendantsInstances = { LocalPlayer.Character, tChar, Workspace.CurrentCamera }
+            local toLead = finalHitPos - shootOrigin
+            local wallHit = Workspace:Raycast(shootOrigin, toLead, rpWall)
+            if wallHit and wallHit.Instance and wallHit.Instance.CanCollide and wallHit.Distance < (toLead.Magnitude - 1.5) then
+                local toBase = chosenBase - shootOrigin
+                local directHit = Workspace:Raycast(shootOrigin, toBase, rpWall)
+                if not directHit or not directHit.Instance or not directHit.Instance.CanCollide or directHit.Distance >= (toBase.Magnitude - 1) then
+                    finalHitPos = chosenBase
+                end
+            end
+        end
+
+        return finalHitPos
     end
 
-    -- Checks if LocalPlayer is actively in a match (NOT Lobby/Spectator) AND currently holding/equipping Twist of Fate
+    -- Checks if LocalPlayer is currently holding/equipping Twist of Fate
     function TofCombat.IsTwistOfFateActive()
-        if IsInLobby() or IsPlayerInLobby(LocalPlayer) or IsKiller(LocalPlayer) or IsPlayerDead(LocalPlayer) or IsCutsceneActive() then
+        if IsPlayerDead(LocalPlayer) then
             return false
         end
         local char = LocalPlayer.Character
@@ -4392,8 +5321,22 @@ do
         local now = os.clock()
         local hist = TofCombat.HrpHistory
         table.insert(hist, { t = now, cf = hrp.CFrame })
-        while #hist > 60 and (now - hist[1].t) > 1.0 do
-            table.remove(hist, 1)
+        if #hist > 65 then
+            local cutoff = now - 0.75
+            local keepIdx = 1
+            for i = 1, #hist do
+                if hist[i].t >= cutoff then
+                    keepIdx = i
+                    break
+                end
+            end
+            if keepIdx > 1 then
+                local newHist = {}
+                for i = keepIdx, #hist do
+                    newHist[#newHist + 1] = hist[i]
+                end
+                TofCombat.HrpHistory = newHist
+            end
         end
     end
 
@@ -4418,7 +5361,7 @@ do
         return hist[1].cf
     end
 
-    -- Computes exact Server Bullet Origin (u3) using historical HRP CFrame buffer (solves Quick-Scope rotation lag & walking delay!)
+    -- Computes exact Server Bullet Origin (u3) in real-time
     function TofCombat.GetShootOrigin()
         local char = LocalPlayer.Character
         if not char then
@@ -4428,10 +5371,8 @@ do
 
         local hrp = char:FindFirstChild("HumanoidRootPart")
         if hrp then
-            local ping = TofCombat.CachedPing or 0.045
-            local repDelay = TofCombat.ServerReplicationDelay or math.clamp(ping * 0.85, 0.025, 0.11)
-            local serverHrpCF = TofCombat.GetHistoricalHrpCFrame(os.clock() - repDelay)
-            return serverHrpCF:PointToWorldSpace(Vector3.new(0.7, 1.375, -2.5))
+            local offset = TofCombat.ServerOriginLocalOffset or Vector3.new(0.7, 1.375, -2.5)
+            return hrp.CFrame:PointToWorldSpace(offset)
         end
 
         local head = char:FindFirstChild("Head")
@@ -4529,9 +5470,32 @@ do
     end
 
     function TofCombat.StepAimbotAndFOV(dt)
+        if IsInLobby() or IsCutsceneActive() then
+            if TofCombat.FovCircle and TofCombat.FovCircle.Visible then
+                TofCombat.FovCircle.Visible = false
+            end
+            return
+        end
+
+        if TofCombat.StepHitmarker then
+            TofCombat.StepHitmarker(dt)
+        end
+        if TofCombat.StepHitLogs then
+            TofCombat.StepHitLogs(dt)
+        end
+
+        local hasActiveGun = TofCombat.IsTwistOfFateActive()
+        if not hasActiveGun then
+            if TofCombat.FovCircle and TofCombat.FovCircle.Visible then
+                TofCombat.FovCircle.Visible = false
+            end
+            return
+        end
+
         pcall(function()
             TofCombat.CachedPing = math.clamp(LocalPlayer:GetNetworkPing(), 0.015, 0.12)
             TofCombat.RecordHrpHistory()
+            TofCombat.UpdateTargetVelocities()
         end)
         local cam = Workspace.CurrentCamera
         if not cam then
@@ -4542,34 +5506,57 @@ do
         end
 
         local inMenu = (Window and Window.Visible) == true
-        local hasActiveGun = TofCombat.IsTwistOfFateActive()
 
-        -- 1. FOV Circle (Strictly bound to Twist of Fate item AND active match â€” auto-hides in Lobby or when switching items!)
+        -- 1. FOV Circle & Real-time Cooldown/Ammo Status Indicator
         local c = TofCombat.FovCircle
+        local txt = TofCombat.StatusText
+        local isCD, remCD, shots = TofCombat.GetGunCooldown()
+
         if c then
             if Config.Tof_ShowFOV and hasActiveGun and not inMenu then
                 local vp = cam.ViewportSize
-                c.Position = Vector2.new(vp.X / 2, vp.Y / 2)
+                local center = Vector2.new(vp.X / 2, vp.Y / 2)
+                c.Position = center
                 c.Radius = Config.Tof_FOV or 250
-                c.Color = Config.Color_Tof_FOV or Color3.fromRGB(255, 175, 45)
+                if isCD and remCD > 0 then
+                    c.Color = Color3.fromRGB(255, 75, 75)
+                    c.Transparency = 0.55
+                else
+                    c.Color = Config.Color_Tof_FOV or Color3.fromRGB(255, 175, 45)
+                    c.Transparency = 1
+                end
                 if not c.Visible then c.Visible = true end
-            elseif c.Visible then
-                c.Visible = false
+            else
+                if c.Visible then c.Visible = false end
             end
+        end
+
+        local char = LocalPlayer.Character
+        local isRightClickDown = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+        local isCharAiming = (char and char:GetAttribute("Aiming") == true) or false
+        local isAimHeld = (isRightClickDown or isCharAiming) and hasActiveGun and not inMenu
+
+        if isAimHeld then
+            if not TofCombat.IsAiming then
+                TofCombat.IsAiming = true
+                TofCombat.AimStartTime = os.clock()
+            end
+        else
+            TofCombat.IsAiming = false
+            TofCombat.AimStartTime = 0
         end
 
         if not hasActiveGun then
             return
         end
 
-        local char = LocalPlayer.Character
         if not char then return end
 
         -- NOTE: Do NOT override HRP.CFrame while aiming! Game's ShiftLock already rotates HRP to Camera.LookVector.
         -- Overriding HRP.CFrame locally desyncs client HRP from server HRP when walking or aiming at an angle!
 
-        -- 2. Aimbot (Aiming is locked to Right Click; custom keybind toggles Aimbot ON/OFF)
-        if Config.Tof_Aimbot and not inMenu then
+        -- 3. Aimbot (Aiming is locked to Right Click; automatically pauses while gun is on cooldown)
+        if Config.Tof_Aimbot and not inMenu and (not isCD or remCD <= 0) and shots > 0 then
             if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then
                 local _, targetPart = TofCombat.GetTarget(Config.Tof_FOV)
                 if targetPart then
@@ -4588,6 +5575,28 @@ do
         if TofCombat.FovCircle then
             pcall(function() TofCombat.FovCircle:Remove() end)
             TofCombat.FovCircle = nil
+        end
+        if TofCombat.StatusText then
+            pcall(function() TofCombat.StatusText:Remove() end)
+            TofCombat.StatusText = nil
+        end
+        if TofCombat.AimChargeText then
+            pcall(function() TofCombat.AimChargeText:Remove() end)
+            TofCombat.AimChargeText = nil
+        end
+        if TofCombat.HitmarkerLines then
+            for _, l in ipairs(TofCombat.HitmarkerLines) do
+                pcall(function() l:Remove() end)
+            end
+            TofCombat.HitmarkerLines = {}
+        end
+        if TofCombat.ActiveHitLogs then
+            for _, entry in ipairs(TofCombat.ActiveHitLogs) do
+                if entry.drawing then
+                    pcall(function() entry.drawing:Remove() end)
+                end
+            end
+            TofCombat.ActiveHitLogs = {}
         end
         TofCombat.AimKeyRow = nil
         TofCombat.AimKeyBtn = nil
@@ -4666,6 +5675,9 @@ pcall(function()
 
     if visBullet and visBullet:IsA("RemoteEvent") then
         table.insert(ScriptConnections, visBullet.OnClientEvent:Connect(function(u3, u4, u5, p6)
+            if typeof(u5) == "number" and u5 > 50 and u5 < 2000 then
+                TofCombat.BulletSpeed = u5
+            end
             if typeof(u3) == "Vector3" then
                 local char = LocalPlayer.Character
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -4691,6 +5703,38 @@ pcall(function()
                         end
                         if bestDelay and bestErr < 0.6 then
                             TofCombat.ServerReplicationDelay = math.clamp((TofCombat.ServerReplicationDelay * 0.5) + (bestDelay * 0.5), 0.015, 0.14)
+                        end
+                    end
+
+                    -- Hitmarker & Hit Log trigger on bullet landing on Killer
+                    if typeof(u4) == "Vector3" and (TofCombat.TriggerHitmarker or TofCombat.LogHit) then
+                        local hitTarget = false
+                        local hitPart = nil
+                        local hitPlayer = nil
+                        local hitChar = nil
+                        for _, p in ipairs(Players:GetPlayers()) do
+                            if p ~= LocalPlayer and IsKiller(p) and not IsPlayerDead(p) then
+                                local kChar = p.Character
+                                local kHrp = kChar and kChar:FindFirstChild("HumanoidRootPart")
+                                if kHrp and (u4 - kHrp.Position).Magnitude <= 5.8 then
+                                    hitTarget = true
+                                    hitPlayer = p
+                                    hitChar = kChar
+                                    hitPart = kChar:FindFirstChild("Torso") or kChar:FindFirstChild("UpperTorso") or kHrp
+                                    break
+                                end
+                            end
+                        end
+                        if hitTarget then
+                            if TofCombat.TriggerHitmarker then
+                                TofCombat.TriggerHitmarker(false, u4, hitPart)
+                            end
+                            if TofCombat.LogHit then
+                                local myChar = LocalPlayer.Character
+                                local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                                local dist = (myHrp and (u4 - myHrp.Position).Magnitude) or 0
+                                TofCombat.LogHit(hitPlayer, hitChar, hitPart, dist, false)
+                            end
                         end
                     end
 
@@ -4761,19 +5805,18 @@ if not getgenv()._Nexara_VD_Hooked then
 end
 
 table.insert(ScriptConnections, RunService.Heartbeat:Connect(function()
-    for _, p in ipairs(Players:GetPlayers()) do
-        if IsKiller(p) and p.Character then
-            local char = p.Character
-            local isV = char:GetAttribute("isVaulting") == true or char:GetAttribute("IsVaulting") == true
-            if isV and not LastKillerVaultingState[p] then
-                LastKillerVaultingState[p] = true
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    OnKillerVault(hrp.Position)
-                end
-            elseif not isV then
-                LastKillerVaultingState[p] = false
+    local p = CurrentKillerPlayer
+    if p and p.Character then
+        local char = p.Character
+        local isV = char:GetAttribute("isVaulting") == true or char:GetAttribute("IsVaulting") == true
+        if isV and not LastKillerVaultingState[p] then
+            LastKillerVaultingState[p] = true
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                OnKillerVault(hrp.Position)
             end
+        elseif not isV then
+            LastKillerVaultingState[p] = false
         end
     end
 end))
@@ -4850,33 +5893,29 @@ pcall(function()
                 if win then DroppedPallets[win] = true end
             end))
         end
-        local jason = remPallet:FindFirstChild("Jason")
-        if jason then
-            for _, rName in ipairs({"Destroy", "Destroy-Global", "PalletBreakCommit"}) do
-                local r = jason:FindFirstChild(rName)
-                if r and r:IsA("RemoteEvent") then
-                    table.insert(ScriptConnections, r.OnClientEvent:Connect(function(p1, p2)
-                        local win = ResolvePalletModel(p1, p2)
-                        if win then
-                            MarkPalletBroken(win)
-                        else
-                            for _, p in ipairs(Players:GetPlayers()) do
-                                if IsKiller(p) and p.Character then
-                                    local kRoot = p.Character:FindFirstChild("HumanoidRootPart")
-                                    if kRoot then
-                                        for _, item in ipairs(CachedPallets) do
-                                            local m = item.Model
-                                            local rPart = item.Part
-                                            if m and rPart and rPart.Parent and (rPart.Position - kRoot.Position).Magnitude < 12 then
-                                                MarkPalletBroken(m)
-                                            end
+        for _, r in ipairs(remPallet:GetDescendants()) do
+            if r:IsA("RemoteEvent") and (r.Name:find("Break") or r.Name:find("Destroy") or r.Name:find("Cut") or r.Name:find("Contact")) then
+                table.insert(ScriptConnections, r.OnClientEvent:Connect(function(p1, p2)
+                    local win = ResolvePalletModel(p1, p2)
+                    if win then
+                        MarkPalletBroken(win)
+                    else
+                        for _, p in ipairs(Players:GetPlayers()) do
+                            if IsKiller(p) and p.Character then
+                                local kRoot = p.Character:FindFirstChild("HumanoidRootPart")
+                                if kRoot then
+                                    for _, item in ipairs(CachedPallets) do
+                                        local m = item.Model
+                                        local rPart = item.Part
+                                        if m and rPart and rPart.Parent and (rPart.Position - kRoot.Position).Magnitude < 14 then
+                                            MarkPalletBroken(m)
                                         end
                                     end
                                 end
                             end
                         end
-                    end))
-                end
+                    end
+                end))
             end
         end
         local brokenEvt = remPallet:FindFirstChild("PalletBroken")
@@ -4928,6 +5967,14 @@ PruneDeadDrawings = function()
             if not inst or not inst.Parent then
                 pcall(function() d:Remove() end)
                 GateDrawings[inst] = nil
+            else
+                d.Visible = false
+            end
+        end
+        for inst, d in pairs(TrapDrawings) do
+            if not inst or not inst.Parent then
+                pcall(function() d:Remove() end)
+                TrapDrawings[inst] = nil
             else
                 d.Visible = false
             end
@@ -4992,6 +6039,8 @@ local function HideAllESP()
         for _, hl in pairs(WindowAuras) do pcall(function() hl.Visible = false; hl.Enabled = false end) end
         for _, bha in pairs(WindowAdornments) do pcall(function() bha.Visible = false end) end
         for _, txt in pairs(GateDrawings) do txt.Visible = false end
+        for _, txt in pairs(TrapDrawings) do txt.Visible = false end
+        for _, hl in pairs(TrapAuras) do pcall(function() hl.Enabled = false end) end
     end)
 end
 
@@ -5030,15 +6079,18 @@ local function UnloadScript()
     ClearDrawingsMap(PalletDrawings)
     ClearDrawingsMap(WindowDrawings)
     ClearDrawingsMap(GateDrawings)
+    ClearDrawingsMap(TrapDrawings)
     pcall(function() TopKillerSkillText:Remove() end)
     for _, hl in pairs(GenAuras) do pcall(function() hl:Destroy() end) end
     for _, hl in pairs(PalletAuras) do pcall(function() hl:Destroy() end) end
     for _, hl in pairs(WindowAuras) do pcall(function() hl:Destroy() end) end
     for _, bha in pairs(WindowAdornments) do pcall(function() bha:Destroy() end) end
+    for _, hl in pairs(TrapAuras) do pcall(function() hl:Destroy() end) end
     table.clear(GenAuras)
     table.clear(PalletAuras)
     table.clear(WindowAuras)
     table.clear(WindowAdornments)
+    table.clear(TrapAuras)
     if ChamsContainer then
         pcall(function() ChamsContainer:Destroy() end)
         ChamsContainer = nil
@@ -5580,7 +6632,7 @@ secKiller1:AddToggle({
     end
 })
 
-local secKiller2 = colV2:CreateSection("Killer Skills & Overlay")
+local secKiller2 = colV2:CreateSection("Killer Skills & Traps")
 secKiller2:AddToggle({
     Name = "The Masked: Mask Alert",
     Default = true,
@@ -5590,7 +6642,7 @@ secKiller2:AddToggle({
 })
 secKiller2:AddToggle({
     Name = "Killer Skills, Charges & CD",
-    Default = false,
+    Default = true,
     Color = Config.Color_KillerSkills,
     Callback = function(v, col)
         Config.ESP_KillerSkills = v
@@ -5604,6 +6656,16 @@ secKiller2:AddSlider({ Name = "Top Killer Skill Size", Min = 12, Max = 26, Defau
     Config.TopKillerSkillSize = v
     TopKillerSkillText.Size = v
 end })
+secKiller2:AddToggle({
+    Name = "Bear Traps ESP",
+    Default = true,
+    Color = Config.Color_BearTraps,
+    Callback = function(v, col)
+        Config.ESP_BearTraps = v
+        if col then Config.Color_BearTraps = col end
+    end
+})
+secKiller2:AddSlider({ Name = "Bear Trap Max Distance", Flag = "Bear Trap Max Distance", Min = 50, Max = 2500, Default = 1000, Suffix = " studs", Callback = function(v) Config.BearTrapMaxDist = v end })
 
 -- ==== SECTION 3: OBJECTIVES & WORLD (2 SECTIONS: LEFT & RIGHT) ====
 local secObj1 = colV1:CreateSection("Generators & Exit Gates")
@@ -5671,7 +6733,7 @@ secObj2:AddToggle({
         if col then Config.Color_PalletNames = col end
     end
 })
-secObj2:AddSlider({ Name = "Pallet Max Distance", Flag = "Pallet Max Distance", Min = 30, Max = 300, Default = 150, Suffix = " studs", Callback = function(v) Config.PalletMaxDist = v end })
+secObj2:AddSlider({ Name = "Pallet Max Distance", Flag = "Pallet Max Distance", Min = 50, Max = 3000, Default = 1500, Suffix = " studs", Callback = function(v) Config.PalletMaxDist = v end })
 
 secObj2:AddToggle({
     Name = "Window 3D Aura",
@@ -5696,7 +6758,7 @@ secObj2:AddToggle({
         if col then Config.Color_WindowNames = col end
     end
 })
-secObj2:AddSlider({ Name = "Window Max Distance", Flag = "Window Max Distance", Min = 30, Max = 300, Default = 150, Suffix = " studs", Callback = function(v) Config.WindowMaxDist = v end })
+secObj2:AddSlider({ Name = "Window Max Distance", Flag = "Window Max Distance", Min = 50, Max = 3000, Default = 1500, Suffix = " studs", Callback = function(v) Config.WindowMaxDist = v end })
 
 -- ==== SECTION 4: WORLD & LIGHTING ====
 local secWorld1 = colV1:CreateSection("World & Lighting")
@@ -5937,6 +6999,10 @@ local warnSlideOffset = 10
 table.insert(ScriptConnections, RunService.RenderStepped:Connect(function(dt)
     local mf = Window and Window.MainFrame
     local shouldShowWarn = (Window and Window.Visible and mf and mf.Visible and TabLegit.View and TabLegit.View.Visible) == true
+    if not shouldShowWarn and warnAlpha <= 0.001 then
+        if LegitWarnBanner.Visible then LegitWarnBanner.Visible = false end
+        return
+    end
     if shouldShowWarn then
         warnAlpha = math.min(1, warnAlpha + dt * 5.5)
         warnSlideOffset = warnSlideOffset + (0 - warnSlideOffset) * math.clamp(dt * 12, 0, 1)
@@ -6228,6 +7294,55 @@ secTwist2:AddSlider({
     end
 })
 
+secTwist2:AddToggle({
+    Name = "Hitmarker",
+    Default = Config.Hitmarker,
+    Color = Config.Color_Hitmarker,
+    Callback = function(v, col)
+        Config.Hitmarker = v
+        if col then Config.Color_Hitmarker = col end
+    end
+})
+
+secTwist2:AddDropdown({
+    Name = "Hitmarker Position",
+    Flag = "Hitmarker Position",
+    Options = { "On Killer", "Screen Center" },
+    Default = Config.HitmarkerMode or "On Killer",
+    Callback = function(v)
+        Config.HitmarkerMode = v
+    end
+})
+
+local isInitialSoundLoad = true
+secTwist2:AddDropdown({
+    Name = "Hitmarker Sound",
+    Flag = "Hitmarker Sound",
+    Options = { "CoD", "Neverlose", "Skeet", "Bell", "Rust", "Bonk", "Minecraft", "None" },
+    Default = Config.HitmarkerSound or "CoD",
+    Callback = function(v)
+        Config.HitmarkerSound = v
+        if isInitialSoundLoad then
+            isInitialSoundLoad = false
+            return
+        end
+        if TofCombat.PlayHitSound then
+            TofCombat.PlayHitSound(v, Config.HitmarkerVolume or 1.0)
+        end
+    end
+})
+
+secTwist2:AddSlider({
+    Name = "Hit Sound Volume",
+    Min = 0.1,
+    Max = 2.0,
+    Default = 1.0,
+    Decimals = 1,
+    Callback = function(v)
+        Config.HitmarkerVolume = v
+    end
+})
+
 -- Centered "Coming Soon." frame for unreleased categories (Veil, Parry)
 local ComingSoonFrame = Instance.new("Frame")
 ComingSoonFrame.Name = "LegitComingSoon"
@@ -6414,6 +7529,9 @@ local KillerPortraits = {
     ["The Hidden"] = "rbxassetid://129570234771869",
     ["Abysswalker"] = "rbxassetid://100395868673407",
     ["Slasher"] = "rbxassetid://134862031194933",
+    ["butcher"] = "rbxassetid://106695569058121",
+    ["Butcher"] = "rbxassetid://106695569058121",
+    ["The Butcher"] = "rbxassetid://106695569058121",
 }
 
 local KillerPowerIcons = {
@@ -6425,6 +7543,7 @@ local KillerPowerIcons = {
     ["Abysswalker"] = "rbxassetid://86213737463907",
     ["Masked"] = "rbxassetid://110441838520158",
     ["Killer"] = "rbxassetid://106695569058121",
+    ["Butcher"] = "rbxassetid://103063690210494",
 }
 
 
@@ -6537,7 +7656,7 @@ local function ResolveKillerType(player)
             return "Cure"
         elseif char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") or char:GetAttribute("Spears") or char:GetAttribute("spearmode") then
             return "Veil"
-        elseif char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
+        elseif char:GetAttribute("StalkerStage2Remaining") ~= nil or char:GetAttribute("Stage") ~= nil or char:GetAttribute("StalkStage") ~= nil or char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
             return "Stalker"
         elseif char:FindFirstChild("Katana") or char:FindFirstChild("Sword") then
             return "Slasher"
@@ -6549,7 +7668,8 @@ local function ResolveKillerType(player)
         if clean:sub(1, 3) == "the" and #clean > 3 then clean = clean:sub(4) end
         local map = {
             cure = "Cure", veil = "Veil", masked = "Masked", stalker = "Stalker",
-            killer = "Killer", hidden = "Hidden", abysswalker = "Abysswalker", slasher = "Slasher"
+            killer = "Killer", hidden = "Hidden", abysswalker = "Abysswalker", slasher = "Slasher",
+            butcher = "Butcher"
         }
         if map[clean] then return map[clean] end
         return kAttr
@@ -7647,7 +8767,24 @@ pcall(function()
     end
 end)
 
-Window:CreateSettingsTab({ ConfigDirectory = ConfigDirName, DefaultTheme = (InitialSavedConfig and InitialSavedConfig["ThemePreset"]) or "NexaraTheme" })
+local SettingsTabObj = Window:CreateSettingsTab({ ConfigDirectory = ConfigDirName, DefaultTheme = (InitialSavedConfig and InitialSavedConfig["ThemePreset"]) or "NexaraTheme" })
+
+-- Add Combat & Hit Logs section in Settings Tab (per user request)
+pcall(function()
+    if SettingsTabObj and SettingsTabObj.Col2 then
+        local secCombatLogs = SettingsTabObj.Col2:CreateSection("Combat & Hit Logs")
+        secCombatLogs:AddToggle({
+            Name = "Hit Log",
+            Default = (Config.HitLog ~= false),
+            Callback = function(v)
+                Config.HitLog = v
+                if _G.Nexara_VD_HitLogContainer then
+                    _G.Nexara_VD_HitLogContainer.Visible = v
+                end
+            end
+        })
+    end
+end)
 
 -- Remove redundant "Accent: #..." preview status label and "Disable Game Custom Cursor" toggle inside Settings
 pcall(function()
@@ -9159,6 +10296,9 @@ local function SynchronizeConfigState()
     if cv["Window Max Distance"] ~= nil then
         Config.WindowMaxDist = tonumber(cv["Window Max Distance"]) or Config.WindowMaxDist
     end
+    if cv["Bear Trap Max Distance"] ~= nil then
+        Config.BearTrapMaxDist = tonumber(cv["Bear Trap Max Distance"]) or Config.BearTrapMaxDist
+    end
     if cv["Field of View (FOV)"] ~= nil then
         Config.FOV = tonumber(cv["Field of View (FOV)"]) or Config.FOV
         if Config.CustomFOVEnabled then
@@ -9207,6 +10347,14 @@ local function SynchronizeConfigState()
 
     Config.Color_Tof_FOV = syncCol("Show FOV Circle", Config.Color_Tof_FOV)
     Config.Color_Tof_Laser = syncCol("Laser Tracer", Config.Color_Tof_Laser)
+    Config.Color_Hitmarker = syncCol("Hitmarker", Config.Color_Hitmarker)
+
+    if cv["Hitmarker"] ~= nil then Config.Hitmarker = (cv["Hitmarker"] == true) end
+    if cv["Hitmarker Position"] ~= nil then Config.HitmarkerMode = tostring(cv["Hitmarker Position"]) end
+    if cv["Hitmarker Sound"] ~= nil then Config.HitmarkerSound = tostring(cv["Hitmarker Sound"]) end
+    if cv["Hit Sound Volume"] ~= nil then Config.HitmarkerVolume = tonumber(cv["Hit Sound Volume"]) or Config.HitmarkerVolume end
+    if cv["Hit Log"] ~= nil then Config.HitLog = (cv["Hit Log"] == true) end
+    if cv["Hit Log Mode"] ~= nil then Config.HitLogType = tostring(cv["Hit Log Mode"]) end
 
     if cv["Silent Aim"] ~= nil then Config.Tof_SilentAim = (cv["Silent Aim"] == true) end
     if cv["Aimbot"] ~= nil then
@@ -9285,6 +10433,7 @@ local function SynchronizeConfigState()
     if cv["Window 3D Aura"] ~= nil then Config.ESP_WindowAura = (cv["Window 3D Aura"] == true) end
     if cv["Window Name & Distance"] ~= nil then Config.ESP_Windows = (cv["Window Name & Distance"] == true) end
     if cv["Exit Gates ESP"] ~= nil then Config.ESP_ExitGates = (cv["Exit Gates ESP"] == true) end
+    if cv["Bear Traps ESP"] ~= nil then Config.ESP_BearTraps = (cv["Bear Traps ESP"] == true) end
     if cv["Skill Check Perfect"] ~= nil then
         Config.AutoSkillCheck = (cv["Skill Check Perfect"] == true)
     elseif cv["100% Great Skill Check"] ~= nil then
@@ -9367,7 +10516,7 @@ local skillCheckTriggered = false
 local lastTriggeredGoalRot = nil
 
 table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
-    if not Config.AutoSkillCheck then return end
+    if not Config.AutoSkillCheck or IsInLobby() or IsCutsceneActive() then return end
     pcall(function()
         local scPrompt = LocalPlayer.PlayerGui:FindFirstChild("SkillCheckPromptGui")
         local check = scPrompt and scPrompt:FindFirstChild("Check")
@@ -9517,7 +10666,7 @@ table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
     end
 
     -- Steady FOV (Flashlight will never zoom or fight)
-    if Config.CustomFOVEnabled then
+    if Config.CustomFOVEnabled and not IsCutsceneActive() then
         if Camera.FieldOfView ~= Config.FOV then
             Camera.FieldOfView = Config.FOV
         end
@@ -9536,7 +10685,7 @@ end))
 end
 
 -- ======== SKELETON DRAWER (DYNAMIC MODEL-ACCURATE BONES) ========
-local RenderESP
+local UpdateSkeleton
 do
 local function getSkelPoint(cf, offset)
     local p = cf:PointToWorldSpace(offset)
@@ -9559,7 +10708,7 @@ local function drawSkelLine(line, p1, v1, p2, v2, color, th, alpha)
     end
 end
 
-local function UpdateSkeleton(char, lines, color, thickness, alpha)
+function UpdateSkeleton(char, lines, color, thickness, alpha)
     local torso = char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
     local a = alpha or 1
     if not torso or a <= 0.01 then
@@ -9650,12 +10799,23 @@ local function UpdateSkeleton(char, lines, color, thickness, alpha)
 
     return (hVis or pVis)
 end
+end
+
+-- ======== OCCLUSION SYSTEM (DISABLED: ALWAYS SOLID 100% VISIBLE & ZERO RAYCAST OVERHEAD) ========
+local function GetOcclusionFactor()
+    return 1.0
+end
 
 -- ======== ESP RENDERING (CAMERA POST-UPDATE WITH SMOOTH FADE IN/OUT) ========
+local RenderESP
+do
 local seenGens = {}
 local seenPallets = {}
 local seenWindows = {}
 local seenGates = {}
+local seenTraps = {}
+local lastBearTrapScanTime = 0
+local cachedBearTraps = nil
 local wasInLobby = false
 local lastPalletSortTime = 0
 local cachedPalletEntries = {}
@@ -9689,77 +10849,7 @@ local function IsInMenu(sx, sy)
     return sx >= (menuPos.X - 20) and sx <= (menuPos.X + menuSize.X + 20) and sy >= (menuPos.Y - 45) and sy <= (menuPos.Y + menuSize.Y + 20)
 end
 
-local OcclusionTarget = {}
-local OcclusionSmooth = {}
-local OcclusionNextCheck = {}
-local occRayParams = RaycastParams.new()
-occRayParams.FilterType = Enum.RaycastFilterType.Exclude
-occRayParams.IgnoreWater = true
-
-local function IsPointOccludedByWall(camOrigin, targetPos, ignoreInst)
-    local dir = targetPos - camOrigin
-    local dist = dir.Magnitude
-    if dist <= 1.5 then return false end
-    local unit = dir / dist
-    local curOrigin = camOrigin
-    local remaining = dist - 0.85
-    local filter = { LocalPlayer.Character, ignoreInst }
-    occRayParams.FilterDescendantsInstances = filter
-
-    for _ = 1, 4 do
-        if remaining <= 0.2 then return false end
-        local hit = Workspace:Raycast(curOrigin, unit * remaining, occRayParams)
-        if not hit or not hit.Instance then
-            return false
-        end
-        local hPart = hit.Instance
-        if ignoreInst and hPart:IsDescendantOf(ignoreInst) then
-            return false
-        end
-        local isTransparentOrTrigger = (hPart.Transparency >= 0.75) or (not hPart.CanCollide and hPart.Transparency > 0.2) or hPart.Name == "VaultTrigger" or hPart.Name == "Bottom"
-        if not isTransparentOrTrigger then
-            -- Also ignore other players' characters so players don't count as map walls
-            local hitModel = hPart:FindFirstAncestorOfClass("Model")
-            if hitModel and Players:GetPlayerFromCharacter(hitModel) then
-                isTransparentOrTrigger = true
-            end
-        end
-        if not isTransparentOrTrigger then
-            return true
-        end
-        local traveled = (hit.Position - curOrigin).Magnitude + 0.15
-        curOrigin = curOrigin + unit * traveled
-        remaining = remaining - traveled
-    end
-    return false
-end
-
-local function GetOcclusionFactor(inst, posA, posB, camOrigin, nowTime, dt)
-    local nextT = OcclusionNextCheck[inst] or 0
-    if nowTime >= nextT then
-        OcclusionNextCheck[inst] = nowTime + 0.055
-        local occA = posA and IsPointOccludedByWall(camOrigin, posA, inst) or false
-        local occB = posB and IsPointOccludedByWall(camOrigin, posB, inst) or occA
-        if occA and occB then
-            OcclusionTarget[inst] = 1.0
-        elseif occA or occB then
-            OcclusionTarget[inst] = 0.65
-        else
-            OcclusionTarget[inst] = 0.0
-        end
-    end
-    local target = OcclusionTarget[inst] or 0.0
-    local cur = OcclusionSmooth[inst]
-    if cur == nil then
-        cur = target
-    else
-        cur = cur + (target - cur) * math.clamp(dt * 14, 0, 1)
-        if target == 0 and cur < 0.01 then cur = 0 end
-        if target == 1 and cur > 0.99 then cur = 1 end
-    end
-    OcclusionSmooth[inst] = cur
-    return cur
-end
+local wasAllHidden = false
 
 function RenderESP(dtArg)
     pcall(function()
@@ -9772,9 +10862,13 @@ function RenderESP(dtArg)
         local inCutscene = IsCutsceneActive()
 
         if inCutscene or (inLobby and not Config.ESP_LobbyEnabled) then
-            HideAllESP()
+            if not wasAllHidden then
+                HideAllESP()
+                wasAllHidden = true
+            end
             return
         end
+        wasAllHidden = false
 
         if inLobby and not wasInLobby then
             HideAllESP()
@@ -9785,9 +10879,6 @@ function RenderESP(dtArg)
             table.clear(BlockedWindows)
             table.clear(BlockedWindowPositions)
             table.clear(cachedPalletEntries)
-            table.clear(OcclusionTarget)
-            table.clear(OcclusionSmooth)
-            table.clear(OcclusionNextCheck)
             lastPalletSortTime = 0
         end
         wasInLobby = inLobby
@@ -9816,6 +10907,7 @@ function RenderESP(dtArg)
         local aWindowAura   = stepAlpha("WindowAura",   Config.ESP_WindowAura == true, dt)
         local aWindowESP    = stepAlpha("WindowESP",    Config.ESP_Windows == true, dt)
         local aExitGates    = stepAlpha("ExitGates",    Config.ESP_ExitGates == true, dt)
+        local aBearTraps    = stepAlpha("BearTraps",    Config.ESP_BearTraps == true, dt)
 
         local myRoot = GetRoot(LocalPlayer)
         local camPos = Camera.CFrame.Position
@@ -9827,8 +10919,10 @@ function RenderESP(dtArg)
 
 
         -- 1. Player ESP (Separated: Killer ESP vs Survivor ESP vs Lobby Players)
-        for player, esp in pairs(ESP_Objects) do
-            local isLocalMe = (player == LocalPlayer)
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local esp = ESP_Objects[player] or CreatePlayerESP(player)
+                local isLocalMe = false
             local char = player.Character
             local root = char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
             local data = CachedPlayerData[player]
@@ -9847,10 +10941,9 @@ function RenderESP(dtArg)
                 local headPos = headValid and head.Position or (rootPos + Vector3.new(0, root.Size.Y * 0.5 + 1.2, 0))
                 local headScreen = Camera:WorldToViewportPoint(headPos)
 
-                -- Update 3D Chams (DBD-style: visible when behind walls, smoothly hidden when in plain sight)
+                -- Update 3D Chams (Always visible at full opacity across entire map)
                 if isK and not inLobby then
-                    local occK = (aKillerChams > 0.01) and GetOcclusionFactor(char, headPos, rootPos, camPos, nowClock, dt) or 0
-                    local effKChams = aKillerChams * occK
+                    local effKChams = aKillerChams
                     if effKChams > 0.01 then
                         local hl = esp.Chams
                         local aCol = Config.Color_KillerChams or Color3.fromRGB(255, 60, 60)
@@ -9887,14 +10980,13 @@ function RenderESP(dtArg)
                             carriedByMe = true
                         end
                     end
-                    local occS = (not carriedByMe and sChamsAlpha > 0.01) and GetOcclusionFactor(char, headPos, rootPos, camPos, nowClock, dt) or 0
-                    local effSChams = sChamsAlpha * occS
+                    local effSChams = (not carriedByMe) and sChamsAlpha or 0
                     if (not carriedByMe) and effSChams > 0.01 then
                         local hl = esp.Chams
                         local sHum = char:FindFirstChildOfClass("Humanoid")
                         local isSurvivorHit = not inLobby and ((sHum and sHum.Health < 99) or char:GetAttribute("Knocked") == true or char:GetAttribute("IsHooked") == true)
                         local aCol = inLobby and Color3.fromRGB(0, 210, 255)
-                                  or (isSurvivorHit and Color3.fromRGB(255, 215, 0) or (Config.Color_SurvivorChams or Color3.fromRGB(80, 255, 120)))
+                                  or (isSurvivorHit and Color3.fromRGB(255, 215, 0) or (Config.Color_SurvivorChams or Color3.fromRGB(255, 255, 255)))
                         if not hl or not hl.Parent then
                             hl = Instance.new("Highlight")
                             hl.Name = "Nexara_PlayerChams"
@@ -9948,7 +11040,7 @@ function RenderESP(dtArg)
                         local btmY = math.floor(btmScreen.Y + 2)
 
                         -- Render Hot Pink Skeleton (Thin & sleek, model-accurate)
-                        if aKillerSkel > 0.01 then
+                        if aKillerSkel > 0.01 and dist <= 250 and onScreen then
                             UpdateSkeleton(char, esp.Skeleton, Config.Color_KillerSkeleton or Color3.fromRGB(240, 60, 160), Config.KillerSkeletonThickness or 1.3, aKillerSkel)
                         else
                             for _, l in pairs(esp.Skeleton) do if l.Visible then l.Visible = false end end
@@ -10034,7 +11126,7 @@ function RenderESP(dtArg)
                         end
 
                         -- Survivor Skeleton
-                        if (not isBeingCarriedByMe) and aSurvSkel > 0.01 then
+                        if (not isBeingCarriedByMe) and aSurvSkel > 0.01 and dist <= 250 and onScreen then
                             UpdateSkeleton(char, esp.Skeleton, Config.Color_SurvivorSkeleton or Color3.fromRGB(80, 255, 160), Config.SurvivorSkeletonThickness or 1.3, aSurvSkel)
                         else
                             for _, l in pairs(esp.Skeleton) do if l.Visible then l.Visible = false end end
@@ -10203,21 +11295,26 @@ function RenderESP(dtArg)
         else
             hidePlayerESP(esp)
         end
+            end
     end
     
     -- Top Screen Killer Skill (Rendered directly under game countdown timer per user request)
     local activeKillerSkillStr = nil
     if aKillerSkills > 0.01 and not inCutscene and (not inLobby or Config.ESP_LobbyEnabled) then
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer and IsKiller(p) and not IsPlayerDead(p) and (inLobby or not IsPlayerInLobby(p)) then
-                local data = CachedPlayerData[p]
-                activeKillerSkillStr = GetPlayerSkillInfo(p) or (data and data.SkillInfo)
-                if activeKillerSkillStr then break end
+        local kp = CurrentKillerPlayer
+        if not kp or IsPlayerDead(kp) or (not inLobby and IsPlayerInLobby(kp)) then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= LocalPlayer and IsKiller(p) and not IsPlayerDead(p) and (inLobby or not IsPlayerInLobby(p)) then
+                    kp = p
+                    CurrentKillerPlayer = p
+                    break
+                end
             end
         end
-        if not activeKillerSkillStr and IsKiller(LocalPlayer) and not IsPlayerDead(LocalPlayer) then
-            local data = CachedPlayerData[LocalPlayer]
-            activeKillerSkillStr = GetPlayerSkillInfo(LocalPlayer) or (data and data.SkillInfo)
+        if kp and kp ~= LocalPlayer and not IsPlayerDead(kp) and (inLobby or not IsPlayerInLobby(kp)) then
+            activeKillerSkillStr = GetPlayerSkillInfo(kp)
+        elseif not activeKillerSkillStr and IsKiller(LocalPlayer) and not IsPlayerDead(LocalPlayer) then
+            activeKillerSkillStr = GetPlayerSkillInfo(LocalPlayer)
         end
     end
 
@@ -10252,17 +11349,9 @@ function RenderESP(dtArg)
                     seenGens[gen] = true
                     local repairers = tonumber(gen:GetAttribute("PlayersRepairingCount")) or 0
 
-                    -- 3D Generator Chams / Highlight (DBD-style: visible only when occluded behind walls)
+                    -- 3D Generator Chams / Highlight (Always visible across entire map)
                     if aGenChams > 0.01 then
-                        local gOcc = GetOcclusionFactor(
-                            gen,
-                            root.Position + Vector3.new(0, 2.5, 0),
-                            root.Position + Vector3.new(0, 0.5, 0),
-                            camPos,
-                            nowClock,
-                            dt
-                        )
-                        local effGenChams = aGenChams * gOcc
+                        local effGenChams = aGenChams
                         if effGenChams > 0.01 then
                             local hl = GenAuras[gen]
                             local cCol = (repairers > 0 and Color3.fromRGB(255, 215, 0))
@@ -10349,31 +11438,27 @@ function RenderESP(dtArg)
     -- 3. Pallet ESP & 3D Glowing Aura
     table.clear(seenPallets)
     if not inLobby and (aPalletESP > 0.01 or aPalletAura > 0.01) then
-        -- Killer proximity breaking check (throttled to 0.1s to avoid N*M iterations at 144Hz)
+        -- Killer proximity breaking check (throttled to 0.12s to avoid N*M iterations at 144Hz)
         local nowTime = os.clock()
-        if nowTime - lastPalletCheckTime > 0.1 then
+        if nowTime - lastPalletCheckTime > 0.12 then
             lastPalletCheckTime = nowTime
-            for _, p in ipairs(Players:GetPlayers()) do
-                if IsKiller(p) then
-                    local kChar = p.Character
-                    if kChar then
-                        local isBreaking = kChar:GetAttribute("isBreakingPallet") == true
-                                        or kChar:GetAttribute("isBreaking") == true
-                        if isBreaking then
-                            local kRoot = kChar:FindFirstChild("HumanoidRootPart")
-                            if kRoot then
-                                local kPos = kRoot.Position
-                                for _, item in ipairs(CachedPallets) do
-                                    local pModel = item.Model
-                                    local pRoot = item.Part
-                                    if pModel and pRoot and pRoot.Parent and (pRoot.Position - kPos).Magnitude < 10 then
-                                        MarkPalletBroken(pModel)
-                                    end
-                                end
+            local kp = CurrentKillerPlayer
+            if kp and kp.Character then
+                local kChar = kp.Character
+                local isBreaking = kChar:GetAttribute("isBreakingPallet") == true
+                                or kChar:GetAttribute("isBreaking") == true
+                if isBreaking then
+                    local kRoot = kChar:FindFirstChild("HumanoidRootPart")
+                    if kRoot then
+                        local kPos = kRoot.Position
+                        for _, item in ipairs(CachedPallets) do
+                            local pModel = item.Model
+                            local pRoot = item.Part
+                            if pModel and pRoot and pRoot.Parent and (pRoot.Position - kPos).Magnitude < 10 then
+                                MarkPalletBroken(pModel)
                             end
                         end
                     end
-                    break
                 end
             end
 
@@ -10407,7 +11492,7 @@ function RenderESP(dtArg)
                         entry.Dist = dist
                     end
                 else
-                    if pallet and (not pallet.Parent or not pallet:IsDescendantOf(Workspace)) then
+                    if pallet then
                         MarkPalletBroken(pallet)
                     end
                 end
@@ -10426,17 +11511,9 @@ function RenderESP(dtArg)
                 seenPallets[pallet] = true
                 local dist = (myPos - root.Position).Magnitude
 
-                -- 3D Glowing Aura through walls (Wood pallet only, capped at closest 14 to avoid Roblox 31 highlight limit)
-                if aPalletAura > 0.01 and idx <= 14 and dist <= Config.PalletMaxDist then
-                    local pOcc = GetOcclusionFactor(
-                        pallet,
-                        root.Position + Vector3.new(0, 1.5, 0),
-                        root.Position - Vector3.new(0, 0.8, 0),
-                        camPos,
-                        nowClock,
-                        dt
-                    )
-                    local effPalletAura = aPalletAura * pOcc
+                -- 3D Glowing Aura through walls (Wood pallet only, max 8 nearest pallets to preserve Roblox 31 highlight budget for players)
+                if aPalletAura > 0.01 and idx <= 8 and dist <= Config.PalletMaxDist then
+                    local effPalletAura = aPalletAura
                     if effPalletAura > 0.01 then
                         local targetAdornee = item.PalletWood or pallet
                         local hl = PalletAuras[pallet]
@@ -10547,18 +11624,10 @@ function RenderESP(dtArg)
                     local activeBoxColor = isBlocked and Color3.fromRGB(255, 50, 50) or wAuraCol
                     local activeGlowColor = isBlocked and Color3.fromRGB(255, 100, 100) or wGlowCol
 
-                    -- 3D Glowing Vault Sill (Dual-Layer Hologram: Solid Core + Neon Outer Glow, DBD-style behind walls)
+                    -- 3D Glowing Vault Sill (Dual-Layer Hologram: Solid Core + Neon Outer Glow, always visible)
                     local sillWorldPos = ledge.CFrame:PointToWorldSpace(Vector3.new(0, offsetY, 0))
                     if aWindowAura > 0.01 then
-                        local wOcc = GetOcclusionFactor(
-                            win,
-                            sillWorldPos + Vector3.new(0, 0.8, 0),
-                            sillWorldPos - Vector3.new(0, 0.4, 0),
-                            camPos,
-                            nowClock,
-                            dt
-                        )
-                        local effWinAura = aWindowAura * wOcc
+                        local effWinAura = aWindowAura
                         if effWinAura > 0.01 then
                             local sillSize, sillOffset
                             if ledge.Name == "Bottom" then
@@ -10715,6 +11784,116 @@ function RenderESP(dtArg)
     for gate, txt in pairs(GateDrawings) do
         if (not seenGates[gate] or aExitGates <= 0.01) and txt.Visible then txt.Visible = false end
     end
+
+    -- 6. Bear Traps ESP (Butcher's placed traps)
+    table.clear(seenTraps)
+    if not inLobby and aBearTraps > 0.01 then
+        if (nowClock - lastBearTrapScanTime > 0.4) or not cachedBearTraps then
+            lastBearTrapScanTime = nowClock
+            local list = {}
+            local seen = {}
+            for _, t in ipairs(CollectionService:GetTagged("BearTrap")) do
+                if not seen[t] then
+                    seen[t] = true
+                    table.insert(list, t)
+                end
+            end
+            local mapFolder = Workspace:FindFirstChild("Map")
+            if mapFolder then
+                for _, ch in ipairs(mapFolder:GetChildren()) do
+                    if ch.Name == "BearTrap" and not seen[ch] then
+                        seen[ch] = true
+                        table.insert(list, ch)
+                    end
+                end
+            end
+            cachedBearTraps = list
+        end
+
+        local kChar = CurrentKillerPlayer and CurrentKillerPlayer.Character
+        for _, trap in ipairs(cachedBearTraps or {}) do
+            if trap and trap.Parent and (not kChar or not trap:IsDescendantOf(kChar)) then
+                local root = trap:IsA("Model") and (trap:FindFirstChild("Cube") or trap.PrimaryPart or trap:FindFirstChildWhichIsA("BasePart")) or (trap:IsA("BasePart") and trap)
+                if root and root.Parent then
+                    seenTraps[trap] = true
+                    local trapPos = root.Position
+                    local dist = math.floor((myPos - trapPos).Magnitude)
+                    local maxDist = Config.BearTrapMaxDist or 1000
+                    local isArmed = trap:GetAttribute("Armed") ~= false
+
+                    -- 3D AlwaysOnTop Glow Highlight for Bear Trap
+                    local hl = TrapAuras[trap]
+                    local tCol = Config.Color_BearTraps or Color3.fromRGB(255, 65, 65)
+                    if not isArmed then
+                        tCol = Color3.fromRGB(160, 160, 160)
+                    end
+                    if dist <= maxDist then
+                        if not hl or not hl.Parent then
+                            hl = Instance.new("Highlight")
+                            hl.Name = "Nexara_TrapAura"
+                            hl.FillColor = tCol
+                            hl.OutlineColor = tCol
+                            hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                            hl.Adornee = trap
+                            local hlParent = (gethui and gethui()) or game:GetService("CoreGui") or trap
+                            pcall(function() hl.Parent = hlParent end)
+                            TrapAuras[trap] = hl
+                        else
+                            if hl.Adornee ~= trap then hl.Adornee = trap end
+                            if hl.FillColor ~= tCol then
+                                hl.FillColor = tCol
+                                hl.OutlineColor = tCol
+                            end
+                        end
+                        hl.FillTransparency = 1 - (0.35 * aBearTraps)
+                        hl.OutlineTransparency = 1 - (0.75 * aBearTraps)
+                        if not hl.Enabled then hl.Enabled = true end
+                    elseif hl and hl.Enabled then
+                        hl.Enabled = false
+                    end
+
+                    -- 2D Text Drawing
+                    local txt = TrapDrawings[trap]
+                    if not txt then
+                        txt = Drawing.new("Text")
+                        txt.Size = 13
+                        txt.Center = true
+                        txt.Outline = true
+                        txt.OutlineColor = Color3.fromRGB(0, 0, 0)
+                        TrapDrawings[trap] = txt
+                    end
+
+                    if dist <= maxDist then
+                        local sPos, onScreen = Camera:WorldToViewportPoint(trapPos + Vector3.new(0, 0.8, 0))
+                        if onScreen and not IsInMenu(sPos.X, sPos.Y) then
+                            local tText = isArmed and string.format("[BEAR TRAP] (%dm)", dist) or string.format("[BEAR TRAP - DISARMED] (%dm)", dist)
+                            if txt.Text ~= tText then txt.Text = tText end
+                            txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
+                            if txt.Color ~= tCol then txt.Color = tCol end
+                            txt.Transparency = aBearTraps
+                            if not txt.Visible then txt.Visible = true end
+                        elseif txt.Visible then
+                            txt.Visible = false
+                        end
+                    elseif txt.Visible then
+                        txt.Visible = false
+                    end
+                end
+            end
+        end
+    end
+    for trap, txt in pairs(TrapDrawings) do
+        if (not seenTraps[trap] or aBearTraps <= 0.01) and txt.Visible then txt.Visible = false end
+    end
+    for trap, hl in pairs(TrapAuras) do
+        if not seenTraps[trap] or inLobby or aBearTraps <= 0.01 then
+            if hl.Enabled then hl.Enabled = false end
+            if not trap or not trap.Parent then
+                pcall(function() hl:Destroy() end)
+                TrapAuras[trap] = nil
+            end
+        end
+    end
     end)
     end
 end
@@ -10831,7 +12010,7 @@ do
     end)
 
     table.insert(ScriptConnections, RunService.Heartbeat:Connect(function(dt)
-        if not ScriptRunning then
+        if not ScriptRunning or IsInLobby() or IsCutsceneActive() then
             if BlindContainer.Visible then BlindContainer.Visible = false end
             return
         end
@@ -10866,14 +12045,12 @@ do
         local rawBlindness = nil
 
         -- Read real server-replicated Blindness (0 to 100) directly from Killer.Character.Head:GetAttribute("Blindness")
-        for _, p in ipairs(Players:GetPlayers()) do
-            if IsKiller(p) and p.Character and not IsPlayerDead(p) then
-                local head = p.Character:FindFirstChild("Head")
-                local bAttr = (head and head:GetAttribute("Blindness")) or p.Character:GetAttribute("Blindness")
-                if type(bAttr) == "number" then
-                    rawBlindness = math.clamp(bAttr, 0, 100)
-                    break
-                end
+        local kp = CurrentKillerPlayer
+        if kp and kp.Character and not IsPlayerDead(kp) then
+            local head = kp.Character:FindFirstChild("Head")
+            local bAttr = (head and head:GetAttribute("Blindness")) or kp.Character:GetAttribute("Blindness")
+            if type(bAttr) == "number" then
+                rawBlindness = math.clamp(bAttr, 0, 100)
             end
         end
 
