@@ -117,8 +117,17 @@ local Config = {
     PalletMaxDist = 1500,
     WindowMaxDist = 1500,
     BearTrapMaxDist = 1000,
+    ESP_PumpkinAura = false,
+    ESP_Pumpkins = false,
+    ESP_PumpkinTracer = false,
+    PumpkinMaxDist = 3000,
+    AutoCrushPumpkin = false,
+    AutoFarmPumpkins = false,
 
     -- Custom ESP Colors
+    Color_PumpkinAura = Color3.fromRGB(255, 135, 25),
+    Color_PumpkinNames = Color3.fromRGB(255, 165, 45),
+    Color_PumpkinTracer = Color3.fromRGB(255, 135, 25),
     Color_SurvivorBox = Color3.fromRGB(80, 255, 120),
     Color_SurvivorSkeleton = Color3.fromRGB(255, 255, 255),
     Color_SurvivorChams = Color3.fromRGB(255, 255, 255),
@@ -323,7 +332,7 @@ local function GetMatchTimerLabel()
     return nil
 end
 
-local function IsMatchTimerZero()
+local function _IsMatchTimerZero()
     local tl = GetMatchTimerLabel()
     if tl and tl.Parent then
         local txt = tl.Text
@@ -371,13 +380,8 @@ local function IsInLobby()
     -- 4. Check Map folder contents (In match, Map has children; in lobby, map is empty or absent)
     local map = Workspace:FindFirstChild("Map")
     if map and map:FindFirstChildWhichIsA("Instance") then
-        if pos and pos.Y < 300 then
-            cachedInLobby = false
-            return false
-        end
-    else
-        cachedInLobby = true
-        return true
+        cachedInLobby = false
+        return false
     end
 
     -- 5. Team check fallback
@@ -636,7 +640,6 @@ local StalkerHunterEnd = 0
 local StalkerStalkPct = 0
 local StalkerGraspReady = false
 local StalkerIsStalking = false
-local LastStalkTime = 0
 local MaskedActiveEnd = 0
 local MaskedCooldownEnd = 0
 local LastMaskedState = "Richard"
@@ -1293,7 +1296,6 @@ local function SetupPlayerCooldownHooks(player)
                 local stage = tonumber(char:GetAttribute(attrName)) or 1
                 if stage ~= LastStalkerStage then
                     StalkerStalkPct = 0
-                    LastStalkTime = 0
                 end
                 if stage >= 3 and LastStalkerStage < 3 then
                     StalkerHunterEnd = os.clock() + 70
@@ -3752,11 +3754,14 @@ local PalletDrawings = {}
 local WindowDrawings = {}
 local GateDrawings = {}
 local TrapDrawings = {}
+local PumpkinDrawings = {}
+local PumpkinTracers = {}
 local GenAuras = {}
 local PalletAuras = {}
 local WindowAuras = {}
 local WindowAdornments = {}
 local TrapAuras = {}
+local PumpkinAuras = {}
 local DroppedPallets = {}
 local BrokenPallets = {}
 
@@ -3803,10 +3808,11 @@ local function IsPalletBroken(model, prim)
     end
 
     -- 2. Visual Model Check (Newpallet structure: Intact vs Broken)
+    -- Only check the actual visible "Pallet" MeshPart (never fallback to FindFirstChildWhichIsA("BasePart") which grabs invisible LP/PalletPoint when streamed out!)
     local intact = model:FindFirstChild("Intact")
     if intact then
-        local pIntact = intact:FindFirstChild("Pallet") or intact:FindFirstChildWhichIsA("BasePart")
-        if pIntact and (pIntact.Transparency >= 0.85 or pIntact.LocalTransparencyModifier >= 0.85) then
+        local pIntact = intact:FindFirstChild("Pallet")
+        if pIntact and pIntact:IsA("BasePart") and (pIntact.Transparency >= 0.85 or pIntact.LocalTransparencyModifier >= 0.85) then
             BrokenPallets[model] = true
             return true
         end
@@ -3856,6 +3862,12 @@ local function UpdateBackgroundCache()
             table.clear(TrapDrawings)
             for _, hl in pairs(TrapAuras) do pcall(function() hl:Destroy() end) end
             table.clear(TrapAuras)
+            for _, txt in pairs(PumpkinDrawings) do pcall(function() txt:Remove() end) end
+            table.clear(PumpkinDrawings)
+            for _, ln in pairs(PumpkinTracers) do pcall(function() ln:Remove() end) end
+            table.clear(PumpkinTracers)
+            for _, hl in pairs(PumpkinAuras) do pcall(function() hl:Destroy() end) end
+            table.clear(PumpkinAuras)
             return
         end
 
@@ -3930,12 +3942,8 @@ local function UpdateBackgroundCache()
 
 
 
-        -- If map objects are already cached for this match, never re-scan GetDescendants
-        if #CachedGenerators > 0 and #CachedPallets > 0 then
-            return
-        end
-
-        if now - lastMapScan < 5.0 then
+        -- Re-scan every 2.5s to pick up newly streamed-in objects across the map (Workspace.StreamingEnabled == true)
+        if now - lastMapScan < 2.5 then
             return
         end
         lastMapScan = now
@@ -3945,6 +3953,50 @@ local function UpdateBackgroundCache()
         local winSeen = {}
         local genSeen = {}
         local palletSeen = {}
+        local gateSeen = {}
+
+        -- Preserve already-cached objects so streamed-out models are never lost when walking far away
+        for _, item in ipairs(CachedGenerators) do
+            if item.Model and item.Model.Parent then
+                genSeen[item.Model] = true
+                if not item.Part or not item.Part.Parent then
+                    item.Part = item.Model:FindFirstChild("RootPart") or item.Model.PrimaryPart or item.Model:FindFirstChildWhichIsA("BasePart")
+                end
+                table.insert(gens, item)
+            end
+        end
+        for _, item in ipairs(CachedPallets) do
+            if item.Model and item.Model.Parent and not IsPalletBroken(item.Model, item.Part) then
+                palletSeen[item.Model] = true
+                if not item.Part or not item.Part.Parent then
+                    local intact = item.Model:FindFirstChild("Intact")
+                    item.Part = (intact and intact:FindFirstChild("Pallet")) or item.Model:FindFirstChild("PrimaryPartPallet") or item.Model.PrimaryPart or item.Model:FindFirstChildWhichIsA("BasePart")
+                end
+                table.insert(pallets, item)
+            end
+        end
+        for _, item in ipairs(CachedWindows) do
+            if item.Model and item.Model.Parent then
+                winSeen[item.Model] = true
+                if not item.Part or not item.Part.Parent then
+                    local bestP = item.Model:FindFirstChild("Bottom") or item.Model:FindFirstChild("Ledge") or item.Model:FindFirstChild("VaultTrigger") or item.Model:FindFirstChildWhichIsA("BasePart")
+                    if bestP then
+                        item.Part = bestP
+                        item.VaultLedge = bestP
+                    end
+                end
+                table.insert(windows, item)
+            end
+        end
+        for _, item in ipairs(CachedGates) do
+            if item.Model and item.Model.Parent then
+                gateSeen[item.Model] = true
+                if not item.Part or not item.Part.Parent then
+                    item.Part = item.Model.PrimaryPart or item.Model:FindFirstChildWhichIsA("BasePart")
+                end
+                table.insert(gates, item)
+            end
+        end
 
         local function isNearExistingVault(pos)
             for _, w in ipairs(windows) do
@@ -3966,12 +4018,6 @@ local function UpdateBackgroundCache()
             end
             if (refPart.Name == "Part" or refPart.Name == "Union" or refPart.Name == "MeshPart") and not (cName:find("window") or cName:find("vault")) then
                 return
-            end
-            -- Reject any vault that is on or directly beside a generator (< 5 studs)
-            for _, g in ipairs(gens) do
-                if g.Part and (g.Part.Position - refPart.Position).Magnitude < 5.0 then
-                    return
-                end
             end
             if isNearExistingVault(refPart.Position) then return end
             table.insert(windows, {
@@ -4177,9 +4223,12 @@ local function UpdateBackgroundCache()
             end
 
             for _, d in ipairs(rootObj:GetChildren()) do
-                if d:IsA("Model") and d.Name == "Gate" then
+                if d:IsA("Model") and d.Name == "Gate" and not gateSeen[d] then
                     local part = d.PrimaryPart or d:FindFirstChildWhichIsA("BasePart")
-                    if part then table.insert(gates, { Model = d, Part = part }) end
+                    if part then
+                        gateSeen[d] = true
+                        table.insert(gates, { Model = d, Part = part })
+                    end
                 end
             end
         end
@@ -4376,7 +4425,7 @@ local function KillerHasContainment()
     local kp = CurrentKillerPlayer
     if not kp then
         for _, p in ipairs(Players:GetPlayers()) do
-            if IsKiller(p) then kp = p break end
+            if IsKiller(p) then kp = p; break end
         end
     end
     if not kp then return false, 0 end
@@ -6049,6 +6098,9 @@ local function HideAllESP()
         for _, txt in pairs(GateDrawings) do txt.Visible = false end
         for _, txt in pairs(TrapDrawings) do txt.Visible = false end
         for _, hl in pairs(TrapAuras) do pcall(function() hl.Enabled = false end) end
+        for _, txt in pairs(PumpkinDrawings) do txt.Visible = false end
+        for _, ln in pairs(PumpkinTracers) do ln.Visible = false end
+        for _, hl in pairs(PumpkinAuras) do pcall(function() hl.Enabled = false end) end
     end)
 end
 
@@ -6088,17 +6140,21 @@ local function UnloadScript()
     ClearDrawingsMap(WindowDrawings)
     ClearDrawingsMap(GateDrawings)
     ClearDrawingsMap(TrapDrawings)
+    ClearDrawingsMap(PumpkinDrawings)
+    ClearDrawingsMap(PumpkinTracers)
     pcall(function() TopKillerSkillText:Remove() end)
     for _, hl in pairs(GenAuras) do pcall(function() hl:Destroy() end) end
     for _, hl in pairs(PalletAuras) do pcall(function() hl:Destroy() end) end
     for _, hl in pairs(WindowAuras) do pcall(function() hl:Destroy() end) end
     for _, bha in pairs(WindowAdornments) do pcall(function() bha:Destroy() end) end
     for _, hl in pairs(TrapAuras) do pcall(function() hl:Destroy() end) end
+    for _, hl in pairs(PumpkinAuras) do pcall(function() hl:Destroy() end) end
     table.clear(GenAuras)
     table.clear(PalletAuras)
     table.clear(WindowAuras)
     table.clear(WindowAdornments)
     table.clear(TrapAuras)
+    table.clear(PumpkinAuras)
     if ChamsContainer then
         pcall(function() ChamsContainer:Destroy() end)
         ChamsContainer = nil
@@ -7227,36 +7283,7 @@ secTwist1:AddToggle({
     end
 })
 
-TofCombat.TargetDropdown = secTwist1:AddDropdown({
-    Name = "Target Killer / Player",
-    Flag = "Target Killer / Player",
-    Options = TofCombat.BuildTargetOptions(),
-    Default = "Auto (Killer)",
-    Callback = function(v)
-        Config.Tof_TargetMode = v or "Auto (Killer)"
-    end
-})
-
-
-secTwist1:AddButton({
-    Name = "Refresh Target List",
-    Callback = function()
-        TofCombat.RefreshTargetDropdown()
-    end
-})
-
-table.insert(ScriptConnections, Players.PlayerAdded:Connect(function()
-    task.delay(0.5, TofCombat.RefreshTargetDropdown)
-end))
-table.insert(ScriptConnections, Players.PlayerRemoving:Connect(function()
-    task.delay(0.2, TofCombat.RefreshTargetDropdown)
-end))
-task.spawn(function()
-    while task.wait(3) do
-        if not _G.Nexara_VD_Cleanup then break end
-        TofCombat.RefreshTargetDropdown()
-    end
-end)
+Config.Tof_TargetMode = "Auto (Killer)" 
 
 local secTwist2 = colA2:CreateSection("Twist of Fate: Settings")
 secTwist2:AddToggle({
@@ -8687,7 +8714,190 @@ task.spawn(function()
 end)
 end
 
+-- ======== EVENT TAB (HALLOWEEN PUMPKIN HUNT - SINGLE PAGE) ========
+local ActivePumpkinsList = {}
+local CrushedPumpkinsCache = {}
+local LastPumpkinScanClock = 0
 
+local function IsPumpkinValidAndIntact(part, model)
+    if not part or not part.Parent or not part:IsDescendantOf(Workspace) then return false end
+    local lobbyFolder = Workspace:FindFirstChild("Lobby")
+    if lobbyFolder and part:IsDescendantOf(lobbyFolder) then return false end
+    if CrushedPumpkinsCache[part] or (model and CrushedPumpkinsCache[model]) then return false end
+    local cs = game:GetService("CollectionService")
+    if not cs:HasTag(part, "pumpkin") then
+        return false
+    end
+    if cs:HasTag(part, "Blocked") or cs:HasTag(part, "doing action") or (model and (cs:HasTag(model, "Blocked") or cs:HasTag(model, "doing action"))) then
+        return false
+    end
+    if model and model:IsA("Model") then
+        local shell = model:FindFirstChild("shell")
+        if not shell or not shell:IsA("BasePart") or shell.Transparency >= 0.5 then
+            return false
+        end
+    end
+    return true
+end
+
+local function ScanActivePumpkins(force)
+    local now = os.clock()
+    if not force and (now - LastPumpkinScanClock < 0.15) then
+        return ActivePumpkinsList
+    end
+    LastPumpkinScanClock = now
+
+    local list = {}
+    local seen = {}
+    local cs = game:GetService("CollectionService")
+
+    for _, tagged in ipairs(cs:GetTagged("pumpkin")) do
+        local part = tagged:IsA("BasePart") and tagged or (tagged:IsA("Model") and tagged:FindFirstChild("HB"))
+        local model = (tagged:IsA("Model") and tagged) or (part and part.Parent and part.Parent:IsA("Model") and part.Parent) or part
+        if part and model and not seen[model] and IsPumpkinValidAndIntact(part, model) then
+            seen[model] = true
+            table.insert(list, { Model = model, Part = part })
+        end
+    end
+
+    ActivePumpkinsList = list
+    return list
+end
+
+local TabEvent = Window:CreateTab("Event", "rbxassetid://10723407389")
+do
+    local colE1 = TabEvent:CreateColumn()
+    local colE2 = TabEvent:CreateColumn()
+
+    local secPumpkinESP = colE2:CreateSection("Halloween Pumpkin ESP")
+    secPumpkinESP:AddToggle({
+        Name = "Pumpkin 3D Aura",
+        Default = false,
+        Color = Config.Color_PumpkinAura,
+        Callback = function(v, col)
+            Config.ESP_PumpkinAura = v
+            if col then
+                Config.Color_PumpkinAura = col
+                for _, hl in pairs(PumpkinAuras) do
+                    pcall(function()
+                        hl.FillColor = col
+                        hl.OutlineColor = col
+                    end)
+                end
+            end
+        end
+    })
+    secPumpkinESP:AddToggle({
+        Name = "Pumpkin Name & Distance",
+        Default = false,
+        Color = Config.Color_PumpkinNames,
+        Callback = function(v, col)
+            Config.ESP_Pumpkins = v
+            if col then Config.Color_PumpkinNames = col end
+        end
+    })
+    secPumpkinESP:AddToggle({
+        Name = "Pumpkin Tracer Line",
+        Default = false,
+        Color = Config.Color_PumpkinTracer,
+        Callback = function(v, col)
+            Config.ESP_PumpkinTracer = v
+            if col then Config.Color_PumpkinTracer = col end
+        end
+    })
+    secPumpkinESP:AddSlider({
+        Name = "Pumpkin Max Distance",
+        Flag = "Pumpkin Max Distance",
+        Min = 50,
+        Max = 3000,
+        Default = 3000,
+        Suffix = " studs",
+        Callback = function(v)
+            Config.PumpkinMaxDist = v
+        end
+    })
+
+    -- Live Pumpkin Status Card
+    local EventStatusCard, EventStatusAccent = colE1:CreateCustomCard(66)
+    Window:RegisterAccent(EventStatusAccent, "BackgroundColor3")
+
+    local evTitle = Instance.new("TextLabel")
+    evTitle.Size = UDim2.new(1, -16, 0, 16)
+    evTitle.Position = UDim2.fromOffset(10, 5)
+    evTitle.BackgroundTransparency = 1
+    evTitle.Text = "Halloween Pumpkin Radar"
+    evTitle.TextColor3 = Window.Theme.Text
+    evTitle.TextSize = 11
+    evTitle.TextXAlignment = Enum.TextXAlignment.Left
+    evTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    evTitle.Parent = EventStatusCard
+
+    local evCountLbl = Instance.new("TextLabel")
+    evCountLbl.Size = UDim2.new(1, -16, 0, 16)
+    evCountLbl.Position = UDim2.fromOffset(10, 24)
+    evCountLbl.BackgroundTransparency = 1
+    evCountLbl.Text = "Active Pumpkins in Map: 0"
+    evCountLbl.TextColor3 = Color3.fromRGB(255, 165, 45)
+    evCountLbl.TextSize = 10
+    evCountLbl.TextXAlignment = Enum.TextXAlignment.Left
+    evCountLbl.FontFace = GetPreferredFont()
+    evCountLbl.Parent = EventStatusCard
+
+    local evNearLbl = Instance.new("TextLabel")
+    evNearLbl.Size = UDim2.new(1, -16, 0, 16)
+    evNearLbl.Position = UDim2.fromOffset(10, 42)
+    evNearLbl.BackgroundTransparency = 1
+    evNearLbl.Text = "Nearest Pumpkin: None"
+    evNearLbl.TextColor3 = Window.Theme.SubText
+    evNearLbl.TextSize = 10
+    evNearLbl.TextXAlignment = Enum.TextXAlignment.Left
+    evNearLbl.FontFace = GetPreferredFont()
+    evNearLbl.Parent = EventStatusCard
+
+    local function GetNearestPumpkinEntry()
+        local list = ScanActivePumpkins(true)
+        local myRoot = GetRoot(LocalPlayer)
+        local myPos = myRoot and myRoot.Position or Camera.CFrame.Position
+        local best, bestDist = nil, math.huge
+        for _, entry in ipairs(list) do
+            if entry.Part and entry.Part.Parent then
+                local d = (entry.Part.Position - myPos).Magnitude
+                if d < bestDist then
+                    bestDist = d
+                    best = entry
+                end
+            end
+        end
+        return best, bestDist
+    end
+
+    -- Background loop for Live Status Card
+    task.spawn(function()
+        while ScriptRunning do
+            task.wait(0.5)
+            pcall(function()
+                if IsInLobby() then
+                    if evCountLbl then evCountLbl.Text = "Active Pumpkins in Map: 0 (In Lobby)" end
+                    if evNearLbl then evNearLbl.Text = "Nearest Pumpkin: Waiting for Match" end
+                    return
+                end
+
+                local list = ScanActivePumpkins(false)
+                local best, bestDist = GetNearestPumpkinEntry()
+                if evCountLbl then
+                    evCountLbl.Text = string.format("Active Pumpkins in Map: %d", #list)
+                end
+                if evNearLbl then
+                    if best and bestDist < math.huge then
+                        evNearLbl.Text = string.format("Nearest Pumpkin: %dm away", math.floor(bestDist))
+                    else
+                        evNearLbl.Text = "Nearest Pumpkin: None"
+                    end
+                end
+            end)
+        end
+    end)
+end
 
 local IsRestoringConfig = false
 -- Hook all ConfigFlags items to force callbacks to execute on LoadConfigData even when silent=true is passed
@@ -10307,6 +10517,14 @@ local function SynchronizeConfigState()
     if cv["Bear Trap Max Distance"] ~= nil then
         Config.BearTrapMaxDist = tonumber(cv["Bear Trap Max Distance"]) or Config.BearTrapMaxDist
     end
+    if cv["Pumpkin Max Distance"] ~= nil then
+        Config.PumpkinMaxDist = tonumber(cv["Pumpkin Max Distance"]) or Config.PumpkinMaxDist
+    end
+    if cv["Pumpkin 3D Aura"] ~= nil then Config.ESP_PumpkinAura = (cv["Pumpkin 3D Aura"] == true) end
+    if cv["Pumpkin Name & Distance"] ~= nil then Config.ESP_Pumpkins = (cv["Pumpkin Name & Distance"] == true) end
+    if cv["Pumpkin Tracer Line"] ~= nil then Config.ESP_PumpkinTracer = (cv["Pumpkin Tracer Line"] == true) end
+    if cv["Auto Crush Nearby Pumpkins"] ~= nil then Config.AutoCrushPumpkin = (cv["Auto Crush Nearby Pumpkins"] == true) end
+    if cv["Auto Farm Pumpkins (TP & Crush)"] ~= nil then Config.AutoFarmPumpkins = (cv["Auto Farm Pumpkins (TP & Crush)"] == true) end
     if cv["Field of View (FOV)"] ~= nil then
         Config.FOV = tonumber(cv["Field of View (FOV)"]) or Config.FOV
         if Config.CustomFOVEnabled then
@@ -10384,7 +10602,7 @@ local function SynchronizeConfigState()
         if TofCombat.AimKeyBtn then TofCombat.AimKeyBtn.Text = "[" .. kn .. "]" end
     end
     if cv["Laser Tracer"] ~= nil then Config.Tof_Laser = (cv["Laser Tracer"] == true) end
-    if cv["Target Killer / Player"] ~= nil then Config.Tof_TargetMode = tostring(cv["Target Killer / Player"]) end
+    Config.Tof_TargetMode = "Auto (Killer)" 
     if cv["Show FOV Circle"] ~= nil then Config.Tof_ShowFOV = (cv["Show FOV Circle"] == true) end
     if cv["FOV Radius"] ~= nil then Config.Tof_FOV = tonumber(cv["FOV Radius"]) or Config.Tof_FOV end
     if cv["Aimbot Smoothness"] ~= nil then Config.Tof_AimbotSmooth = tonumber(cv["Aimbot Smoothness"]) or Config.Tof_AimbotSmooth end
@@ -10877,6 +11095,7 @@ local seenPallets = {}
 local seenWindows = {}
 local seenGates = {}
 local seenTraps = {}
+local seenPumpkins = {}
 local lastBearTrapScanTime = 0
 local cachedBearTraps = nil
 local wasInLobby = false
@@ -10971,6 +11190,9 @@ function RenderESP(dtArg)
         local aWindowESP    = stepAlpha("WindowESP",    Config.ESP_Windows == true, dt)
         local aExitGates    = stepAlpha("ExitGates",    Config.ESP_ExitGates == true, dt)
         local aBearTraps    = stepAlpha("BearTraps",    Config.ESP_BearTraps == true, dt)
+        local aPumpkinAura  = stepAlpha("PumpkinAura",  Config.ESP_PumpkinAura == true, dt)
+        local aPumpkinESP   = stepAlpha("PumpkinESP",   Config.ESP_Pumpkins == true, dt)
+        local aPumpkinTrace = stepAlpha("PumpkinTrace", Config.ESP_PumpkinTracer == true, dt)
 
         local myRoot = GetRoot(LocalPlayer)
         local camPos = Camera.CFrame.Position
@@ -11052,10 +11274,13 @@ function RenderESP(dtArg)
                         hl.OutlineTransparency = 1 - (0.65 * effKChams)
                         if not hl.Enabled then hl.Enabled = true end
 
-                        -- Suppress conflicting in-game Highlights inside the character
+                        -- Suppress & decouple conflicting in-game Highlights inside the character
                         for _, child in ipairs(char:GetChildren()) do
-                            if child:IsA("Highlight") and child ~= hl and child.Enabled then
-                                child.Enabled = false
+                            if child:IsA("Highlight") and child ~= hl then
+                                if child.Enabled then child.Enabled = false end
+                                if child.Adornee ~= Workspace.Terrain then
+                                    pcall(function() child.Adornee = Workspace.Terrain end)
+                                end
                             end
                         end
                     elseif esp.Chams and esp.Chams.Enabled then
@@ -11091,15 +11316,21 @@ function RenderESP(dtArg)
                         hl.OutlineTransparency = 1 - (0.65 * effSChams)
                         if not hl.Enabled then hl.Enabled = true end
 
-                        -- Suppress conflicting in-game Highlights inside the character (AuraMute, Highlight-forsurvivor, game's setLayer)
+                        -- Suppress & decouple conflicting in-game Highlights inside the character (fixes Hooked Survivor Chams disappearing)
                         for _, child in ipairs(char:GetChildren()) do
-                            if child:IsA("Highlight") and child ~= hl and child.Enabled then
-                                child.Enabled = false
+                            if child:IsA("Highlight") and child ~= hl then
+                                if child.Enabled then child.Enabled = false end
+                                if child.Adornee ~= Workspace.Terrain then
+                                    pcall(function() child.Adornee = Workspace.Terrain end)
+                                end
                             end
                         end
                         local mute = char:FindFirstChild("AuraMute", true)
-                        if mute and mute:IsA("Highlight") and mute.Enabled then
-                            mute.Enabled = false
+                        if mute and mute:IsA("Highlight") then
+                            if mute.Enabled then mute.Enabled = false end
+                            if mute.Adornee ~= Workspace.Terrain then
+                                pcall(function() mute.Adornee = Workspace.Terrain end)
+                            end
                         end
                     elseif esp.Chams and esp.Chams.Enabled then
                         esp.Chams.Enabled = false
@@ -11109,7 +11340,7 @@ function RenderESP(dtArg)
 
                 if onScreen and not IsInMenu(rootScreen.X, rootScreen.Y) and not IsInMenu(headScreen.X, headScreen.Y) then
                     esp.IsHidden = false
-                    local dist = (myPos - rootPos).Magnitude
+                    dist = (myPos - rootPos).Magnitude
                     local currentX = math.floor(rootScreen.X)
                     local currentY = 0
 
@@ -11433,16 +11664,21 @@ function RenderESP(dtArg)
         for _, item in ipairs(CachedGenerators) do
             local gen = item.Model
             local root = item.Part
+            if gen and gen.Parent and (not root or not root.Parent) then
+                root = gen:FindFirstChild("RootPart") or gen.PrimaryPart or gen:FindFirstChildWhichIsA("BasePart")
+                item.Part = root
+            end
             if gen and gen.Parent and root and root.Parent then
                 local prog = tonumber(gen:GetAttribute("RepairProgress")) or 0
                 if prog < 100 then
                     seenGens[gen] = true
                     local repairers = tonumber(gen:GetAttribute("PlayersRepairingCount")) or 0
 
-                    -- 3D Generator Chams / Highlight (Always visible across entire map)
+                    -- 3D Generator Chams / Highlight (Adornee = GeneratorBody to match game's resolveHighlightTarget and prevent internal wireframe lines)
                     if aGenChams > 0.01 then
                         local effGenChams = aGenChams
                         if effGenChams > 0.01 then
+                            local genTarget = gen:FindFirstChild("GeneratorBody") or gen
                             local hl = GenAuras[gen]
                             local cCol = (repairers > 0 and Color3.fromRGB(255, 215, 0))
                                       or (Config.Color_GenChams or Config.Color_Generators or Color3.fromRGB(0, 240, 255))
@@ -11452,12 +11688,12 @@ function RenderESP(dtArg)
                                 hl.FillColor = cCol
                                 hl.OutlineColor = cCol
                                 hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-                                hl.Adornee = gen
+                                hl.Adornee = genTarget
                                 local hlParent = (gethui and gethui()) or game:GetService("CoreGui") or gen
                                 pcall(function() hl.Parent = hlParent end)
                                 GenAuras[gen] = hl
                             else
-                                if hl.Adornee ~= gen then hl.Adornee = gen end
+                                if hl.Adornee ~= genTarget then hl.Adornee = genTarget end
                                 if hl.FillColor ~= cCol then
                                     hl.FillColor = cCol
                                     hl.OutlineColor = cCol
@@ -11466,11 +11702,27 @@ function RenderESP(dtArg)
                             hl.FillTransparency = 1 - (0.25 * effGenChams)
                             hl.OutlineTransparency = 1 - (0.60 * effGenChams)
                             if not hl.Enabled then hl.Enabled = true end
+
+                            -- Suppress & decouple conflicting in-game Highlights on gen or GeneratorBody
+                            for _, container in ipairs({gen, genTarget, gen.Parent}) do
+                                if container then
+                                    for _, child in ipairs(container:GetChildren()) do
+                                        if child:IsA("Highlight") and child ~= hl then
+                                            if child.Enabled then child.Enabled = false end
+                                            if child.Adornee ~= Workspace.Terrain then
+                                                pcall(function() child.Adornee = Workspace.Terrain end)
+                                            end
+                                        end
+                                    end
+                                end
+                            end
                         elseif GenAuras[gen] and GenAuras[gen].Enabled then
                             GenAuras[gen].Enabled = false
+                            GenAuras[gen].Adornee = nil
                         end
                     elseif GenAuras[gen] and GenAuras[gen].Enabled then
                         GenAuras[gen].Enabled = false
+                        GenAuras[gen].Adornee = nil
                     end
 
                     -- 2D Generator Text ESP
@@ -11563,27 +11815,32 @@ function RenderESP(dtArg)
         end
         local droppingHRPPos = cachedDroppingHRPPos
 
-        -- Throttled distance sorting (every 0.3s) - reuses pre-allocated entries to eliminate GC churn
+        -- Throttled distance sorting (every 0.3s) - reuses pre-allocated entries and respects StreamingEnabled
         if (nowTime - lastPalletSortTime > 0.3) or (#cachedPalletEntries == 0) then
             lastPalletSortTime = nowTime
             local validCount = 0
             for _, item in ipairs(CachedPallets) do
                 local pallet = item.Model
                 local root = item.Part
-                if pallet and pallet.Parent and root and root.Parent and not IsPalletBroken(pallet, root) then
-                    local dist = (myPos - root.Position).Magnitude
-                    validCount = validCount + 1
-                    local entry = cachedPalletEntries[validCount]
-                    if not entry then
-                        entry = { Item = item, Dist = dist }
-                        cachedPalletEntries[validCount] = entry
-                    else
-                        entry.Item = item
-                        entry.Dist = dist
+                if pallet and pallet.Parent then
+                    if not root or not root.Parent then
+                        local intact = pallet:FindFirstChild("Intact")
+                        root = (intact and intact:FindFirstChild("Pallet")) or pallet:FindFirstChild("PrimaryPartPallet") or pallet.PrimaryPart or pallet:FindFirstChildWhichIsA("BasePart")
+                        item.Part = root
                     end
-                else
-                    if pallet then
+                    if IsPalletBroken(pallet, root) then
                         MarkPalletBroken(pallet)
+                    elseif root and root.Parent then
+                        local dist = (myPos - root.Position).Magnitude
+                        validCount = validCount + 1
+                        local entry = cachedPalletEntries[validCount]
+                        if not entry then
+                            entry = { Item = item, Dist = dist }
+                            cachedPalletEntries[validCount] = entry
+                        else
+                            entry.Item = item
+                            entry.Dist = dist
+                        end
                     end
                 end
             end
@@ -11601,11 +11858,12 @@ function RenderESP(dtArg)
                 seenPallets[pallet] = true
                 local dist = (myPos - root.Position).Magnitude
 
-                -- 3D Glowing Aura through walls (Wood pallet only, max 8 nearest pallets to preserve Roblox 31 highlight budget for players)
-                if aPalletAura > 0.01 and idx <= 8 and dist <= Config.PalletMaxDist then
+                -- 3D Glowing Aura through walls (up to 20 pallets to cover the entire map while keeping player & generator highlights under Roblox's 31 limit)
+                if aPalletAura > 0.01 and idx <= 20 and dist <= Config.PalletMaxDist then
                     local effPalletAura = aPalletAura
                     if effPalletAura > 0.01 then
-                        local targetAdornee = item.PalletWood or pallet
+                        local intact = pallet:FindFirstChild("Intact")
+                        local targetAdornee = (intact and intact:FindFirstChild("Pallet")) or intact or item.PalletWood or pallet
                         local hl = PalletAuras[pallet]
                         local aCol = Config.Color_PalletAura or Color3.fromRGB(255, 205, 90)
                         if not hl or not hl.Parent then
@@ -11630,9 +11888,11 @@ function RenderESP(dtArg)
                         if not hl.Enabled then hl.Enabled = true end
                     elseif PalletAuras[pallet] and PalletAuras[pallet].Enabled then
                         PalletAuras[pallet].Enabled = false
+                        PalletAuras[pallet].Adornee = nil
                     end
                 elseif PalletAuras[pallet] and PalletAuras[pallet].Enabled then
                     PalletAuras[pallet].Enabled = false
+                    PalletAuras[pallet].Adornee = nil
                 end
 
                 -- Distance Text
@@ -11702,6 +11962,12 @@ function RenderESP(dtArg)
             local win = item.Model or item.Part
             local root = item.Part
             local ledge = item.VaultLedge or root
+            if win and win.Parent and (not ledge or not ledge.Parent) and win:IsA("Model") then
+                ledge = win:FindFirstChild("Bottom") or win:FindFirstChild("Ledge") or win:FindFirstChild("VaultTrigger") or win:FindFirstChildWhichIsA("BasePart")
+                root = ledge
+                item.Part = ledge
+                item.VaultLedge = ledge
+            end
             if win and win.Parent and ledge and ledge.Parent then
                 local dist = (myPos - root.Position).Magnitude
                 if dist <= Config.WindowMaxDist then
@@ -11719,15 +11985,21 @@ function RenderESP(dtArg)
                     if aWindowAura > 0.01 then
                         local effWinAura = aWindowAura
                         if effWinAura > 0.01 then
-                            local rawW = math.max(ledge.Size.X, ledge.Size.Z)
-                            local rawT = math.min(ledge.Size.X, ledge.Size.Z)
-                            local width = math.clamp(rawW, 2.5, 5.2)
-                            local thickness = math.clamp(rawT, 0.4, 1.0)
-                            local height = math.clamp(ledge.Size.Y, 0.3, 0.8)
-                            local sillSize = (ledge.Size.X >= ledge.Size.Z) and Vector3.new(width, height, thickness) or Vector3.new(thickness, height, width)
-                            local sillOffset = CFrame.new(0, offsetY, 0)
+                            local sillSize, sillOffset
+                            if ledge.Name == "Bottom" then
+                                sillSize = ledge.Size
+                                sillOffset = CFrame.new(0, 0, 0)
+                            else
+                                local rawW = math.max(ledge.Size.X, ledge.Size.Z)
+                                local rawT = math.min(ledge.Size.X, ledge.Size.Z)
+                                local width = math.clamp(rawW, 3.8, 6.0)
+                                local thickness = math.clamp(rawT, 0.8, 2.0)
+                                local height = (ledge.Size.Y >= 1.2 and ledge.Size.Y <= 4.0) and ledge.Size.Y or 2.8
+                                sillSize = (ledge.Size.X >= ledge.Size.Z) and Vector3.new(width, height, thickness) or Vector3.new(thickness, height, width)
+                                sillOffset = CFrame.new(0, offsetY, 0)
+                            end
 
-                            -- Layer 1: Core BoxHandleAdornment (Clean semi-transparent hologram sill)
+                            -- Layer 1: Core BoxHandleAdornment
                             local bha = WindowAdornments[win]
                             if not bha or not bha.Parent or not bha:IsA("BoxHandleAdornment") then
                                 bha = Instance.new("BoxHandleAdornment")
@@ -11746,7 +12018,7 @@ function RenderESP(dtArg)
                                 if bha.CFrame ~= sillOffset then bha.CFrame = sillOffset end
                                 if bha.Color3 ~= activeBoxColor then bha.Color3 = activeBoxColor end
                             end
-                            bha.Transparency = 1 - (0.45 * effWinAura)
+                            bha.Transparency = 1 - (0.15 * effWinAura)
                             if not bha.Visible then bha.Visible = true end
 
                             -- Layer 2: Outer Glow Shell BoxHandleAdornment (Stored in WindowAuras)
@@ -11761,18 +12033,18 @@ function RenderESP(dtArg)
                                 glow.AlwaysOnTop = true
                                 glow.ZIndex = 7
                                 glow.Adornee = ledge
-                                glow.Size = sillSize + Vector3.new(0.08, 0.08, 0.08)
+                                glow.Size = sillSize + Vector3.new(0.12, 0.12, 0.12)
                                 glow.CFrame = sillOffset
                                 glow.Color3 = activeGlowColor
                                 glow.Parent = ledge
                                 WindowAuras[win] = glow
                             else
                                 if glow.Adornee ~= ledge then glow.Adornee = ledge end
-                                if glow.Size ~= (sillSize + Vector3.new(0.08, 0.08, 0.08)) then glow.Size = sillSize + Vector3.new(0.08, 0.08, 0.08) end
+                                if glow.Size ~= (sillSize + Vector3.new(0.12, 0.12, 0.12)) then glow.Size = sillSize + Vector3.new(0.12, 0.12, 0.12) end
                                 if glow.CFrame ~= sillOffset then glow.CFrame = sillOffset end
                                 if glow.Color3 ~= activeGlowColor then glow.Color3 = activeGlowColor end
                             end
-                            glow.Transparency = 1 - (0.22 * effWinAura)
+                            glow.Transparency = 1 - (0.08 * effWinAura)
                             if not glow.Visible then glow.Visible = true end
                         else
                             if WindowAdornments[win] and WindowAdornments[win].Visible then WindowAdornments[win].Visible = false end
@@ -11975,6 +12247,119 @@ function RenderESP(dtArg)
             if not trap or not trap.Parent then
                 pcall(function() hl:Destroy() end)
                 TrapAuras[trap] = nil
+            end
+        end
+    end
+
+    -- 7. Halloween Pumpkins ESP (3D Aura + 2D Name/Dist + Tracer Line)
+    table.clear(seenPumpkins)
+    if not inLobby and (aPumpkinAura > 0.01 or aPumpkinESP > 0.01 or aPumpkinTrace > 0.01) then
+        local pumpkins = ScanActivePumpkins(false)
+        local maxDist = Config.PumpkinMaxDist or 3000
+        local vpSize = Camera.ViewportSize
+        local traceOrigin = Vector2.new(math.floor(vpSize.X * 0.5), math.floor(vpSize.Y - 12))
+
+        for _, entry in ipairs(pumpkins) do
+            local model = entry.Model
+            local root = entry.Part
+            if model and root and root.Parent and IsPumpkinValidAndIntact(root, model) then
+                seenPumpkins[model] = true
+                local pPos = root.Position
+                local dist = math.floor((myPos - pPos).Magnitude)
+
+                -- 3D Aura Highlight
+                local hl = PumpkinAuras[model]
+                local auraCol = Config.Color_PumpkinAura or Color3.fromRGB(255, 135, 25)
+                if aPumpkinAura > 0.01 and dist <= maxDist then
+                    if not hl or not hl.Parent then
+                        hl = Instance.new("Highlight")
+                        hl.Name = "Nexara_PumpkinAura"
+                        hl.FillColor = auraCol
+                        hl.OutlineColor = auraCol
+                        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                        hl.Adornee = model
+                        local hlParent = (gethui and gethui()) or game:GetService("CoreGui") or model
+                        pcall(function() hl.Parent = hlParent end)
+                        PumpkinAuras[model] = hl
+                    else
+                        if hl.Adornee ~= model then hl.Adornee = model end
+                        if hl.FillColor ~= auraCol then
+                            hl.FillColor = auraCol
+                            hl.OutlineColor = auraCol
+                        end
+                    end
+                    hl.FillTransparency = 1 - (0.38 * aPumpkinAura)
+                    hl.OutlineTransparency = 1 - (0.85 * aPumpkinAura)
+                    if not hl.Enabled then hl.Enabled = true end
+                elseif hl and hl.Enabled then
+                    hl.Enabled = false
+                end
+
+                local sPos, onScreen = Camera:WorldToViewportPoint(pPos + Vector3.new(0, 1.4, 0))
+
+                -- 2D Name & Distance Text
+                local txt = PumpkinDrawings[model]
+                if aPumpkinESP > 0.01 and dist <= maxDist then
+                    if not txt then
+                        txt = Drawing.new("Text")
+                        txt.Size = 13
+                        txt.Center = true
+                        txt.Outline = true
+                        txt.OutlineColor = Color3.fromRGB(0, 0, 0)
+                        PumpkinDrawings[model] = txt
+                    end
+                    if onScreen and not IsInMenu(sPos.X, sPos.Y) then
+                        local pText = string.format("[PUMPKIN] (%dm)", dist)
+                        if txt.Text ~= pText then txt.Text = pText end
+                        txt.Position = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y))
+                        local nCol = Config.Color_PumpkinNames or Color3.fromRGB(255, 165, 45)
+                        if txt.Color ~= nCol then txt.Color = nCol end
+                        txt.Transparency = aPumpkinESP
+                        if not txt.Visible then txt.Visible = true end
+                    elseif txt.Visible then
+                        txt.Visible = false
+                    end
+                elseif txt and txt.Visible then
+                    txt.Visible = false
+                end
+
+                -- 2D Tracer Line
+                local ln = PumpkinTracers[model]
+                if aPumpkinTrace > 0.01 and dist <= maxDist then
+                    if not ln then
+                        ln = Drawing.new("Line")
+                        ln.Thickness = 1.4
+                        PumpkinTracers[model] = ln
+                    end
+                    if onScreen and not IsInMenu(sPos.X, sPos.Y) then
+                        ln.From = traceOrigin
+                        ln.To = Vector2.new(math.floor(sPos.X), math.floor(sPos.Y + 14))
+                        local trCol = Config.Color_PumpkinTracer or Color3.fromRGB(255, 135, 25)
+                        if ln.Color ~= trCol then ln.Color = trCol end
+                        ln.Transparency = aPumpkinTrace
+                        if not ln.Visible then ln.Visible = true end
+                    elseif ln.Visible then
+                        ln.Visible = false
+                    end
+                elseif ln and ln.Visible then
+                    ln.Visible = false
+                end
+            end
+        end
+    end
+
+    for model, txt in pairs(PumpkinDrawings) do
+        if (not seenPumpkins[model] or aPumpkinESP <= 0.01) and txt.Visible then txt.Visible = false end
+    end
+    for model, ln in pairs(PumpkinTracers) do
+        if (not seenPumpkins[model] or aPumpkinTrace <= 0.01) and ln.Visible then ln.Visible = false end
+    end
+    for model, hl in pairs(PumpkinAuras) do
+        if not seenPumpkins[model] or inLobby or aPumpkinAura <= 0.01 then
+            if hl.Enabled then hl.Enabled = false end
+            if not model or not model.Parent then
+                pcall(function() hl:Destroy() end)
+                PumpkinAuras[model] = nil
             end
         end
     end
