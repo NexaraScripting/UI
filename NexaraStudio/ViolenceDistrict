@@ -284,20 +284,20 @@ local function GetRoot(plr)
     return char and (char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso"))
 end
 
-local cachedLobbyPart = nil
-local function GetLobbyPart()
-    if cachedLobbyPart and cachedLobbyPart.Parent then return cachedLobbyPart end
+local _cachedLobbyPart = nil
+local function _GetLobbyPart()
+    if _cachedLobbyPart and _cachedLobbyPart.Parent then return _cachedLobbyPart end
     local lobby = Workspace:FindFirstChild("Lobby")
     if lobby then
         local house = lobby:FindFirstChild("House")
         if house then
-            cachedLobbyPart = house:FindFirstChildWhichIsA("BasePart", true)
+            _cachedLobbyPart = house:FindFirstChildWhichIsA("BasePart", true)
         end
-        if not cachedLobbyPart then
-            cachedLobbyPart = lobby:FindFirstChildWhichIsA("SpawnLocation", true) or lobby:FindFirstChildWhichIsA("BasePart", true)
+        if not _cachedLobbyPart then
+            _cachedLobbyPart = lobby:FindFirstChildWhichIsA("SpawnLocation", true) or lobby:FindFirstChildWhichIsA("BasePart", true)
         end
     end
-    return cachedLobbyPart
+    return _cachedLobbyPart
 end
 
 local CachedTimerLabel = nil
@@ -478,15 +478,6 @@ local function IsPlayerInLobby(player)
             return true
         end
         if tName ~= "Killer" and tName ~= "Survivors" then
-            return true
-        end
-    end
-
-    -- 6. Match distance check: in Violence District, the lobby island is >320 studs away from the match map
-    local myRoot = GetRoot(LocalPlayer)
-    if myRoot then
-        local distFromMe = (root.Position - myRoot.Position).Magnitude
-        if distFromMe >= 320 then
             return true
         end
     end
@@ -1559,6 +1550,8 @@ local function CheckKillerStunned()
     end
 end
 
+local TofCombat: { [string]: any } = nil
+
 local function HookKillerStun(kChar)
     if not kChar then return end
     table.insert(ScriptConnections, kChar:GetAttributeChangedSignal("IsStunned"):Connect(function()
@@ -2157,11 +2150,12 @@ pcall(function()
             if Window and Window.Visible then
                 UserInputService.MouseBehavior = Enum.MouseBehavior.Default
                 UserInputService.MouseIconEnabled = true
-                return
+                return nil
             end
             if type(CameraHooks.origSetMouseBehavior) == "function" then
                 return CameraHooks.origSetMouseBehavior(val)
             end
+            return nil
         end
 
         cu.restoreMouseBehavior = function()
@@ -3678,9 +3672,6 @@ local function GetPlayerSkillInfo(player)
                 local shots = itemInst and itemInst:GetAttribute("shots")
                 local maxShots = itemInst and itemInst:GetAttribute("MaxShots") or 3
                 local tofState = itemInst and itemInst:GetAttribute("tofState")
-                local tofDur = itemInst and tonumber(itemInst:GetAttribute("tofStateDur")) or 80
-                local tofStart = itemInst and tonumber(itemInst:GetAttribute("tofStateStart")) or 0
-                local sNow = workspace:GetServerTimeNow()
                 local sCount = tonumber(shots) or (tofState == "cooldown" and 0 or 3)
                 qtyStr = string.format(" [%d/%d]", sCount, maxShots)
             elseif usesNum then
@@ -3764,7 +3755,7 @@ local function GetPlayerSkillInfo(player)
 end
 
 -- ======== BACKGROUND DATA CACHING (PREVENTS ESP STUTTER & LAG) ========
-local PruneDeadDrawings = nil
+local _PruneDeadDrawings = nil
 CachedPlayerData = {}
 local CachedGenerators = {}
 local CachedPallets = {}
@@ -3772,10 +3763,17 @@ local CachedWindows = {}
 local CachedGates = {}
 local lastMapScan = 0
 
--- Pallet State Tracking & Cleanup
+-- Objective & World State Tracking & Cleanup
+local GenDrawings = {}
 local PalletDrawings = {}
-local PalletAuras = {}
+local WindowDrawings = {}
+local GateDrawings = {}
+local TrapDrawings = {}
 local GenAuras = {}
+local PalletAuras = {}
+local WindowAuras = {}
+local WindowAdornments = {}
+local TrapAuras = {}
 local DroppedPallets = {}
 local BrokenPallets = {}
 
@@ -3898,7 +3896,7 @@ local function UpdateBackgroundCache()
                 end
             end
         end
-        CurrentKillerPlayer = inLobby and nil or foundKiller
+        CurrentKillerPlayer = if inLobby then nil else foundKiller
 
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer and p.Character then
@@ -4353,14 +4351,6 @@ table.insert(ScriptConnections, Players.PlayerRemoving:Connect(function(p)
     ClearPlayerCooldowns(p)
 end))
 
--- Objective Drawings mapped directly by Instance (PREVENTS SWAPPING & SHAKING)
-local GenDrawings = {}
-PalletDrawings = PalletDrawings or {}
-local WindowDrawings = {}
-local GateDrawings = {}
-local TrapDrawings = {}
-local TrapAuras = {}
-
 -- Top Screen Killer Skill Display (Rendered under in-game match timer)
 local TopKillerSkillText = Drawing.new("Text")
 TopKillerSkillText.Size = Config.TopKillerSkillSize or 16
@@ -4370,13 +4360,7 @@ TopKillerSkillText.OutlineColor = Color3.fromRGB(0, 0, 0)
 TopKillerSkillText.Color = Color3.fromRGB(80, 220, 255)
 TopKillerSkillText.Visible = false
 
--- 3D Glowing Auras (Highlights)
-PalletAuras = PalletAuras or {}
-local WindowAuras = {}
-local WindowAdornments = {}
-
 -- Pallet & Window State Tracking (Dropped Pallets & Blocked Vaults)
-DroppedPallets = DroppedPallets or {}
 local BlockedWindows = {}
 local BlockedWindowPositions = {}
 local LastKillerVaultingState = {}
@@ -4564,7 +4548,7 @@ local function GetWindowBlockTime(win, rootPart, ledgePart)
 end
 
 -- ======== TWIST OF FATE COMBAT (LEGIT / SILENT AIM / AIMBOT / LASER) ========
-local TofCombat: { [string]: any } = {
+TofCombat = {
     AimbotToggle = nil,
     AimKeyBtn = nil,
     AimKeyRow = nil,
@@ -4817,7 +4801,7 @@ do
             if not cardData.Expired and card.Parent then
                 cardData.Expired = true
                 for idx, c in ipairs(activeHitCards) do
-                    if c == cardData then table.remove(activeHitCards, idx) break end
+                    if c == cardData then table.remove(activeHitCards, idx); break end
                 end
                 pcall(function()
                     local fadeOut = TweenService:Create(card, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
@@ -5509,7 +5493,6 @@ do
 
         -- 1. FOV Circle & Real-time Cooldown/Ammo Status Indicator
         local c = TofCombat.FovCircle
-        local txt = TofCombat.StatusText
         local isCD, remCD, shots = TofCombat.GetGunCooldown()
 
         if c then
@@ -5937,7 +5920,7 @@ local function ClearDrawingsMap(map)
     table.clear(map)
 end
 
-PruneDeadDrawings = function()
+_PruneDeadDrawings = function()
     pcall(function()
         for inst, d in pairs(GenDrawings) do
             if not inst or not inst.Parent then
@@ -10802,7 +10785,7 @@ end
 end
 
 -- ======== OCCLUSION SYSTEM (DISABLED: ALWAYS SOLID 100% VISIBLE & ZERO RAYCAST OVERHEAD) ========
-local function GetOcclusionFactor()
+local function _GetOcclusionFactor()
     return 1.0
 end
 
@@ -11040,7 +11023,7 @@ function RenderESP(dtArg)
                         local btmY = math.floor(btmScreen.Y + 2)
 
                         -- Render Hot Pink Skeleton (Thin & sleek, model-accurate)
-                        if aKillerSkel > 0.01 and dist <= 250 and onScreen then
+                        if aKillerSkel > 0.01 and dist <= 2500 and onScreen then
                             UpdateSkeleton(char, esp.Skeleton, Config.Color_KillerSkeleton or Color3.fromRGB(240, 60, 160), Config.KillerSkeletonThickness or 1.3, aKillerSkel)
                         else
                             for _, l in pairs(esp.Skeleton) do if l.Visible then l.Visible = false end end
@@ -11126,7 +11109,7 @@ function RenderESP(dtArg)
                         end
 
                         -- Survivor Skeleton
-                        if (not isBeingCarriedByMe) and aSurvSkel > 0.01 and dist <= 250 and onScreen then
+                        if (not isBeingCarriedByMe) and aSurvSkel > 0.01 and dist <= 2500 and onScreen then
                             UpdateSkeleton(char, esp.Skeleton, Config.Color_SurvivorSkeleton or Color3.fromRGB(80, 255, 160), Config.SurvivorSkeletonThickness or 1.3, aSurvSkel)
                         else
                             for _, l in pairs(esp.Skeleton) do if l.Visible then l.Visible = false end end
@@ -11143,8 +11126,9 @@ function RenderESP(dtArg)
                         if topScreen.Z > 0 and btmScreen.Z > 0 then
                             local col = inLobby and Color3.fromRGB(0, 210, 255) or (Config.Color_SurvivorBox or Color3.fromRGB(80, 255, 120))
 
-                            local boxHeight = math.floor(math.abs(btmScreen.Y - topScreen.Y))
-                            local boxWidth = math.floor(boxHeight * 0.55)
+                            local rawHeight = math.abs(btmScreen.Y - topScreen.Y)
+                            local boxHeight = math.floor(math.max(12, rawHeight))
+                            local boxWidth = math.floor(math.max(6, boxHeight * 0.55))
                             local boxX = math.floor(rootScreen.X - boxWidth * 0.5)
                             local boxY = math.floor(math.min(topScreen.Y, btmScreen.Y))
 
