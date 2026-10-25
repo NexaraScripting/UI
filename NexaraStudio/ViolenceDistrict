@@ -4381,44 +4381,38 @@ local function IsPalletDropped(model, prim)
 end
 
 local function KillerHasContainment()
-    for _, p in ipairs(Players:GetPlayers()) do
-        if IsKiller(p) then
-            local perks = (CachedPlayerData[p] and CachedPlayerData[p].Perks) or GetPlayerPerks(p)
-            for _, perk in ipairs(perks) do
-                local clean = tostring(perk):lower():gsub("%s+", ""):gsub("[^%a]", "")
-                if clean:find("containment") or clean:find("bamboozle") then
-                    return true, 16
-                end
-            end
-            local char = p.Character
-            if char then
-                for _, s in ipairs(char:GetChildren()) do
-                    local sn = s.Name:lower():gsub("%s+", "")
-                    if sn:find("containment") or sn:find("bamboozle") then
-                        return true, 16
-                    end
-                end
-            end
-            for _, attrName in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "containment", "Containment"}) do
-                local val = tostring(p:GetAttribute(attrName) or (char and char:GetAttribute(attrName)) or ""):lower()
-                if val:find("containment") or val:find("bamboozle") or val == "true" then
-                    return true, 16
-                end
-            end
+    local kp = CurrentKillerPlayer
+    if not kp then
+        for _, p in ipairs(Players:GetPlayers()) do
+            if IsKiller(p) then kp = p break end
         end
     end
-    if IsKiller(LocalPlayer) then
-        local char = LocalPlayer.Character
-        if char then
-            for _, s in ipairs(char:GetChildren()) do
-                local sn = s.Name:lower():gsub("%s+", "")
-                if sn:find("containment") or sn:find("bamboozle") then
-                    return true, 16
-                end
-            end
+    if not kp then return false, 0 end
+
+    -- 1. Check resolved perks list
+    local data = CachedPlayerData[kp]
+    local perks = (data and data.Perks) or (GetPlayerPerks and GetPlayerPerks(kp)) or {}
+    for _, perk in ipairs(perks) do
+        local clean = tostring(perk):lower():gsub("%s+", ""):gsub("[^%a]", "")
+        if clean:find("containment") or clean:find("bamboozle") then
+            return true, 16
         end
-        return false, 0
     end
+
+    -- 2. Check explicit attributes strictly for the word containment or bamboozle
+    local char = kp.Character
+    for _, attrName in ipairs({"perk1", "perk2", "perk3", "Perk1", "Perk2", "Perk3", "EquippedPerk1", "EquippedPerk2", "EquippedPerk3"}) do
+        local val = tostring(kp:GetAttribute(attrName) or (char and char:GetAttribute(attrName)) or ""):lower()
+        if val:find("containment") or val:find("bamboozle") then
+            return true, 16
+        end
+    end
+
+    if kp:GetAttribute("Containment") == true or kp:GetAttribute("containment") == true or
+       (char and (char:GetAttribute("Containment") == true or char:GetAttribute("containment") == true)) then
+        return true, 16
+    end
+
     return false, 0
 end
 
@@ -4441,7 +4435,7 @@ local function FindNearestWindow(posOrPart)
 
     local bestWin = nil
     local bestPart = nil
-    local bestDist = 18.0
+    local bestDist = 8.0
     for _, item in ipairs(CachedWindows) do
         local win = item.Model or item.Part
         local root = item.VaultLedge or item.Part
@@ -4496,11 +4490,14 @@ end
 
 local function OnKillerVault(cfOrPart, maybePart)
     local hasCont, dur = KillerHasContainment()
-    if hasCont then
-        local tType = typeof(maybePart)
-        local target = (tType == "Instance" or tType == "CFrame" or tType == "Vector3") and maybePart or cfOrPart
+    if not hasCont then return end
+
+    local tType = typeof(maybePart)
+    local target = (tType == "Instance" or tType == "CFrame" or tType == "Vector3") and maybePart or cfOrPart
+    local win, part = FindNearestWindow(target)
+    if win and part then
         -- Containment / Bamboozle only blocks ONE window at a time; vaulting a new window unblocks the previous one!
-        MarkWindowBlocked(target, dur > 0 and dur or 16, true)
+        MarkWindowBlocked(part, dur > 0 and dur or 16, true)
     end
 end
 
@@ -4524,7 +4521,7 @@ local function GetWindowBlockTime(win, rootPart, ledgePart)
             local entry = BlockedWindowPositions[i]
             if entry.Expire <= now then
                 table.remove(BlockedWindowPositions, i)
-            elseif (entry.Pos - checkPos).Magnitude < 8.0 then
+            elseif (entry.Pos - checkPos).Magnitude < 5.0 then
                 return true, entry.Expire - now
             end
         end
@@ -5600,7 +5597,7 @@ do
         local args = {...}
         local onVault = _G.Nexara_VD_OnKillerVault
         local nm = self.Name
-        if (nm == "VaultCommit" or nm == "VaultEvent-jason" or nm == "VaultEvent") and onVault then
+        if (nm == "VaultCommit" or nm == "VaultEvent-jason" or nm == "VaultEvent") and onVault and IsKiller(LocalPlayer) then
             local target = args[1]
             if target then
                 task.defer(function()
@@ -5794,9 +5791,15 @@ table.insert(ScriptConnections, RunService.Heartbeat:Connect(function()
         local isV = char:GetAttribute("isVaulting") == true or char:GetAttribute("IsVaulting") == true
         if isV and not LastKillerVaultingState[p] then
             LastKillerVaultingState[p] = true
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                OnKillerVault(hrp.Position)
+            local hasCont = KillerHasContainment()
+            if hasCont then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local win, part = FindNearestWindow(hrp.Position)
+                    if win and part and (part.Position - hrp.Position).Magnitude <= 7.0 then
+                        OnKillerVault(part)
+                    end
+                end
             end
         elseif not isV then
             LastKillerVaultingState[p] = false
@@ -5807,28 +5810,58 @@ end))
 pcall(function()
     local remWindow = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Window")
     if remWindow then
+        local function HandleRemoteVault(p1, p2)
+            local hasCont = KillerHasContainment()
+            if not hasCont then return end
+
+            local kp = CurrentKillerPlayer
+            if not kp then return end
+            local kChar = kp.Character
+
+            local isKillerVault = false
+            local targetWin = nil
+            if p1 == kp or p1 == kChar then
+                isKillerVault = true
+                targetWin = p2
+            elseif p2 == kp or p2 == kChar then
+                isKillerVault = true
+                targetWin = p1
+            else
+                local pos = (typeof(p1) == "Vector3" and p1) or (typeof(p1) == "CFrame" and p1.Position)
+                         or (typeof(p2) == "Vector3" and p2) or (typeof(p2) == "CFrame" and p2.Position)
+                local hrp = kChar and kChar:FindFirstChild("HumanoidRootPart")
+                if pos and hrp and (hrp.Position - pos).Magnitude <= 7.0 then
+                    isKillerVault = true
+                    targetWin = pos
+                end
+            end
+
+            if isKillerVault and targetWin then
+                OnKillerVault(targetWin)
+            end
+        end
+
         local animJason = remWindow:FindFirstChild("VaultAnim-jason")
         if animJason and animJason:IsA("RemoteEvent") then
-            table.insert(ScriptConnections, animJason.OnClientEvent:Connect(function(p1, p2)
-                OnKillerVault(p1, p2)
-            end))
+            table.insert(ScriptConnections, animJason.OnClientEvent:Connect(HandleRemoteVault))
         end
         local eventJason = remWindow:FindFirstChild("VaultEvent-jason")
         if eventJason and eventJason:IsA("RemoteEvent") then
-            table.insert(ScriptConnections, eventJason.OnClientEvent:Connect(function(p1, p2)
-                OnKillerVault(p1, p2)
-            end))
+            table.insert(ScriptConnections, eventJason.OnClientEvent:Connect(HandleRemoteVault))
         end
         local kvc = remWindow:FindFirstChild("killervaultconfirmed")
         if kvc and kvc:IsA("BindableEvent") then
-            table.insert(ScriptConnections, kvc.Event:Connect(function(p1, p2)
-                OnKillerVault(p1, p2)
+            table.insert(ScriptConnections, kvc.Event:Connect(function(targetWindow)
+                local hasCont = KillerHasContainment()
+                if hasCont and targetWindow then
+                    OnKillerVault(targetWindow)
+                end
             end))
         end
         local wb = remWindow:FindFirstChild("WindowBlocked")
         if wb and wb:IsA("BindableEvent") then
             table.insert(ScriptConnections, wb.Event:Connect(function(targetWindow, duration)
-                MarkWindowBlocked(targetWindow, duration or 30)
+                MarkWindowBlocked(targetWindow, duration or 16, true)
             end))
         end
     end
@@ -10493,30 +10526,56 @@ if Window and Window.SetVisible and not Window.Visible then
     pcall(function() Window:SetVisible(true, true) end)
 end
 
--- ======== AUTO SKILL CHECK (100% Great Zone + Merciless Storm / KingScourge Multi-Check Support) ========
+-- ======== AUTO SKILL CHECK (100% Great Zone + Generator / Healing / Bear Trap Support) ========
 do
 local skillCheckTriggered = false
 local lastTriggeredGoalRot = nil
+local lastLineRot = nil
 
 table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
     if not Config.AutoSkillCheck or IsInLobby() or IsCutsceneActive() then return end
     pcall(function()
-        local scPrompt = LocalPlayer.PlayerGui:FindFirstChild("SkillCheckPromptGui")
+        local pg = LocalPlayer:FindFirstChild("PlayerGui")
+        if not pg then return end
+        local scPrompt = pg:FindFirstChild("SkillCheckPromptGui") or pg:FindFirstChild("SkillCheckPromptGui-con")
         local check = scPrompt and scPrompt:FindFirstChild("Check")
         if check and check.Visible then
-            local goal = check:FindFirstChild("Goal")
             local line = check:FindFirstChild("Line")
-            if goal and line then
-                local gRot = goal.Rotation
+            if not line then return end
+
+            -- Resolve active goal: Bear Trap uses TrapGoal/TrapPerfect, Generators & Healing use Goal
+            local trapGoal = check:FindFirstChild("TrapGoal")
+            local trapPerf = check:FindFirstChild("TrapPerfect")
+            local stdGoal = check:FindFirstChild("Goal")
+
+            local activeGoal = nil
+            if trapGoal and trapGoal.Visible then
+                activeGoal = trapGoal
+            elseif trapPerf and trapPerf.Visible then
+                activeGoal = trapPerf
+            elseif stdGoal and stdGoal.Visible then
+                activeGoal = stdGoal
+            else
+                activeGoal = stdGoal or trapGoal or trapPerf
+            end
+
+            if activeGoal then
+                local gRot = activeGoal.Rotation
                 local lRot = line.Rotation
-                -- Reset trigger lock immediately when Goal.Rotation jumps to a new position (KingScourge / Merciless Storm consecutive checks)
+
+                -- Reset trigger lock if needle wraps or goal jumps to a new angle (KingScourge / Merciless / Trap continuous checks)
                 if lastTriggeredGoalRot ~= nil and math.abs(gRot - lastTriggeredGoalRot) > 0.5 then
                     skillCheckTriggered = false
                 end
-                local minGreat = gRot + 103.5
-                local maxGreat = gRot + 115
+                if lastLineRot ~= nil and (lRot < lastLineRot - 15) then
+                    skillCheckTriggered = false
+                end
+                lastLineRot = lRot
 
-                if lRot >= minGreat and lRot <= maxGreat and not skillCheckTriggered then
+                local diff = (lRot - gRot) % 360
+                local isGreat = (diff >= 103.0 and diff <= 115.0) or (lRot >= gRot + 103.0 and lRot <= gRot + 115.0)
+
+                if isGreat and not skillCheckTriggered then
                     skillCheckTriggered = true
                     lastTriggeredGoalRot = gRot
                     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
@@ -10529,6 +10588,7 @@ table.insert(ScriptConnections, RunService.RenderStepped:Connect(function()
         else
             skillCheckTriggered = false
             lastTriggeredGoalRot = nil
+            lastLineRot = nil
         end
     end)
 end))
