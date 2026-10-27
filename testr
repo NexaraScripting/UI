@@ -1,6 +1,3 @@
--- Nexara Studio | Violence District - UI Module
--- Generated for modular loading (reduces main script size, optimizes LuaArmor/FlowAuth load times and prevents FPS drops)
-
 return function(ctx)
     local Window = ctx.Window
     local Config = ctx.Config
