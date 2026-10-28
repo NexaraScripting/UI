@@ -51,6 +51,2664 @@ return function(ctx)
     local LocalPlayer = Players.LocalPlayer
     local Camera = Workspace.CurrentCamera
 
+    local CachedPlayerData = ctx.CachedPlayerData
+    local PersistentPerksCache = ctx.PersistentPerksCache
+    local KillerPerkCooldowns = ctx.KillerPerkCooldowns
+    local SurvivorPerkCooldowns = ctx.SurvivorPerkCooldowns
+    local PlayerItemCooldowns = ctx.PlayerItemCooldowns
+    local SetupPlayerGuiModal = ctx.SetupPlayerGuiModal
+    local modalUnlockBtn = ctx.modalUnlockBtn
+    local ClearPlayerCooldowns, GetItemCooldown, StepAutoSkillCheck, UpdateMouseUnlockBinding, UpdateFlashlightBlindness
+    local mouseUnlockBound = false
+do
+local CureFlaskCooldownEnd = 0
+local VeilSpearCooldownEnd = 0
+local VeilVoidCooldownEnd = 0
+local LastVeilSpears = 2
+local LastVeilWasCharged = false
+local HiddenLeapCooldownEnd = 0
+local HiddenMarkCooldownEnd = 0
+local SlasherMistCooldownEnd = 0
+local SlasherMistActiveEnd = 0
+local SlasherPursuitCooldownEnd = 0
+local SlasherPursuitActiveEnd = 0
+local LastSlasherMist = false
+local LastSlasherPursuit = false
+local StalkerGraspCooldownEnd = 0
+local StalkerHunterEnd = 0
+local StalkerStalkPct = 0
+local StalkerGraspReady = false
+local StalkerIsStalking = false
+local MaskedActiveEnd = 0
+local MaskedCooldownEnd = 0
+local LastMaskedState = "Richard"
+local KillerFrenzyActiveEnd = 0
+local KillerFrenzyCooldownEnd = 0
+local LastKillerFrenzy = false
+local LastStalkerStage = 1
+local LastCurePrepareFlask = false
+local AbyssSlashCooldownEnd = 0
+local AbyssBurstCooldownEnd = 0
+local LastAbyssSlash = false
+local LastAbyssBurst = false
+local ButcherChainCooldownEnd = 0
+local ButcherTrapCooldownEnd = 0
+local MaskDatabase = {
+    ["alex"] = { Name = "Alex", Animal = "Swans", ModelName = "alex", Title = "ALEX (SWANS)", Effect = "CHAINSAW DASH ATTACK", Tip = "Killer rushes forward with a chainsaw dash! Dodge sideways to force a wall-stun!", Color = Color3.fromRGB(245, 245, 255), Icon = "rbxassetid://110441838520158" },
+    ["brandon"] = { Name = "Brandon", Animal = "Panther", ModelName = "Brandon", Title = "BRANDON (PANTHER)", Effect = "EXTREME MOVEMENT SPEED", Tip = "Killer gains massive movement speed! Pre-run early, do not run in straight lines!", Color = Color3.fromRGB(255, 215, 0), Icon = "rbxassetid://110441838520158" },
+    ["cobra"] = { Name = "Cobra", Animal = "Cobra", ModelName = "Cobra", Title = "COBRA (SNAKE)", Effect = "EXTENDED LUNGE REACH", Tip = "Killer basic attacks lunge significantly further! Drop pallets early, do not greed loops!", Color = Color3.fromRGB(50, 220, 80), Icon = "rbxassetid://110441838520158" },
+    ["rabbit"] = { Name = "Rabbit", Animal = "Rabbit", ModelName = "rabbit", Title = "RABBIT (HARE)", Effect = "RUNNING FAST VAULT", Tip = "Killer vaults pallets & windows at full sprint speed! Do not loop tight windows!", Color = Color3.fromRGB(255, 140, 40), Icon = "rbxassetid://110441838520158" },
+    ["richter"] = { Name = "Richter", Animal = "Rat", ModelName = "Richter", Title = "RICHTER (RAT)", Effect = "SILENT ASSAULT & STEALTH", Tip = "Reduced terror radius and quiet approach! Keep high visual awareness!", Color = Color3.fromRGB(160, 140, 220), Icon = "rbxassetid://110441838520158" },
+    ["tony"] = { Name = "Tony", Animal = "Tiger", ModelName = "Tony", Title = "TONY (TIGER)", Effect = "LETHAL PUNCHES (INSTADOWN)", Tip = "Killer attacks with bare fists for INSTANT KNOCKDOWN! Keep maximum distance!", Color = Color3.fromRGB(255, 60, 60), Icon = "rbxassetid://110441838520158" },
+    ["richard"] = { Name = "Richard", Animal = "Rooster", ModelName = "Richard", Title = "RICHARD (ROOSTER)", Effect = "MASK EXPIRED (30s COOLDOWN)", Tip = "Killer power has expired and is on cooldown for 30 seconds.", Color = Color3.fromRGB(170, 175, 185), Icon = "rbxassetid://110441838520158" },
+}
+MaskDatabase["duck"] = MaskDatabase["alex"]
+MaskDatabase["swan"] = MaskDatabase["alex"]
+MaskDatabase["jake"] = MaskDatabase["cobra"]
+MaskDatabase["graham"] = MaskDatabase["rabbit"]
+local _MaskAssetCache = {}
+local function ResolveMaskInfo(maskName)
+    if not maskName or maskName == "" then return nil end
+    local clean = tostring(maskName):lower():gsub("%s+", ""):gsub("[^%a]", "")
+    if MaskDatabase[clean] then
+        return MaskDatabase[clean]
+    end
+    for k, v in pairs(MaskDatabase) do
+        if clean:find(k, 1, true) or k:find(clean, 1, true) then
+            return v
+        end
+    end
+    return {
+        Name = maskName,
+        Animal = maskName,
+        ModelName = maskName,
+        Title = "THE MASKED: " .. maskName:upper(),
+        Effect = maskName:upper() .. " POWER ACTIVE",
+        Tip = "The Masked has activated a special mask power!",
+        Color = Color3.fromRGB(255, 120, 50),
+        Icon = "rbxassetid://110441838520158",
+    }
+end
+local MaskAlertGui = nil
+local MaskAlertBanner = nil
+local MaskAlertIcon = nil
+local MaskAlertVPF = nil
+local MaskAlertSub = nil
+local MaskAlertTitle = nil
+local MaskAlertTip = nil
+local MaskAlertStroke = nil
+local MaskAlertToken = 0
+local function SetupMaskViewport(vpf, maskName)
+    if not vpf then return false end
+    local ok, success = pcall(function()
+        vpf:ClearAllChildren()
+        local rs = game:GetService("ReplicatedStorage")
+        local kFolder = rs:FindFirstChild("Killers") and rs.Killers:FindFirstChild("Masked")
+        local mModel = kFolder and kFolder:FindFirstChild("Model")
+        if not mModel then return false end
+        local targetAcc = nil
+        local clean = tostring(maskName or ""):lower():gsub("%s+", ""):gsub("[^%a]", "")
+        for _, c in ipairs(mModel:GetChildren()) do
+            local cName = c.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if cName == clean or cName:find(clean, 1, true) or clean:find(cName, 1, true) then
+                targetAcc = c
+                break
+            end
+        end
+        if not targetAcc then
+            if clean:find("jake") or clean:find("cobra") or clean:find("snake") then targetAcc = mModel:FindFirstChild("Cobra")
+            elseif clean:find("graham") or clean:find("rabbit") or clean:find("hare") then targetAcc = mModel:FindFirstChild("rabbit")
+            elseif clean:find("swan") or clean:find("alex") or clean:find("duck") then targetAcc = mModel:FindFirstChild("alex")
+            elseif clean:find("tony") or clean:find("tiger") then targetAcc = mModel:FindFirstChild("Tony")
+            elseif clean:find("richter") or clean:find("rat") then targetAcc = mModel:FindFirstChild("Richter")
+            elseif clean:find("brandon") or clean:find("panther") then targetAcc = mModel:FindFirstChild("Brandon")
+            elseif clean:find("richard") or clean:find("rooster") or clean:find("chicken") then targetAcc = mModel:FindFirstChild("Richard")
+            end
+        end
+        if targetAcc then
+            local mp = targetAcc:FindFirstChildWhichIsA("MeshPart", true) or targetAcc:FindFirstChild("Handle") or targetAcc:FindFirstChildWhichIsA("BasePart", true)
+            if mp then
+                local clone = mp:Clone()
+                clone.Transparency = 0
+                for _, part in ipairs(clone:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.Transparency = 0
+                    end
+                end
+                local isAlex = (targetAcc.Name:lower() == "alex") or clean:find("alex") or clean:find("duck") or clean:find("swan")
+                local rotY = isAlex and math.rad(-15) or math.rad(165)
+                clone.CFrame = CFrame.new(0, 0, 0) * CFrame.Angles(math.rad(-6), rotY, 0)
+                clone.Parent = vpf
+                local cam = Instance.new("Camera")
+                cam.FieldOfView = 34
+                local sz = mp.Size.Magnitude
+                cam.CFrame = CFrame.new(Vector3.new(0, 0.05, sz * 1.35), Vector3.new(0, 0, 0))
+                cam.Parent = vpf
+                vpf.CurrentCamera = cam
+                vpf.Ambient = Color3.fromRGB(240, 240, 240)
+                vpf.LightColor = Color3.fromRGB(255, 255, 255)
+                vpf.LightDirection = Vector3.new(0, 0.5, -1).Unit
+                return true
+            end
+        end
+        return false
+    end)
+    return ok and success
+end
+local function EnsureMaskAlertUI()
+    if MaskAlertGui and MaskAlertBanner and MaskAlertBanner.Parent then return end
+    pcall(function()
+        local parentGui = (gethui and gethui()) or LocalPlayer:FindFirstChild("PlayerGui") or game:GetService("CoreGui")
+        local existing = parentGui:FindFirstChild("Nexara_MaskAlertGui")
+        if existing then existing:Destroy() end
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "Nexara_MaskAlertGui"
+        sg.ResetOnSpawn = false
+        sg.DisplayOrder = 100
+        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        sg.Parent = parentGui
+        MaskAlertGui = sg
+        local banner = Instance.new("Frame")
+        banner.Name = "MaskAlertBanner"
+        banner.AnchorPoint = Vector2.new(0.5, 0)
+        banner.Size = UDim2.fromOffset(360, 56)
+        banner.Position = UDim2.new(0.5, 0, 0, 18)
+        banner.BackgroundColor3 = Color3.fromRGB(14, 15, 20)
+        banner.BackgroundTransparency = 1
+        banner.BorderSizePixel = 0
+        banner.Visible = false
+        banner.Parent = sg
+        MaskAlertBanner = banner
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = banner
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1.5
+        stroke.Color = Color3.fromRGB(50, 220, 80)
+        stroke.Transparency = 1
+        stroke.Parent = banner
+        MaskAlertStroke = stroke
+        local iconBox = Instance.new("Frame")
+        iconBox.Name = "IconContainer"
+        iconBox.Size = UDim2.fromOffset(42, 42)
+        iconBox.Position = UDim2.fromOffset(7, 7)
+        iconBox.BackgroundColor3 = Color3.fromRGB(20, 22, 28)
+        iconBox.BorderSizePixel = 0
+        iconBox.Parent = banner
+        Instance.new("UICorner", iconBox).CornerRadius = UDim.new(0, 6)
+        local maskVpf = Instance.new("ViewportFrame")
+        maskVpf.Name = "MaskVPF"
+        maskVpf.Size = UDim2.new(1, 0, 1, 0)
+        maskVpf.BackgroundTransparency = 1
+        maskVpf.BorderSizePixel = 0
+        maskVpf.Visible = false
+        maskVpf.Parent = iconBox
+        MaskAlertVPF = maskVpf
+        local icon = Instance.new("ImageLabel")
+        icon.Name = "MaskIcon"
+        icon.Size = UDim2.new(1, -4, 1, -4)
+        icon.Position = UDim2.fromOffset(2, 2)
+        icon.BackgroundTransparency = 1
+        icon.Image = "rbxassetid://110441838520158"
+        icon.ImageTransparency = 1
+        icon.ScaleType = Enum.ScaleType.Fit
+        icon.Parent = iconBox
+        MaskAlertIcon = icon
+        local textCol = Instance.new("Frame")
+        textCol.Name = "TextContainer"
+        textCol.Size = UDim2.new(1, -58, 1, -10)
+        textCol.Position = UDim2.fromOffset(54, 5)
+        textCol.BackgroundTransparency = 1
+        textCol.BorderSizePixel = 0
+        textCol.Parent = banner
+        local subLbl = Instance.new("TextLabel")
+        subLbl.Name = "Subtitle"
+        subLbl.Size = UDim2.new(1, 0, 0, 13)
+        subLbl.Position = UDim2.fromOffset(0, 0)
+        subLbl.BackgroundTransparency = 1
+        subLbl.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+        subLbl.TextSize = 10
+        subLbl.TextColor3 = Color3.fromRGB(50, 220, 80)
+        subLbl.TextTransparency = 1
+        subLbl.TextXAlignment = Enum.TextXAlignment.Left
+        subLbl.Text = "[THE MASKED] COBRA (SNAKE)"
+        subLbl.Parent = textCol
+        MaskAlertSub = subLbl
+        local titleLbl = Instance.new("TextLabel")
+        titleLbl.Name = "Title"
+        titleLbl.Size = UDim2.new(1, 0, 0, 18)
+        titleLbl.Position = UDim2.fromOffset(0, 13)
+        titleLbl.BackgroundTransparency = 1
+        titleLbl.FontFace = Font.fromEnum(Enum.Font.Arcade)
+        titleLbl.TextSize = 16
+        titleLbl.TextColor3 = Color3.new(1, 1, 1)
+        titleLbl.TextTransparency = 1
+        titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+        titleLbl.Text = "EXTENDED LUNGE REACH"
+        titleLbl.Parent = textCol
+        MaskAlertTitle = titleLbl
+        local tipLbl = Instance.new("TextLabel")
+        tipLbl.Name = "Tip"
+        tipLbl.Size = UDim2.new(1, 0, 0, 13)
+        tipLbl.Position = UDim2.fromOffset(0, 31)
+        tipLbl.BackgroundTransparency = 1
+        tipLbl.FontFace = Font.fromEnum(Enum.Font.Gotham)
+        tipLbl.TextSize = 9.5
+        tipLbl.TextColor3 = Color3.fromRGB(205, 215, 225)
+        tipLbl.TextTransparency = 1
+        tipLbl.TextXAlignment = Enum.TextXAlignment.Left
+        tipLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        tipLbl.Text = "Killer lunges significantly further! Drop pallets early!"
+        tipLbl.Parent = textCol
+        MaskAlertTip = tipLbl
+    end)
+end
+local lastMaskAlertKey = ""
+local lastMaskAlertTime = 0
+local function TriggerMaskAlert(maskName, isActivated)
+    if not Config.Alert_MaskChange then return end
+    if IsInLobby() then return end
+    if IsKiller(LocalPlayer) then return end
+    local now = os.clock()
+    local cacheKey = tostring(maskName) .. "_" .. tostring(isActivated)
+    if lastMaskAlertKey == cacheKey and (now - lastMaskAlertTime) < 2.5 then
+        return
+    end
+    lastMaskAlertKey = cacheKey
+    lastMaskAlertTime = now
+    local isMaskActive = (isActivated == true)
+    local info = isMaskActive and (ResolveMaskInfo(maskName) or {
+        Name = maskName or "Mask",
+        Title = "THE MASKED: " .. tostring(maskName):upper(),
+        Effect = "MASK POWER ACTIVE",
+        Tip = "Beware killer ability!",
+        Color = Color3.fromRGB(255, 120, 50),
+        Icon = "rbxassetid://110441838520158"
+    }) or ResolveMaskInfo("Richard") or {
+        Name = "Richard",
+        Animal = "Rooster",
+        ModelName = "Richard",
+        Title = "RICHARD (ROOSTER)",
+        Effect = "MASK INACTIVE (30s COOLDOWN)",
+        Tip = "Killer power is on cooldown for 30 seconds.",
+        Color = Color3.fromRGB(150, 160, 175),
+        Icon = "rbxassetid://110441838520158"
+    }
+    EnsureMaskAlertUI()
+    if not MaskAlertBanner then return end
+    MaskAlertToken = MaskAlertToken + 1
+    local currentToken = MaskAlertToken
+    local accentCol = isMaskActive and (info.Color or Color3.fromRGB(50, 220, 80)) or Color3.fromRGB(150, 160, 175)
+    local subText = isMaskActive and ("[THE MASKED] " .. (info.Title or info.Name:upper())) or "[THE MASKED] POWER EXPIRED"
+    local titleText = isMaskActive and info.Effect or "MASK INACTIVE (30s COOLDOWN)"
+    local tipText = isMaskActive and ("⚠️ " .. (info.Tip or "Beware killer ability!")) or "Switched to Richard. Killer power on cooldown (30s)."
+    MaskAlertSub.Text = subText
+    MaskAlertSub.TextColor3 = accentCol
+    MaskAlertTitle.Text = titleText
+    MaskAlertTip.Text = tipText
+    MaskAlertStroke.Color = accentCol
+    local targetModelName = isMaskActive and (info.ModelName or info.Name) or "Richard"
+    local has3d = SetupMaskViewport(MaskAlertVPF, targetModelName)
+    if has3d and MaskAlertVPF then
+        MaskAlertVPF.Visible = true
+        if MaskAlertIcon then MaskAlertIcon.Visible = false end
+    else
+        if MaskAlertVPF then MaskAlertVPF.Visible = false end
+        if MaskAlertIcon then
+            local fallbackIcon = isMaskActive and (info.Icon or "rbxassetid://110441838520158") or "rbxassetid://110441838520158"
+            MaskAlertIcon.Image = fallbackIcon
+            MaskAlertIcon.Visible = true
+        end
+    end
+    pcall(function()
+        if Nexara and Nexara.Notify then
+            Nexara:Notify({
+                Title = isActivated and ("⚠️ THE MASKED: " .. (info.Name or maskName):upper()) or "THE MASKED",
+                Content = isActivated and (info.Effect .. "\n" .. (info.Tip or "")) or "Mask power expired (30s Cooldown)",
+                Duration = isActivated and 5 or 3.5
+            })
+        end
+    end)
+    pcall(function()
+        local snd = Instance.new("Sound")
+        snd.SoundId = isActivated and "rbxassetid://4590662766" or "rbxassetid://4590657391"
+        snd.Volume = 0.65
+        snd.Parent = game:GetService("SoundService")
+        snd:Play()
+        game:GetService("Debris"):AddItem(snd, 2)
+    end)
+    pcall(function()
+        MaskAlertBanner.Visible = true
+        MaskAlertBanner.Position = UDim2.new(0.5, 0, 0, 18)
+        MaskAlertBanner.BackgroundTransparency = 1
+        MaskAlertStroke.Transparency = 1
+        if MaskAlertIcon then MaskAlertIcon.ImageTransparency = 1 end
+        MaskAlertSub.TextTransparency = 1
+        MaskAlertTitle.TextTransparency = 1
+        MaskAlertTip.TextTransparency = 1
+        local animIn = TweenService:Create(MaskAlertBanner, TweenInfo.new(0.32, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0.5, 0, 0, 78),
+            BackgroundTransparency = 0.15
+        })
+        TweenService:Create(MaskAlertStroke, TweenInfo.new(0.32, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), { Transparency = 0.1 }):Play()
+        if MaskAlertIcon and MaskAlertIcon.Visible then
+            TweenService:Create(MaskAlertIcon, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), { ImageTransparency = 0 }):Play()
+        end
+        TweenService:Create(MaskAlertSub, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+        TweenService:Create(MaskAlertTitle, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+        TweenService:Create(MaskAlertTip, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), { TextTransparency = 0 }):Play()
+        animIn:Play()
+        task.spawn(function()
+            task.wait(isActivated and 5.5 or 3.5)
+            if MaskAlertToken == currentToken and MaskAlertBanner and MaskAlertBanner.Parent then
+                local animOut = TweenService:Create(MaskAlertBanner, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                    Position = UDim2.new(0.5, 0, 0, 18),
+                    BackgroundTransparency = 1
+                })
+                TweenService:Create(MaskAlertStroke, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Transparency = 1 }):Play()
+                if MaskAlertIcon and MaskAlertIcon.Visible then
+                    TweenService:Create(MaskAlertIcon, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { ImageTransparency = 1 }):Play()
+                end
+                TweenService:Create(MaskAlertSub, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1 }):Play()
+                TweenService:Create(MaskAlertTitle, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1 }):Play()
+                TweenService:Create(MaskAlertTip, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { TextTransparency = 1 }):Play()
+                animOut:Play()
+                task.wait(0.32)
+                if MaskAlertToken == currentToken and MaskAlertBanner then
+                    MaskAlertBanner.Visible = false
+                end
+            end
+        end)
+    end)
+end
+function ClearPlayerCooldowns(player)
+    if not player then return end
+    local pName = typeof(player) == "Instance" and player.Name or tostring(player)
+    PlayerItemCooldowns[pName] = nil
+    for k in pairs(PlayerItemCooldowns) do
+        if typeof(k) == "string" and k:sub(1, #pName + 1) == pName .. "_" then
+            PlayerItemCooldowns[k] = nil
+        end
+    end
+    PlayerItemCache[player] = nil
+end
+local function SetItemCooldown(player, itemName, duration)
+    if not player or not itemName or not duration then return end
+    if itemName == "Twist of Fate" then return end
+    if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
+    local endTime = os.clock() + (tonumber(duration) or 0)
+    local pName = typeof(player) == "Instance" and player.Name or tostring(player)
+    PlayerItemCooldowns[pName .. "_" .. itemName] = endTime
+    if not PlayerItemCooldowns[pName] then
+        PlayerItemCooldowns[pName] = {}
+    end
+    PlayerItemCooldowns[pName][itemName] = endTime
+end
+function GetItemCooldown(player, itemName)
+    if not player or not itemName then return 0 end
+    if itemName == "Twist of Fate" then return 0 end
+    if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return 0 end
+    local now = os.clock()
+    local pName = typeof(player) == "Instance" and player.Name or tostring(player)
+    local t = PlayerItemCooldowns[pName .. "_" .. itemName]
+    if not t and PlayerItemCooldowns[pName] then
+        t = PlayerItemCooldowns[pName][itemName]
+    end
+    if t and t > now then
+        return math.ceil(t - now)
+    end
+    return 0
+end
+task.spawn(function()
+pcall(function()
+    local rem = ReplicatedStorage:WaitForChild("Remotes", 5)
+    local kp = rem and rem:WaitForChild("KillerPerks", 5)
+    local cdRemote = kp and kp:WaitForChild("Activatecdremote", 5)
+    if cdRemote then
+        table.insert(ScriptConnections, cdRemote.OnClientEvent:Connect(function(slot, dur)
+            if slot and dur then
+                local endT = os.clock() + (tonumber(dur) or 0)
+                if IsKiller(LocalPlayer) then
+                    KillerPerkCooldowns[tostring(slot)] = endT
+                else
+                    SurvivorPerkCooldowns[tostring(slot)] = endT
+                end
+                pcall(function()
+                    if GetPlayerPerks then
+                        for _, p in ipairs(Players:GetPlayers()) do
+                            if IsKiller(p) then GetPlayerPerks(p) end
+                        end
+                    end
+                end)
+            end
+        end))
+    end
+end)
+end)
+local function SetupPlayerCooldownHooks(player)
+    local function onChar(char)
+        if not char then return end
+        ClearPlayerCooldowns(player)
+        PersistentPerksCache[player] = nil
+        local TrackedCooldownAttrs = {
+            Parry = true,
+            ParrySpent = true,
+            IsHooked = true,
+            IsStunned = true,
+            LakeMist = true,
+            Pursuit = true,
+            Mask = true,
+            Frenzy = true,
+            FrenzyEnding = true,
+            Stage = true,
+            StalkStage = true,
+            EvolveStage = true,
+            prepareflask = true,
+            overridelookscript = true,
+            Aiming = true,
+            ChainMove1CD = true,
+            ChainThrows = true,
+            ChainWindupAt = true
+        }
+        table.insert(ScriptConnections, char.AttributeChanged:Connect(function(attrName)
+            if not TrackedCooldownAttrs[attrName] then return end
+            if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
+            if attrName == "Parry" and char:GetAttribute("Parry") == true then
+                SetItemCooldown(player, "Parrying Dagger", 60)
+            elseif attrName == "ParrySpent" then
+                if char:GetAttribute("ParrySpent") == true then
+                    SetItemCooldown(player, "Parrying Dagger", 9999) 
+                else
+                    SetItemCooldown(player, "Parrying Dagger", 0)
+                end
+            elseif attrName == "IsHooked" and char:GetAttribute("IsHooked") == false then
+                SetItemCooldown(player, "Parrying Dagger", 0) 
+            elseif attrName == "IsStunned" and char:GetAttribute("IsStunned") == true and IsKiller(player) then
+                for _, p in ipairs(Players:GetPlayers()) do
+                    if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) then
+                        local cd = GetItemCooldown(p, "Parrying Dagger")
+                        if cd >= 57 then
+                            SetItemCooldown(p, "Parrying Dagger", 90)
+                        end
+                    end
+                end
+            elseif attrName == "LakeMist" then
+                local mActive = char:GetAttribute("LakeMist") == true
+                if mActive and not LastSlasherMist then
+                    LastSlasherMist = true
+                    SlasherMistActiveEnd = os.clock() + 13
+                    SlasherMistCooldownEnd = 0
+                elseif not mActive and LastSlasherMist then
+                    LastSlasherMist = false
+                    SlasherMistActiveEnd = 0
+                    SlasherMistCooldownEnd = os.clock() + 60
+                end
+            elseif attrName == "Pursuit" then
+                local pActive = char:GetAttribute("Pursuit") == true
+                if pActive and not LastSlasherPursuit then
+                    LastSlasherPursuit = true
+                    SlasherPursuitActiveEnd = os.clock() + 20
+                    SlasherPursuitCooldownEnd = os.clock() + 100
+                elseif not pActive and LastSlasherPursuit then
+                    LastSlasherPursuit = false
+                    SlasherPursuitActiveEnd = 0
+                    SlasherPursuitCooldownEnd = os.clock() + 80
+                end
+            elseif attrName == "Mask" then
+                local m = char:GetAttribute("Mask")
+                if m and m ~= "Richard" and LastMaskedState == "Richard" then
+                    MaskedActiveEnd = os.clock() + 60
+                    MaskedCooldownEnd = 0
+                    LastMaskedState = m
+                    TriggerMaskAlert(m, true)
+                elseif m and m ~= "Richard" and LastMaskedState ~= "Richard" and LastMaskedState ~= m then
+                    LastMaskedState = m
+                    TriggerMaskAlert(m, true)
+                elseif m == "Richard" and LastMaskedState ~= "Richard" then
+                    local prevMask = LastMaskedState
+                    LastMaskedState = "Richard"
+                    MaskedActiveEnd = 0
+                    MaskedCooldownEnd = os.clock() + 30
+                    TriggerMaskAlert(prevMask, false)
+                end
+            elseif attrName == "Frenzy" then
+                local fActive = char:GetAttribute("Frenzy") == true
+                if fActive and not LastKillerFrenzy then
+                    LastKillerFrenzy = true
+                    KillerFrenzyActiveEnd = os.clock() + 13
+                    KillerFrenzyCooldownEnd = 0
+                elseif not fActive and LastKillerFrenzy then
+                    LastKillerFrenzy = false
+                    KillerFrenzyActiveEnd = 0
+                    KillerFrenzyCooldownEnd = os.clock() + 20
+                end
+            elseif attrName == "FrenzyEnding" then
+                local fEnding = char:GetAttribute("FrenzyEnding") == true
+                if fEnding then
+                    LastKillerFrenzy = false
+                    KillerFrenzyActiveEnd = 0
+                    if (KillerFrenzyCooldownEnd - os.clock()) <= 0 then
+                        KillerFrenzyCooldownEnd = os.clock() + 20
+                    end
+                end
+            elseif attrName == "Stage" or attrName == "StalkStage" or attrName == "EvolveStage" then
+                local stage = tonumber(char:GetAttribute(attrName)) or 1
+                if stage ~= LastStalkerStage then
+                    StalkerStalkPct = 0
+                end
+                if stage >= 3 and LastStalkerStage < 3 then
+                    StalkerHunterEnd = os.clock() + 70
+                    StalkerGraspCooldownEnd = 0
+                    LastStalkerStage = stage
+                elseif stage < 3 and LastStalkerStage >= 3 then
+                    StalkerHunterEnd = 0
+                    StalkerGraspCooldownEnd = os.clock() + 15
+                    LastStalkerStage = stage
+                else
+                    LastStalkerStage = stage
+                end
+            elseif attrName == "prepareflask" then
+                local isPrep = char:GetAttribute("prepareflask") == true
+                if isPrep and not LastCurePrepareFlask then
+                    LastCurePrepareFlask = true
+                elseif not isPrep and LastCurePrepareFlask then
+                    LastCurePrepareFlask = false
+                    if not char:FindFirstChild("Flask") and not char:FindFirstChild("Curetool") then
+                        CureFlaskCooldownEnd = os.clock() + 15
+                    end
+                end
+            elseif (attrName == "overridelookscript" or attrName == "Aiming") and char:GetAttribute(attrName) == true then
+                local eqItem = player:GetAttribute("EquippedItem")
+                if eqItem == "Gate" or char:FindFirstChild("Gate") then
+                    SetItemCooldown(player, "Gate", 60)
+                elseif eqItem == "Shadow Clone" or char:FindFirstChild("Shadow Clone") then
+                    SetItemCooldown(player, "Shadow Clone", 60)
+                elseif eqItem == "WaxBound Candle" or char:FindFirstChild("WaxBound Candle") then
+                    SetItemCooldown(player, "WaxBound Candle", 35)
+                end
+            elseif attrName == "ChainMove1CD" then
+                local cdDur = tonumber(char:GetAttribute("ChainMove1CD")) or 0
+                if cdDur > 0 then
+                    ButcherChainCooldownEnd = os.clock() + cdDur
+                else
+                    ButcherChainCooldownEnd = 0
+                end
+            elseif attrName == "ChainThrows" then
+                local throws = tonumber(char:GetAttribute("ChainThrows")) or 0
+                if throws > 0 and (ButcherChainCooldownEnd - os.clock()) <= 0 then
+                    ButcherChainCooldownEnd = os.clock() + 15
+                end
+            end
+        end))
+        task.spawn(function()
+            local hum = char:WaitForChild("Humanoid", 10)
+            local animator = hum and hum:WaitForChild("Animator", 10)
+            if animator then
+                table.insert(ScriptConnections, animator.AnimationPlayed:Connect(function(track)
+                    if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
+                    local anim = track.Animation
+                    local id = anim and tostring(anim.AnimationId) or ""
+                    if id:find("125224839697689") then
+                        LastSlasherPursuit = true
+                        SlasherPursuitActiveEnd = os.clock() + 20
+                        SlasherPursuitCooldownEnd = os.clock() + 100
+                    elseif id:find("81793464499285") then
+                        SetItemCooldown(player, "Parrying Dagger", 60)
+                    elseif id:find("79311585097396") or id:find("104947844641383") then
+                        SetItemCooldown(player, "Riot Shield", 50)
+                    elseif id:find("108808628680823") then
+                        SetItemCooldown(player, "Holy Water", 70)
+                    elseif id:find("101003929747834") then
+                        SetItemCooldown(player, "Gate", 60)
+                    elseif id:find("81862329683527") or id:find("130738331331686") then
+                        SetItemCooldown(player, "Adrenaline Shot", 60)
+                    elseif id:find("135093388666935") then
+                        SetItemCooldown(player, "WaxBound Candle", 35)
+                    elseif id:find("106585152202320") then
+                        SetItemCooldown(player, "Shadow Clone", 60)
+                    elseif id:find("80411309607666") then
+                        LastAbyssSlash = true
+                        AbyssSlashCooldownEnd = os.clock() + 33
+                    elseif id:find("117886494230451") or id:find("100092272524635") then
+                        LastAbyssBurst = true
+                        AbyssBurstCooldownEnd = os.clock() + 30
+                    end
+                end))
+                table.insert(ScriptConnections, hum:GetPropertyChangedSignal("Health"):Connect(function()
+                    if IsPlayerDead(player) then
+                        ClearPlayerCooldowns(player)
+                        return
+                    end
+                    local cd = GetItemCooldown(player, "Gate")
+                    if cd >= 58 then
+                        SetItemCooldown(player, "Gate", 5)
+                    end
+                    local cdSC = GetItemCooldown(player, "Shadow Clone")
+                    if cdSC >= 58 then
+                        SetItemCooldown(player, "Shadow Clone", 5)
+                    end
+                end))
+                table.insert(ScriptConnections, hum.Died:Connect(function()
+                    ClearPlayerCooldowns(player)
+                end))
+            end
+        end)
+        task.spawn(function()
+            local hrp = char:WaitForChild("HumanoidRootPart", 10)
+            if hrp then
+                table.insert(ScriptConnections, hrp.ChildRemoved:Connect(function(child)
+                    if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
+                    if child.Name == "RushVelocity" or child.Name == "RushAttachment" then
+                        SetItemCooldown(player, "Riot Shield", 50)
+                    end
+                end))
+            end
+        end)
+        table.insert(ScriptConnections, char.ChildRemoved:Connect(function(child)
+            if child.Name == "Adrenaline Shot" and not IsPlayerDead(player) and not IsPlayerInLobby(player) then
+                SetItemCooldown(player, "Adrenaline Shot", 60)
+            elseif (child.Name == "Flask" or child.Name == "Curetool") and not IsPlayerDead(player) and not IsPlayerInLobby(player) then
+                CureFlaskCooldownEnd = os.clock() + 15
+            elseif (child.Name == "Spear1" or child.Name == "Spear2") and not IsPlayerDead(player) and not IsPlayerInLobby(player) then
+                if LastVeilWasCharged then
+                    VeilVoidCooldownEnd = os.clock() + 30
+                    LastVeilWasCharged = false
+                end
+                if (VeilSpearCooldownEnd - os.clock()) <= 0 then
+                    VeilSpearCooldownEnd = os.clock() + 15
+                end
+            end
+        end))
+        task.spawn(function()
+            local function hookItem(c)
+                if not c or not (c:IsA("Model") or c:IsA("Tool")) then return end
+                local lastUses = tonumber(c:GetAttribute("uses") or c:GetAttribute("Uses"))
+                table.insert(ScriptConnections, c.AttributeChanged:Connect(function(attr)
+                    if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
+                    if attr == "uses" or attr == "Uses" then
+                        local cur = tonumber(c:GetAttribute(attr))
+                        if lastUses and cur and cur < lastUses then
+                            if c.Name == "WaxBound Candle" then
+                                SetItemCooldown(player, "WaxBound Candle", 35)
+                            end
+                        end
+                        lastUses = cur
+                    end
+                end))
+                for _, d in ipairs(c:GetDescendants()) do
+                    if d:IsA("Sound") then
+                        table.insert(ScriptConnections, d:GetPropertyChangedSignal("Playing"):Connect(function()
+                            if not d.Playing or IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return end
+                            if c.Name == "Gate" then
+                                SetItemCooldown(player, "Gate", 60)
+                            elseif c.Name == "WaxBound Candle" then
+                                SetItemCooldown(player, "WaxBound Candle", 35)
+                            elseif c.Name == "Parrying Dagger" and GetItemCooldown(player, "Parrying Dagger") <= 0 then
+                                SetItemCooldown(player, "Parrying Dagger", 60)
+                            end
+                        end))
+                    end
+                end
+            end
+            for _, c in ipairs(char:GetChildren()) do
+                hookItem(c)
+            end
+            table.insert(ScriptConnections, char.ChildAdded:Connect(hookItem))
+        end)
+    end
+    if player.Character then
+        task.spawn(onChar, player.Character)
+    end
+    table.insert(ScriptConnections, player.CharacterAdded:Connect(function(newChar)
+        if PlayerItemCache then PlayerItemCache[player] = nil end
+        if CachedPlayerData then CachedPlayerData[player] = nil end
+        local esp = ESP_Objects and ESP_Objects[player]
+        if esp and esp.Chams then
+            pcall(function()
+                esp.Chams.Enabled = false
+                esp.Chams.Adornee = nil
+                esp.Chams:Destroy()
+            end)
+            esp.Chams = nil
+        end
+        onChar(newChar)
+    end))
+    table.insert(ScriptConnections, player.CharacterRemoving:Connect(function()
+        if PlayerItemCache then PlayerItemCache[player] = nil end
+        if CachedPlayerData then CachedPlayerData[player] = nil end
+        local esp = ESP_Objects and ESP_Objects[player]
+        if esp and esp.Chams then
+            pcall(function()
+                esp.Chams.Enabled = false
+                esp.Chams.Adornee = nil
+                esp.Chams:Destroy()
+            end)
+            esp.Chams = nil
+        end
+    end))
+end
+for _, p in ipairs(Players:GetPlayers()) do
+    SetupPlayerCooldownHooks(p)
+end
+table.insert(ScriptConnections, Players.PlayerAdded:Connect(SetupPlayerCooldownHooks))
+local function CheckKillerStunned()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and p.Character then
+            local cd = GetItemCooldown(p, "Parrying Dagger")
+            if cd >= 57 then
+                SetItemCooldown(p, "Parrying Dagger", 90)
+            end
+        end
+    end
+end
+local function HookKillerStun(kChar)
+    if not kChar then return end
+    table.insert(ScriptConnections, kChar:GetAttributeChangedSignal("IsStunned"):Connect(function()
+        if kChar:GetAttribute("IsStunned") == true then
+            CheckKillerStunned()
+            if TofCombat and TofCombat.TriggerHitmarker then
+                local myChar = LocalPlayer.Character
+                local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+                local kHrp = kChar:FindFirstChild("HumanoidRootPart")
+                local kTorso = kChar:FindFirstChild("Torso") or kChar:FindFirstChild("UpperTorso") or kHrp
+                if myHrp and kHrp and (myHrp.Position - kHrp.Position).Magnitude < 45 then
+                    TofCombat.TriggerHitmarker(true, (kTorso and kTorso.Position) or kHrp.Position, kTorso or kHrp)
+                    if TofCombat.LogHit then
+                        local dist = (myHrp.Position - kHrp.Position).Magnitude
+                        local kPlr = Players:GetPlayerFromCharacter(kChar)
+                        TofCombat.LogHit(kPlr, kChar, kTorso or kHrp, dist, true)
+                    end
+                end
+            end
+        end
+    end))
+end
+if IsKiller(LocalPlayer) and LocalPlayer.Character then
+    HookKillerStun(LocalPlayer.Character)
+end
+table.insert(ScriptConnections, LocalPlayer.CharacterAdded:Connect(function(c)
+    if IsKiller(LocalPlayer) then HookKillerStun(c) end
+end))
+task.spawn(function()
+pcall(function()
+    local rem = ReplicatedStorage:WaitForChild("Remotes", 5)
+    local items = rem and rem:WaitForChild("Items", 5)
+    if items then
+        local function setEquippedUsersCD(itemName, cd)
+            for _, p in ipairs(Players:GetPlayers()) do
+                if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and (p:GetAttribute("EquippedItem") == itemName or (p.Character and p.Character:FindFirstChild(itemName))) then
+                    SetItemCooldown(p, itemName, cd)
+                end
+            end
+        end
+        local hw = items:FindFirstChild("Holy Water")
+        local vg = hw and hw:FindFirstChild("VisualizeGrenade")
+        if vg and vg:IsA("RemoteEvent") then
+            table.insert(ScriptConnections, vg.OnClientEvent:Connect(function(origin)
+                if typeof(origin) == "Vector3" then
+                    local closest, minD = nil, 25
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        local hrp = not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+                        if hrp then
+                            local d = (hrp.Position - origin).Magnitude
+                            if d < minD then minD = d; closest = p end
+                        end
+                    end
+                    if closest then SetItemCooldown(closest, "Holy Water", 70) end
+                end
+            end))
+        end
+        local sc = items:FindFirstChild("Shadow Clone")
+        if sc then
+            for _, child in ipairs(sc:GetChildren()) do
+                if child:IsA("RemoteEvent") then
+                    table.insert(ScriptConnections, child.OnClientEvent:Connect(function() setEquippedUsersCD("Shadow Clone", 60) end))
+                end
+            end
+        end
+        local wbc = items:FindFirstChild("WaxBound Candle")
+        local fire = wbc and wbc:FindFirstChild("Fire")
+        if fire and fire:IsA("RemoteEvent") then
+            table.insert(ScriptConnections, fire.OnClientEvent:Connect(function() setEquippedUsersCD("WaxBound Candle", 35) end))
+        end
+        local gateFolder = items:FindFirstChild("Gate")
+        if gateFolder then
+            for _, rName in ipairs({"gate", "audio"}) do
+                local gr = gateFolder:FindFirstChild(rName)
+                if gr and gr:IsA("RemoteEvent") then
+                    table.insert(ScriptConnections, gr.OnClientEvent:Connect(function() setEquippedUsersCD("Gate", 60) end))
+                end
+            end
+        end
+        local pd = items:FindFirstChild("Parrying Dagger")
+        local pr = pd and pd:FindFirstChild("parryResult")
+        if pr and pr:IsA("RemoteEvent") then
+            table.insert(ScriptConnections, pr.OnClientEvent:Connect(function(success, dur)
+                SetItemCooldown(LocalPlayer, "Parrying Dagger", tonumber(dur) or (success and 90 or 60))
+            end))
+        end
+        local rs = items:FindFirstChild("Riot Shield")
+        if rs then
+            local rr = rs:FindFirstChild("RushResult")
+            if rr and rr:IsA("RemoteEvent") then
+                table.insert(ScriptConnections, rr.OnClientEvent:Connect(function(_, dur) setEquippedUsersCD("Riot Shield", tonumber(dur) or 50) end))
+            end
+            local rstop = rs:FindFirstChild("RushStop")
+            if rstop and rstop:IsA("RemoteEvent") then
+                table.insert(ScriptConnections, rstop.OnClientEvent:Connect(function(dur) setEquippedUsersCD("Riot Shield", tonumber(dur) or 50) end))
+            end
+        end
+    end
+    local modRem = rem and rem:FindFirstChild("Modules")
+    local fvfx = modRem and modRem:FindFirstChild("forgevfx")
+    if fvfx and fvfx:IsA("RemoteEvent") then
+        table.insert(ScriptConnections, fvfx.OnClientEvent:Connect(function(action, charModel)
+            if (action == "stop" or action == "emit") and typeof(charModel) == "Instance" then
+                local plr = Players:GetPlayerFromCharacter(charModel)
+                if plr and not IsKiller(plr) and not IsPlayerDead(plr) then
+                    SetItemCooldown(plr, "Riot Shield", 50)
+                end
+            end
+        end))
+    end
+    local clonesFolder = Workspace:FindFirstChild("Clones") or Workspace:WaitForChild("Clones", 3)
+    if clonesFolder then
+        table.insert(ScriptConnections, clonesFolder.ChildAdded:Connect(function(clone)
+            local cPart = clone:IsA("Model") and (clone.PrimaryPart or clone:FindFirstChild("HumanoidRootPart"))
+            local clonePos = cPart and cPart.Position
+            local bestP, bestD = nil, 999
+            for _, p in ipairs(Players:GetPlayers()) do
+                if not IsKiller(p) and not IsPlayerDead(p) and not IsPlayerInLobby(p) and (p:GetAttribute("EquippedItem") == "Shadow Clone" or (p.Character and p.Character:FindFirstChild("Shadow Clone"))) then
+                    local hrp = clonePos and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        local d = (hrp.Position - clonePos).Magnitude
+                        if d < bestD then bestD = d; bestP = p end
+                    else
+                        bestP = p
+                    end
+                end
+            end
+            if bestP then SetItemCooldown(bestP, "Shadow Clone", 60) end
+        end))
+    end
+end)
+end)
+table.insert(ScriptConnections, Workspace.ChildAdded:Connect(function(child)
+    local cName = child.Name:lower()
+    if cName:find("spear") then
+        task.spawn(function()
+            if (VeilSpearCooldownEnd - os.clock()) <= 0 then
+                VeilSpearCooldownEnd = os.clock() + 15
+            end
+            task.wait(0.04)
+            for _, pe in ipairs(child:GetDescendants()) do
+                if pe:IsA("ParticleEmitter") and pe.Enabled then
+                    VeilVoidCooldownEnd = os.clock() + 30
+                    break
+                end
+            end
+        end)
+    end
+end))
+task.spawn(function()
+    pcall(function()
+        local rem = ReplicatedStorage:WaitForChild("Remotes", 5)
+        if not rem then return end
+        local function attachVisualize(visRemote)
+            if not visRemote then return end
+            table.insert(ScriptConnections, visRemote.OnClientEvent:Connect(function(caster, dir, speed)
+                if LastVeilWasCharged then
+                    VeilVoidCooldownEnd = os.clock() + 30
+                    LastVeilWasCharged = false
+                end
+                if (VeilSpearCooldownEnd - os.clock()) <= 0 then
+                    VeilSpearCooldownEnd = os.clock() + 15
+                end
+                local spd = tonumber(speed) or 0
+                if spd > 150 then
+                    VeilVoidCooldownEnd = os.clock() + 30
+                end
+            end))
+        end
+        local mech = rem:FindFirstChild("Mechanics") or rem:FindFirstChild("Player")
+        attachVisualize(mech and mech:FindFirstChild("visualize"))
+        local kRem = rem:WaitForChild("Killers", 5)
+        if not kRem then return end
+        local veilRem = kRem:FindFirstChild("Veil")
+        if veilRem then
+            attachVisualize(veilRem:FindFirstChild("visualize"))
+            local st = veilRem:FindFirstChild("Spearthrow")
+            if st then
+                table.insert(ScriptConnections, st.OnClientEvent:Connect(function(dir, speed)
+                    if (VeilSpearCooldownEnd - os.clock()) <= 0 then
+                        VeilSpearCooldownEnd = os.clock() + 15
+                    end
+                    local spd = tonumber(speed) or 0
+                    if spd > 150 then
+                        VeilVoidCooldownEnd = os.clock() + 30
+                    end
+                end))
+            end
+            local vfx = veilRem:FindFirstChild("vfx")
+            if vfx then
+                table.insert(ScriptConnections, vfx.OnClientEvent:Connect(function(spearNum, isAction, isCharged)
+                    if isCharged == true then
+                        VeilVoidCooldownEnd = os.clock() + 30
+                    end
+                end))
+            end
+            local echoFolder = veilRem:FindFirstChild("Echo")
+            if echoFolder then
+                local echoTrigger = echoFolder:FindFirstChild("EchoVoid_Trigger")
+                if echoTrigger then
+                    table.insert(ScriptConnections, echoTrigger.OnClientEvent:Connect(function()
+                        VeilVoidCooldownEnd = os.clock() + 30
+                    end))
+                end
+            end
+        end
+        local cureRem = kRem:FindFirstChild("Cure")
+        if cureRem then
+            for _, rName in ipairs({"ThrowFlask", "VisualizeFlask"}) do
+                local rf = cureRem:FindFirstChild(rName)
+                if rf then
+                    table.insert(ScriptConnections, rf.OnClientEvent:Connect(function()
+                        CureFlaskCooldownEnd = os.clock() + 15
+                    end))
+                end
+            end
+        end
+        local hiddenRem = kRem:FindFirstChild("Hidden")
+        if hiddenRem then
+            local leapRem = hiddenRem:FindFirstChild("Leap")
+            if leapRem then
+                table.insert(ScriptConnections, leapRem.OnClientEvent:Connect(function()
+                    HiddenLeapCooldownEnd = os.clock() + 25
+                end))
+            end
+            local m2Rem = hiddenRem:FindFirstChild("M2")
+            if m2Rem then
+                table.insert(ScriptConnections, m2Rem.OnClientEvent:Connect(function()
+                    HiddenMarkCooldownEnd = os.clock() + 17
+                end))
+            end
+            local hlRem = hiddenRem:FindFirstChild("highlight")
+            if hlRem then
+                table.insert(ScriptConnections, hlRem.OnClientEvent:Connect(function()
+                    HiddenMarkCooldownEnd = math.max(HiddenMarkCooldownEnd, os.clock() + 17)
+                end))
+            end
+        end
+        local jasonRem = kRem:FindFirstChild("Jason")
+        if jasonRem then
+            local mistRem = jasonRem:FindFirstChild("LakeMist")
+            if mistRem then
+                table.insert(ScriptConnections, mistRem.OnClientEvent:Connect(function(state)
+                    if state == true then
+                        LastSlasherMist = true
+                        SlasherMistActiveEnd = os.clock() + 13
+                        SlasherMistCooldownEnd = 0
+                    elseif state == false then
+                        LastSlasherMist = false
+                        SlasherMistActiveEnd = 0
+                        SlasherMistCooldownEnd = os.clock() + 60
+                    end
+                end))
+            end
+            local pursuitRem = jasonRem:FindFirstChild("Pursuit")
+            if pursuitRem then
+                table.insert(ScriptConnections, pursuitRem.OnClientEvent:Connect(function(status)
+                    if status == nil or status == "confirmed" or status == true then
+                        LastSlasherPursuit = true
+                        SlasherPursuitActiveEnd = os.clock() + 20
+                        SlasherPursuitCooldownEnd = os.clock() + 100
+                    end
+                end))
+            end
+        end
+        local stalkerRem = kRem:FindFirstChild("Stalker")
+        if stalkerRem then
+            local evolRem = stalkerRem:FindFirstChild("EvolveStage") or stalkerRem:FindFirstChild("Evolve")
+            if evolRem then
+                table.insert(ScriptConnections, evolRem.OnClientEvent:Connect(function()
+                    StalkerHunterEnd = os.clock() + 70
+                end))
+            end
+            local updRem = stalkerRem:FindFirstChild("UpdateStalking")
+            if updRem then
+                table.insert(ScriptConnections, updRem.OnClientEvent:Connect(function(pct, stg, graspReady, isStalking)
+                    local rawPct = tonumber(pct) or 0
+                    StalkerStalkPct = math.clamp(math.floor(rawPct), 0, 100)
+                    local nStg = tonumber(stg)
+                    if nStg then
+                        LastStalkerStage = nStg
+                    end
+                    if graspReady ~= nil then
+                        StalkerGraspReady = (graspReady == true)
+                    end
+                    if isStalking ~= nil then
+                        StalkerIsStalking = (isStalking == true)
+                    end
+                end))
+            end
+            local grabRem = stalkerRem:FindFirstChild("grab") or stalkerRem:FindFirstChild("StartGrabHitbox") or stalkerRem:FindFirstChild("GrabResult")
+            if grabRem then
+                table.insert(ScriptConnections, grabRem.OnClientEvent:Connect(function()
+                    StalkerGraspCooldownEnd = os.clock() + 10
+                end))
+            end
+        end
+        local maskedRem = kRem:FindFirstChild("Masked")
+        if maskedRem then
+            local maskRem = maskedRem:FindFirstChild("Activatepower")
+            if maskRem then
+                table.insert(ScriptConnections, maskRem.OnClientEvent:Connect(function(maskName)
+                    MaskedActiveEnd = os.clock() + 60
+                    MaskedCooldownEnd = 0
+                    local m = (maskName and typeof(maskName) == "string" and maskName ~= "") and maskName or "Cobra"
+                    if LastMaskedState ~= m then
+                        LastMaskedState = m
+                        TriggerMaskAlert(m, true)
+                    end
+                end))
+            end
+            local deactRem = maskedRem:FindFirstChild("Deactivatepower")
+            if deactRem then
+                table.insert(ScriptConnections, deactRem.OnClientEvent:Connect(function()
+                    local prev = LastMaskedState ~= "Richard" and LastMaskedState or nil
+                    MaskedActiveEnd = 0
+                    MaskedCooldownEnd = os.clock() + 30
+                    LastMaskedState = "Richard"
+                    if prev then TriggerMaskAlert(prev, false) end
+                end))
+            end
+        end
+        local abyssRem = kRem:FindFirstChild("Abysswalker")
+        if abyssRem then
+            local burstRem = abyssRem:FindFirstChild("corrupt")
+            if burstRem then
+                table.insert(ScriptConnections, burstRem.OnClientEvent:Connect(function()
+                    LastAbyssBurst = true
+                    AbyssBurstCooldownEnd = os.clock() + 30
+                end))
+            end
+            local waveRem = abyssRem:FindFirstChild("visualize")
+            if waveRem then
+                table.insert(ScriptConnections, waveRem.OnClientEvent:Connect(function()
+                    LastAbyssBurst = true
+                    AbyssBurstCooldownEnd = os.clock() + 30
+                end))
+            end
+        end
+        local soundPlayerRem = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("SoundPlayer")
+        if soundPlayerRem then
+            table.insert(ScriptConnections, soundPlayerRem.OnClientEvent:Connect(function(sndId)
+                if sndId and tostring(sndId):find("70398808450410") then
+                    LastAbyssBurst = true
+                    AbyssBurstCooldownEnd = os.clock() + 30
+                end
+            end))
+        end
+        local killerRem = kRem:FindFirstChild("Killer")
+        if killerRem then
+            local actP = killerRem:FindFirstChild("ActivatePower")
+            if actP then
+                table.insert(ScriptConnections, actP.OnClientEvent:Connect(function()
+                    LastKillerFrenzy = true
+                    KillerFrenzyActiveEnd = os.clock() + 13
+                    KillerFrenzyCooldownEnd = 0
+                end))
+            end
+            local hitEvt = killerRem:FindFirstChild("FrenzyHitEvent")
+            if hitEvt then
+                table.insert(ScriptConnections, hitEvt.OnClientEvent:Connect(function()
+                    if LastKillerFrenzy then
+                        KillerFrenzyActiveEnd = os.clock() + 13
+                    end
+                end))
+            end
+            local cdEvt = killerRem:FindFirstChild("CooldownEvent") or killerRem:FindFirstChild("Deactivate")
+            if cdEvt then
+                table.insert(ScriptConnections, cdEvt.OnClientEvent:Connect(function(cdTime)
+                    LastKillerFrenzy = false
+                    KillerFrenzyActiveEnd = 0
+                    local dur = tonumber(cdTime) or 20
+                    KillerFrenzyCooldownEnd = os.clock() + dur
+                end))
+            end
+        end
+        local butcherRem = kRem:FindFirstChild("Butcher")
+        if butcherRem then
+            local chainRem = butcherRem:FindFirstChild("ChainThrow")
+            if chainRem then
+                table.insert(ScriptConnections, chainRem.OnClientEvent:Connect(function()
+                    ButcherChainCooldownEnd = os.clock() + 15
+                end))
+            end
+            local chainClear = butcherRem:FindFirstChild("ChainClear")
+            if chainClear then
+                table.insert(ScriptConnections, chainClear.OnClientEvent:Connect(function()
+                    if (ButcherChainCooldownEnd - os.clock()) <= 0 then
+                        ButcherChainCooldownEnd = os.clock() + 15
+                    end
+                end))
+            end
+            local trapRem = butcherRem:FindFirstChild("PlaceTrap")
+            if trapRem then
+                table.insert(ScriptConnections, trapRem.OnClientEvent:Connect(function()
+                    ButcherTrapCooldownEnd = os.clock() + 3
+                end))
+            end
+        end
+    end)
+end)
+local KnownKillerPerks = {}
+for v in ("Predator|Eternal Torment|Play With Your Food|Terror Spread|Sloppy Mess|Resentment Clinger|Echo Location|Enhanced Senses|Next in Line|Excitement|Brutal Strength|Offscreen Scare|Piercing Reverie|Blood Between Worlds|Echo Of The Void|Sustenance|Foundation Staff|Desire For The Living|Corrupted Path|Abyssal Covenant|Shadow Trace|Hard Swing|Combo Streak|Crackdown|Deep Wound|All Seeing Eye|Touch Of Death|Murderous Acrobatics|Exposure Therapy|Eyes Of Hell|Stage Fright|Trade Off|Containment|King's Scourge|Split The Pain|Bloodhound|Rotten Stench"):gmatch("[^|]+") do
+    KnownKillerPerks[v:lower()] = v
+end
+local KnownSurvivorPerks = {}
+for v in ("Time To Grow Up|Pacifist|Nobody Left Behind|Great Collapse|We're Stronger Together|Left Behind|Grab My Hand|On My Own|High Karma|Snake Step|Heads Up|Group Project|Enhanced Touch|Intense Workout|Call Me Back|Expensive Decor|Perfect Landing|Iron Tranquility|Second Wind|Desperate|Born in Blood|Last Stand|Against All Odds|Flowstate|Absolute Confidence|Hearing Aid|On Screen Fear|Eyes of Heaven|Quick Recovery|Built Different|Familiar Soul|Perfectionist Planning|Debut Showcase|Ambitious Medic|No Pain No Gain|Flawless Execution|Partners In Crime|Visual Learner"):gmatch("[^|]+") do
+    KnownSurvivorPerks[v:lower()] = v
+end
+local KnownSurvivorPerksNormalized = {}
+for k, v in pairs(KnownSurvivorPerks) do
+    KnownSurvivorPerksNormalized[k:gsub("%s+", ""):gsub("[^%a]", "")] = v
+end
+local KnownKillerPerksNormalized = {}
+for k, v in pairs(KnownKillerPerks) do
+    KnownKillerPerksNormalized[k:gsub("%s+", ""):gsub("[^%a]", "")] = v
+end
+local function SyncGamePerksDatabase()
+    pcall(function()
+        local rs = game:GetService("ReplicatedStorage")
+        if rs:FindFirstChild("Perks") then
+            for _, c in ipairs(rs.Perks:GetChildren()) do
+                local name = c.Name
+                local clean = name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                KnownSurvivorPerks[name:lower()] = name
+                KnownSurvivorPerksNormalized[clean] = name
+            end
+        end
+        if rs:FindFirstChild("Killers") then
+            for _, k in ipairs(rs.Killers:GetChildren()) do
+                local kp = k:FindFirstChild("Perks")
+                if kp then
+                    for _, p in ipairs(kp:GetChildren()) do
+                        local name = p.Name
+                        local clean = name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                        KnownKillerPerks[name:lower()] = name
+                        KnownKillerPerksNormalized[clean] = name
+                    end
+                end
+            end
+        end
+    end)
+end
+task.spawn(SyncGamePerksDatabase)
+local IgnoredAttributes = {}
+for w in ("vaultspeed speedboost repairboost healboost healnerf skillcheckfrequency skillcheckspeed bleedboost unhookspeed breakspeed iframes knocked isrunning hookcount hookedprogress ischasing chasemusic suspense suspenseradius terrorradius speed swift spearmode spears bloodlust special overridelookscript chasetargetuserid isvaulting vaultending issliding isdroppingpallet isrepairing ishealing isunhooking isexiting crouching disabled movementlocked sprinting aiming parry untargettable supresshitanim tokens remainingcarrytime visuallearnerbonus visual_learner_bonus anticamp anticampcharge itemsdata itemsdataloaded itemskinsdataloaded skinsdataloaded emotesdataloaded killersdataloaded perksdataloaded initdone selectedkiller equippeditem level exp expinround xpboostremaining moneyinround gears screws candy ornaments pingdisplay runtoggle crouchtoggle clickhold hairtoggled familyfriendly touchsense epilepsymode filmgrain musicvolume envvolume emotevolume heartbeat heartbeatcolor killeraura survaura genaura spikeaura leveraura bloodpoolscolor displayvip allowkiller killerchance killerend spectate isspectating platform region privateserverowner"):gmatch("%S+") do
+    IgnoredAttributes[w] = true
+end
+local StatusToPerkMap = {
+    winded = "Quick Recovery",
+    strongertogether = "We're Stronger Together",
+    karma = "High Karma",
+    endurance = "Second Wind",
+    finessevault = "Flowstate",
+    excitment = "Excitement",
+    kings_scourge = "King's Scourge",
+    kingscourge = "King's Scourge",
+}
+for k, v in pairs(KnownSurvivorPerksNormalized) do StatusToPerkMap[k] = v end
+for k, v in pairs(KnownKillerPerksNormalized) do StatusToPerkMap[k] = v end
+local LastPerkScanTime = {}
+GetPlayerPerks = function(player)
+    local perks = {}
+    if not player then return perks end
+    if IsInLobby() or IsPlayerInLobby(player) then
+        return perks
+    end
+    if PersistentPerksCache[player] and #PersistentPerksCache[player] > 0 then
+        return PersistentPerksCache[player]
+    end
+    local now = os.clock()
+    if LastPerkScanTime[player] and (now - LastPerkScanTime[player] < 5.0) then
+        return PersistentPerksCache[player] or perks
+    end
+    LastPerkScanTime[player] = now
+    local isK = IsKiller(player)
+    local targetNorm = isK and KnownKillerPerksNormalized or KnownSurvivorPerksNormalized
+    local otherNorm = isK and KnownSurvivorPerksNormalized or KnownKillerPerksNormalized
+    local function matchPerkName(rawName)
+        if not rawName then return nil end
+        local str = tostring(rawName):lower()
+        str = str:gsub("^script:", ""):gsub("^localscript:", "")
+        str = str:gsub("^perk%d*[_%s]*", ""):gsub("^slot%d*[_%s]*", ""):gsub("^p%d*[_%s]*", "")
+        str = str:gsub("[_%s]*tier[%s%d]*$", ""):gsub("[_%s]*t%d+$", ""):gsub("[_%s]*lvl[%s%d]*$", ""):gsub("[_%s]*active$", ""):gsub("[_%s]*cooldown$", ""):gsub("[_%s]*cd$", ""):gsub("[_%s]*proc$", ""):gsub("%d+$", "")
+        local clean = str:gsub("%s+", ""):gsub("[^%a]", "")
+        if #clean < 3 or IgnoredAttributes[clean] then return nil end
+        if StatusToPerkMap[clean] then return StatusToPerkMap[clean] end
+        if targetNorm and targetNorm[clean] then return targetNorm[clean] end
+        if otherNorm and otherNorm[clean] then return otherNorm[clean] end
+        if targetNorm then
+            for k, v in pairs(targetNorm) do
+                if clean == k or (clean:find(k, 1, true) and #k >= 6) or (#clean >= 6 and k:find(clean, 1, true)) then
+                    return v
+                end
+            end
+        end
+        if otherNorm then
+            for k, v in pairs(otherNorm) do
+                if clean == k or (clean:find(k, 1, true) and #k >= 6) or (#clean >= 6 and k:find(clean, 1, true)) then
+                    return v
+                end
+            end
+        end
+        return nil
+    end
+    local function addPerk(rawPerk, defaultTier)
+        if not rawPerk or #perks >= 3 then return end
+        local pName = nil
+        local pTier = defaultTier or 3
+        if type(rawPerk) == "table" then
+            pName = rawPerk.name or rawPerk.Name or rawPerk.perk or rawPerk.Perk or rawPerk.perkName or rawPerk.PerkName or rawPerk.id or rawPerk.ID or rawPerk[1]
+            pTier = rawPerk.tier or rawPerk.Tier or rawPerk.level or rawPerk.Level or rawPerk.lvl or rawPerk.Lvl or rawPerk[2] or pTier
+        elseif type(rawPerk) == "string" then
+            pName = rawPerk
+        end
+        if pName and type(pName) == "string" and pName ~= "" and pName ~= "---" and pName ~= "None" then
+            local clean = pName:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if not IgnoredAttributes[clean] then
+                local mapped = matchPerkName(pName) or (targetNorm and targetNorm[clean]) or (otherNorm and otherNorm[clean])
+                if mapped and mapped ~= "" then
+                    local cleanMapped = mapped:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                    if not IgnoredAttributes[cleanMapped] and not table.find(perks, mapped) and #perks < 3 then
+                        table.insert(perks, mapped)
+                        PlayerPerkTiers[player] = PlayerPerkTiers[player] or {}
+                        PlayerPerkTiers[player][mapped] = tonumber(pTier) or 3
+                    end
+                end
+            end
+        end
+    end
+    local rs = game:GetService("ReplicatedStorage")
+    local rem = rs:FindFirstChild("Remotes")
+    if player == LocalPlayer then
+        local remoteDone = false
+        if isK then
+            local sk = rem and rem:FindFirstChild("ShopKillers")
+            local getKiller = sk and sk:FindFirstChild("GetEquippedKillerPerks")
+            local kType = player:GetAttribute("SelectedKiller") or "Veil"
+            if getKiller then
+                pcall(function()
+                    local res = getKiller:InvokeServer(kType)
+                    if type(res) == "table" then
+                        remoteDone = true
+                        for _, slot in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "Perk1", "Perk2", "Perk3", "1", "2", "3"}) do
+                            if res[slot] then addPerk(res[slot]) end
+                        end
+                        for _, val in pairs(res) do
+                            addPerk(val)
+                        end
+                    end
+                end)
+            end
+        else
+            local shop = rem and rem:FindFirstChild("Shop")
+            local getSurv = shop and shop:FindFirstChild("GetEquippedPerks")
+            if getSurv then
+                pcall(function()
+                    local res = getSurv:InvokeServer()
+                    if type(res) == "table" then
+                        remoteDone = true
+                        for _, slot in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "Perk1", "Perk2", "Perk3", "1", "2", "3"}) do
+                            if res[slot] then addPerk(res[slot]) end
+                        end
+                        for _, p in pairs(res) do
+                            addPerk(p)
+                        end
+                    end
+                end)
+            end
+            if not remoteDone and player:FindFirstChild("PlayerGui") then
+                local sp = player.PlayerGui:FindFirstChild("SurvivorPerks")
+                local pFolder = sp and (sp:FindFirstChild("Perks") or sp:FindFirstChild("Perkspc"))
+                if pFolder then
+                    for _, c in ipairs(pFolder:GetChildren()) do
+                        if c:IsA("ImageLabel") and c.Name ~= "cdviz" and c.Name ~= "bg" and not c.Name:find("UI") then
+                            local mapped = matchPerkName(c.Name)
+                            if mapped then addPerk(mapped) end
+                        end
+                    end
+                end
+            end
+        end
+        if remoteDone or #perks > 0 then
+            PersistentPerksCache[player] = perks
+            return perks
+        end
+    end
+    if PersistentPerksCache[player] then
+        local roleCleanCache = {}
+        for _, p in ipairs(PersistentPerksCache[player]) do
+            local pClean = p:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if not IgnoredAttributes[pClean] and not p:find("^%[Active Perk") then
+                local isKnownKiller = KnownKillerPerksNormalized and KnownKillerPerksNormalized[pClean] ~= nil
+                local isKnownSurvivor = KnownSurvivorPerksNormalized and KnownSurvivorPerksNormalized[pClean] ~= nil
+                local keep = true
+                if isK and isKnownSurvivor and not isKnownKiller then
+                    keep = false
+                elseif not isK and isKnownKiller and not isKnownSurvivor then
+                    keep = false
+                end
+                if keep then
+                    table.insert(roleCleanCache, p)
+                    addPerk(p, PlayerPerkTiers[player] and PlayerPerkTiers[player][p] or 3)
+                end
+            end
+        end
+        PersistentPerksCache[player] = roleCleanCache
+    end
+    local char = player.Character
+    for _, slotKey in ipairs({"perk1", "perk2", "perk3", "Slot1", "Slot2", "Slot3", "Perk1", "Perk2", "Perk3", "p1", "p2", "p3"}) do
+        if #perks >= 3 then break end
+        local val = player:GetAttribute(slotKey) or (char and char:GetAttribute(slotKey))
+        if val and type(val) == "string" and val ~= "" and val ~= "None" then
+            local mapped = matchPerkName(val)
+            if mapped then addPerk(mapped) end
+        end
+    end
+    if char then
+        for _, c in ipairs(char:GetChildren()) do
+            if #perks >= 3 then break end
+            local cleanC = c.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if not IgnoredAttributes[cleanC] then
+                local mapped = matchPerkName(c.Name)
+                if mapped then
+                    local t = tonumber(c.Name:match("(%d+)$")) or (c:IsA("ValueBase") and tonumber(c.Value)) or 3
+                    addPerk(mapped, t)
+                elseif c:IsA("ValueBase") and c.Value and c.Value ~= false and c.Value ~= 0 and c.Value ~= "" then
+                    local vClean = tostring(c.Value):lower():gsub("%s+", ""):gsub("[^%a]", "")
+                    if not IgnoredAttributes[vClean] then
+                        local vMapped = matchPerkName(tostring(c.Value))
+                        if vMapped then addPerk(vMapped, 3) end
+                    end
+                end
+            end
+        end
+    end
+    local bp = player:FindFirstChild("Backpack")
+    if bp then
+        for _, c in ipairs(bp:GetChildren()) do
+            if #perks >= 3 then break end
+            local cleanC = c.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if not IgnoredAttributes[cleanC] then
+                local t = tonumber(c.Name:match("(%d+)$")) or (c:IsA("ValueBase") and tonumber(c.Value)) or 3
+                local mapped = matchPerkName(c.Name)
+                if mapped then
+                    addPerk(mapped, t)
+                elseif c:IsA("ValueBase") and c.Value and c.Value ~= false and c.Value ~= 0 and c.Value ~= "" then
+                    local vClean = tostring(c.Value):lower():gsub("%s+", ""):gsub("[^%a]", "")
+                    if not IgnoredAttributes[vClean] then
+                        local vMapped = matchPerkName(tostring(c.Value))
+                        if vMapped then addPerk(vMapped, t) end
+                    end
+                end
+            end
+        end
+    end
+    local function scanDirectAttrs(inst)
+        if not inst then return end
+        local attrs = nil
+        pcall(function() attrs = inst:GetAttributes() end)
+        if not attrs then return end
+        for attrName, attrVal in pairs(attrs) do
+            if #perks >= 3 then break end
+            local cleanName = tostring(attrName):lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if not IgnoredAttributes[cleanName] and attrVal ~= false and attrVal ~= 0 and attrVal ~= "" and attrVal ~= "None" then
+                local mappedKey = matchPerkName(attrName)
+                if mappedKey then
+                    local t = (type(attrVal) == "number" and attrVal >= 1 and attrVal <= 3) and attrVal or 3
+                    addPerk(mappedKey, t)
+                end
+            end
+            if type(attrVal) == "string" and attrVal ~= "" and attrVal ~= "None" then
+                local cleanVal = attrVal:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                if not IgnoredAttributes[cleanVal] then
+                    local mappedVal = matchPerkName(attrVal)
+                    if mappedVal then
+                        addPerk(mappedVal, 3)
+                    end
+                end
+            end
+        end
+    end
+    scanDirectAttrs(char)
+    scanDirectAttrs(player)
+    local pFolders = {
+        player:FindFirstChild("Perks"),
+        player:FindFirstChild("EquippedPerks"),
+        player:FindFirstChild("SelectedPerks"),
+        char and char:FindFirstChild("Perks"),
+        char and char:FindFirstChild("EquippedPerks"),
+    }
+    for _, f in ipairs(pFolders) do
+        if f then
+            for _, c in ipairs(f:GetChildren()) do
+                if #perks >= 3 then break end
+                local cleanC = c.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                if not IgnoredAttributes[cleanC] then
+                    local mapped = matchPerkName(c.Name)
+                    local t = c:IsA("ValueBase") and tonumber(c.Value) or 3
+                    if mapped then
+                        addPerk(mapped, t)
+                    elseif c:IsA("ValueBase") and c.Value and c.Value ~= false and c.Value ~= 0 and c.Value ~= "" then
+                        local vClean = tostring(c.Value):lower():gsub("%s+", ""):gsub("[^%a]", "")
+                        if not IgnoredAttributes[vClean] then
+                            local vMapped = matchPerkName(tostring(c.Value))
+                            if vMapped then addPerk(vMapped, 3) end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    local pData = ReplicatedStorage:FindFirstChild(player.Name) or (ReplicatedStorage:FindFirstChild("PlayerData") and ReplicatedStorage.PlayerData:FindFirstChild(player.Name)) or (ReplicatedStorage:FindFirstChild("Players") and ReplicatedStorage.Players:FindFirstChild(player.Name))
+    if pData then
+        local pf = pData:FindFirstChild("Perks") or pData:FindFirstChild("EquippedPerks")
+        if pf then
+            for _, c in ipairs(pf:GetChildren()) do
+                if #perks >= 3 then break end
+                local cleanC = c.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                if not IgnoredAttributes[cleanC] then
+                    local mapped = matchPerkName(c.Name) or (c:IsA("ValueBase") and matchPerkName(tostring(c.Value)))
+                    if mapped then addPerk(mapped) end
+                end
+            end
+        end
+    end
+    if #perks > 0 then
+        PersistentPerksCache[player] = perks
+    end
+    return PersistentPerksCache[player] or perks
+end
+table.insert(ScriptConnections, Players.PlayerRemoving:Connect(function(leavingPlr)
+    if ctx.GetCurrentKiller and leavingPlr == ctx.GetCurrentKiller() and ctx.SetCurrentKiller then ctx.SetCurrentKiller(nil) end
+    PersistentPerksCache[leavingPlr] = nil
+    PlayerPerkTiers[leavingPlr] = nil
+    if cachedRosterRows[leavingPlr] then
+        pcall(function() cachedRosterRows[leavingPlr].Card:Destroy() end)
+        cachedRosterRows[leavingPlr] = nil
+    end
+end))
+function GetPlayerSkillInfo(player)
+    if not player or not player.Character then return nil end
+    if IsPlayerDead(player) or (not IsInLobby() and IsPlayerInLobby(player)) then return nil end
+    local char = player.Character
+    if IsKiller(player) then
+        PlayerItemCache[player] = nil
+        local kName = player:GetAttribute("SelectedKiller") or (char and char:GetAttribute("SelectedKiller")) or (char and char:GetAttribute("MorphedKiller")) or "Killer"
+        if char then
+            if char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") or char:GetAttribute("spearmode") then
+                kName = "Veil"
+            elseif char:FindFirstChild("Flask") or char:FindFirstChild("Curetool") or char:GetAttribute("corpsecharge") then
+                kName = "Cure"
+            elseif char:GetAttribute("StalkerStage2Remaining") ~= nil or char:GetAttribute("Stage") ~= nil or char:GetAttribute("StalkStage") ~= nil or char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
+                kName = "Stalker"
+            elseif char:FindFirstChild("Knide") or char:FindFirstChild("Knife") or char:GetAttribute("preparem2") then
+                kName = "Hidden"
+            elseif char:FindFirstChild("Katana") or char:FindFirstChild("Sword") or char:FindFirstChild("pamela") or char:GetAttribute("Pursuit") ~= nil or char:GetAttribute("LakeMist") ~= nil then
+                kName = "Slasher"
+            elseif char:FindFirstChild("Abysswalker") or char:FindFirstChild("Wave") then
+                kName = "Abysswalker"
+            elseif char:GetAttribute("Mask") or char:GetAttribute("MaskExpired") then
+                kName = "Masked"
+            elseif char:FindFirstChild("Beartrap") or char:FindFirstChild("BearTrap") or char:GetAttribute("Butcher") == true or char:GetAttribute("MorphedKiller") == "Butcher" or char:GetAttribute("PlacingTrap") ~= nil or char:GetAttribute("ChainLatched") ~= nil or char:GetAttribute("ChainThrowUntil") ~= nil or char:GetAttribute("ChainMove1CD") ~= nil or char:GetAttribute("Beartraps") ~= nil or kName == "Butcher" then
+                kName = "Butcher"
+            end
+        end
+        local skillEntries = {}
+        local extras = {}
+        local now = os.clock()
+        if kName == "Cure" or char:FindFirstChild("Flask") or char:FindFirstChild("Curetool") then
+            local flaskCD = math.max(0, math.ceil(CureFlaskCooldownEnd - now))
+            local flaskStatus = flaskCD > 0 and ("CD " .. flaskCD .. "s") or "Ready"
+            if char:GetAttribute("prepareflask") then flaskStatus = "CHARGING!" end
+            table.insert(skillEntries, "Plague Flask [" .. flaskStatus .. "]")
+            local corpses = tonumber(char:GetAttribute("corpsecharge")) or 0
+            local syringeStatus = tostring(corpses) .. "/4 Zombies"
+            if char:GetAttribute("injecting") or char:GetAttribute("cureinject") then syringeStatus = "INJECTING" end
+            table.insert(skillEntries, "Corpse Syringe [" .. syringeStatus .. "]")
+        elseif kName == "Veil" or char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") then
+            local isAiming = char:GetAttribute("spearmode") == true
+            local isHoldingThrow = false
+            local isFullyCharged = false
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local animator = hum and hum:FindFirstChildOfClass("Animator")
+            local tracks = {}
+            if animator then
+                pcall(function()
+                    for _, t in ipairs(animator:GetPlayingAnimationTracks()) do table.insert(tracks, t) end
+                end)
+            end
+            if hum and #tracks == 0 then
+                pcall(function()
+                    for _, t in ipairs(hum:GetPlayingAnimationTracks()) do table.insert(tracks, t) end
+                end)
+            end
+            for _, track in ipairs(tracks) do
+                local aName = (track.Animation and track.Animation.Name or ""):lower()
+                local aId = (track.Animation and track.Animation.AnimationId or ""):lower()
+                if aId:find("138045669415653") or aId:find("137688077908355") or aName:find("spearlunge.*op") or aName:find("1op") or aName:find("2op") then
+                    isFullyCharged = true
+                    break
+                elseif aId:find("92098503722633") or aId:find("84093948968516") or aName:find("spearlunge") then
+                    isHoldingThrow = true
+                end
+            end
+            if not isFullyCharged then
+                for _, spName in ipairs({"Spear1", "Spear2"}) do
+                    local sp = char:FindFirstChild(spName)
+                    local hb = sp and sp:FindFirstChild("Hitbox")
+                    if hb then
+                        for _, pe in ipairs(hb:GetChildren()) do
+                            if pe:IsA("ParticleEmitter") and pe.Enabled then
+                                isFullyCharged = true
+                                break
+                            end
+                        end
+                    end
+                    if isFullyCharged then break end
+                end
+            end
+            local spears = tonumber(char:GetAttribute("Spears"))
+            if spears == nil then
+                local spCount = 0
+                if char:FindFirstChild("Spear1") then spCount = spCount + 1 end
+                if char:FindFirstChild("Spear2") then spCount = spCount + 1 end
+                spears = spCount > 0 and spCount or 2
+            end
+            if isFullyCharged then
+                LastVeilWasCharged = true
+            end
+            local spearsNum = tonumber(spears) or 2
+            local lastSpearsNum = tonumber(LastVeilSpears) or 2
+            if spearsNum < lastSpearsNum then
+                if (VeilSpearCooldownEnd - now) <= 0 then
+                    VeilSpearCooldownEnd = now + 15
+                end
+                if LastVeilWasCharged or isFullyCharged then
+                    VeilVoidCooldownEnd = now + 30
+                    LastVeilWasCharged = false
+                end
+                LastVeilSpears = spearsNum
+            elseif spearsNum > lastSpearsNum then
+                LastVeilSpears = spearsNum
+                if spearsNum < 2 then
+                    VeilSpearCooldownEnd = now + 15
+                else
+                    VeilSpearCooldownEnd = 0
+                end
+            end
+            if not isAiming and not isHoldingThrow and not isFullyCharged and (VeilVoidCooldownEnd - now) <= 0 then
+                LastVeilWasCharged = false
+            end
+            local spearCD = math.max(0, math.ceil(VeilSpearCooldownEnd - now))
+            local spearStatus = tostring(spears) .. "/2"
+            if spears < 2 and spearCD > 0 then
+                spearStatus = tostring(spears) .. "/2 (CD " .. spearCD .. "s)"
+            else
+                spearStatus = tostring(spears) .. "/2 Ready"
+            end
+            if isAiming then spearStatus = spearStatus .. " (Aiming)" end
+            table.insert(skillEntries, "Spear [" .. spearStatus .. "]")
+            local voidCD = math.max(0, math.ceil(VeilVoidCooldownEnd - now))
+            local voidStatus = "Ready"
+            if voidCD > 0 then
+                voidStatus = "CD " .. voidCD .. "s"
+            elseif isFullyCharged then
+                voidStatus = "CHARGED!"
+            elseif isHoldingThrow then
+                voidStatus = "Charging..."
+            end
+            table.insert(skillEntries, "Echo Void [" .. voidStatus .. "]")
+        elseif kName == "Hidden" then
+            local root = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local animator = hum and hum:FindFirstChildOfClass("Animator")
+            local tracks = {}
+            if animator then
+                pcall(function()
+                    for _, t in ipairs(animator:GetPlayingAnimationTracks()) do table.insert(tracks, t) end
+                end)
+            end
+            if hum and #tracks == 0 then
+                pcall(function()
+                    for _, t in ipairs(hum:GetPlayingAnimationTracks()) do table.insert(tracks, t) end
+                end)
+            end
+            local isLeapingAnim = false
+            local isM2Anim = false
+            for _, t in ipairs(tracks) do
+                local aId = (t.Animation and t.Animation.AnimationId or ""):lower()
+                local aNm = (t.Animation and t.Animation.Name or ""):lower()
+                if aId:find("109928123357793") or aId:find("82153811221085") or aNm:find("jump") then
+                    isLeapingAnim = true
+                elseif aId:find("98163597193511") or aId:find("114699370608778") or aNm:find("m2") then
+                    isM2Anim = true
+                end
+            end
+            if root and root.AssemblyLinearVelocity then
+                local vel = root.AssemblyLinearVelocity
+                local horizVel = Vector3.new(vel.X, 0, vel.Z).Magnitude
+                if (horizVel > 45 and vel.Y > 12) or isLeapingAnim then
+                    if (HiddenLeapCooldownEnd - now) <= 0 then
+                        HiddenLeapCooldownEnd = now + 25
+                    end
+                end
+                if horizVel > 110 or isM2Anim or char:FindFirstChild("TempHitbox") then
+                    if (HiddenMarkCooldownEnd - now) <= 0 then
+                        HiddenMarkCooldownEnd = now + 17
+                    end
+                end
+            end
+            local leapCD = math.max(0, math.ceil(HiddenLeapCooldownEnd - now))
+            local leapStatus = leapCD > 0 and ("CD " .. leapCD .. "s") or "Ready"
+            table.insert(skillEntries, "Shadow Leap [" .. leapStatus .. "]")
+            local markCD = math.max(0, math.ceil(HiddenMarkCooldownEnd - now))
+            local markStatus = "Ready"
+            if markCD > 0 then
+                markStatus = "CD " .. markCD .. "s"
+            elseif char:GetAttribute("preparem2") or char:GetAttribute("M2") then
+                markStatus = "AIMING!"
+            end
+            table.insert(skillEntries, "Mark [" .. markStatus .. "]")
+            if char:GetAttribute("invisible") or (char:FindFirstChild("Head") and char.Head.Transparency > 0.4) then
+                table.insert(extras, "[INVISIBLE]")
+            end
+        elseif kName == "Slasher" then
+            local sTorso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+            local mistAttr = char:GetAttribute("LakeMist") == true
+                          or game:GetService("CollectionService"):HasTag(char, "Undetectable")
+                          or (sTorso and sTorso.Transparency > 0.5)
+            if mistAttr and not LastSlasherMist then
+                LastSlasherMist = true
+                SlasherMistActiveEnd = now + 13
+                SlasherMistCooldownEnd = 0
+            elseif not mistAttr and LastSlasherMist then
+                LastSlasherMist = false
+                SlasherMistActiveEnd = 0
+                SlasherMistCooldownEnd = now + 60
+            end
+            local pursuitAttr = char:GetAttribute("Pursuit") == true
+            if pursuitAttr and not LastSlasherPursuit then
+                LastSlasherPursuit = true
+                SlasherPursuitActiveEnd = now + 20
+                SlasherPursuitCooldownEnd = now + 100
+            elseif not pursuitAttr and LastSlasherPursuit then
+                LastSlasherPursuit = false
+                SlasherPursuitActiveEnd = 0
+                SlasherPursuitCooldownEnd = now + 80
+            end
+            local mistActive = math.max(0, math.ceil(SlasherMistActiveEnd - now))
+            local mistCD = math.max(0, math.ceil(SlasherMistCooldownEnd - now))
+            local mistStatus = "Ready"
+            if mistAttr or mistActive > 0 then
+                mistStatus = mistActive > 0 and ("ACTIVE (" .. mistActive .. "s)") or "ACTIVE"
+            elseif mistCD > 0 then
+                mistStatus = "CD " .. mistCD .. "s"
+            end
+            table.insert(skillEntries, "Lake Mist [" .. mistStatus .. "]")
+            local pursuitActive = math.max(0, math.ceil(SlasherPursuitActiveEnd - now))
+            local pursuitCD = math.max(0, math.ceil(SlasherPursuitCooldownEnd - now))
+            local pursuitStatus = "Ready"
+            if pursuitAttr or pursuitActive > 0 then
+                pursuitStatus = "ACTIVE (" .. (pursuitActive > 0 and pursuitActive or 20) .. "s)"
+            elseif pursuitCD > 0 then
+                pursuitStatus = "CD " .. pursuitCD .. "s"
+            end
+            table.insert(skillEntries, "Pursuit [" .. pursuitStatus .. "]")
+        elseif kName == "Stalker" then
+            local stage = tonumber(char:GetAttribute("Stage") or char:GetAttribute("StalkStage") or char:GetAttribute("EvolveStage")) or 1
+            if stage ~= LastStalkerStage then
+                LastStalkerStage = stage
+                if stage >= 2 and StalkerHunterEnd <= now then
+                    StalkerHunterEnd = now + 70
+                end
+            end
+            local isStalking = false
+            if player == LocalPlayer then
+                local m2Down = false
+                pcall(function()
+                    m2Down = UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+                end)
+                isStalking = m2Down or StalkerIsStalking
+                local pg = LocalPlayer:FindFirstChild("PlayerGui")
+                local slasherGui = pg and (pg:FindFirstChild("Slasher") or pg:FindFirstChild("Slasher-mob") or pg:FindFirstChild("Slasher-con"))
+                local bLeft = slasherGui and slasherGui:FindFirstChild("bottom left")
+                if bLeft then
+                    local moveGrad = bLeft:FindFirstChild("Move") and bLeft.Move:FindFirstChild("Bar") and bLeft.Move.Bar:FindFirstChild("UIGradient")
+                    if moveGrad then
+                        StalkerStalkPct = math.clamp(math.floor((1 - moveGrad.Offset.Y) * 100 + 0.5), 0, 100)
+                    end
+                    local moveIcon = bLeft:FindFirstChild("Move") and bLeft.Move:FindFirstChild("Icon")
+                    if moveIcon then
+                        StalkerGraspReady = (moveIcon.ImageColor3.R > 0.8)
+                    end
+                    local move1Grad = bLeft:FindFirstChild("Move1") and bLeft.Move1:FindFirstChild("Bar") and bLeft.Move1.Bar:FindFirstChild("UIGradient")
+                    if move1Grad and stage >= 2 then
+                        local remSec = math.clamp(math.ceil((move1Grad.Offset.Y - 0.08) / 0.84 * 70), 0, 70)
+                        if remSec > 0 then
+                            StalkerHunterEnd = now + remSec
+                        end
+                    end
+                end
+            else
+                isStalking = (char:GetAttribute("Speed") or 18.7) <= 10.5
+            end
+            local pctFloor = math.floor(StalkerStalkPct)
+            local stalkStatus = ""
+            local hunterLeft = math.max(0, math.ceil(StalkerHunterEnd - now))
+            if stage >= 2 or hunterLeft > 0 then
+                stalkStatus = hunterLeft > 0 and string.format("HUNTER MODE (%ds)", hunterLeft) or "HUNTER MODE"
+            elseif isStalking then
+                stalkStatus = string.format("STALKING %d%%", pctFloor)
+            elseif pctFloor >= 100 then
+                stalkStatus = "100% (Ready to Evolve)"
+            else
+                stalkStatus = string.format("%d%% (Stage 1)", pctFloor)
+            end
+            table.insert(skillEntries, "Stalk Mode [" .. stalkStatus .. "]")
+            local graspCD = math.max(0, math.ceil(StalkerGraspCooldownEnd - now))
+            local isGrabActive = char:GetAttribute("StalkerGrabArmVisible") == true
+            local graspStatus = "Locked"
+            if isGrabActive then
+                graspStatus = "LUNGE GRABBING!"
+            elseif graspCD > 0 then
+                graspStatus = string.format("CD %ds", graspCD)
+            elseif StalkerGraspReady or stage >= 2 then
+                graspStatus = "READY"
+            else
+                graspStatus = "Locked"
+            end
+            table.insert(skillEntries, "Evil's Grasp [" .. graspStatus .. "]")
+        elseif kName == "Masked" then
+            local currentMask = char:GetAttribute("Mask") or "Richard"
+            if currentMask ~= "Richard" and LastMaskedState == "Richard" then
+                MaskedActiveEnd = now + 60
+                MaskedCooldownEnd = 0
+                LastMaskedState = currentMask
+                TriggerMaskAlert(currentMask, true)
+            elseif currentMask ~= "Richard" and LastMaskedState ~= "Richard" and LastMaskedState ~= currentMask then
+                LastMaskedState = currentMask
+                TriggerMaskAlert(currentMask, true)
+            elseif currentMask == "Richard" and LastMaskedState ~= "Richard" then
+                local prev = LastMaskedState
+                MaskedActiveEnd = 0
+                MaskedCooldownEnd = now + 30
+                LastMaskedState = "Richard"
+                TriggerMaskAlert(prev, false)
+            end
+            local activeLeft = math.max(0, math.ceil(MaskedActiveEnd - now))
+            local cdLeft = math.max(0, math.ceil(MaskedCooldownEnd - now))
+            if currentMask ~= "Richard" and activeLeft > 0 then
+                local mInfo = ResolveMaskInfo(currentMask)
+                local eff = mInfo and mInfo.Effect or currentMask
+                table.insert(skillEntries, string.format("Mask: %s [%s] (%ds)", currentMask, eff, activeLeft))
+            elseif cdLeft > 0 then
+                table.insert(skillEntries, string.format("Mask [CD %ds]", cdLeft))
+            else
+                table.insert(skillEntries, "Mask [Ready]")
+            end
+        elseif kName == "Killer" or kName == "The Killer" then
+            local isFrenzy = char:GetAttribute("Frenzy") == true
+            local isFrenzyEnding = char:GetAttribute("FrenzyEnding") == true
+            if isFrenzy and not LastKillerFrenzy then
+                LastKillerFrenzy = true
+                KillerFrenzyActiveEnd = now + 13
+                KillerFrenzyCooldownEnd = 0
+            elseif (not isFrenzy or isFrenzyEnding) and LastKillerFrenzy then
+                LastKillerFrenzy = false
+                KillerFrenzyActiveEnd = 0
+                KillerFrenzyCooldownEnd = now + 20
+            elseif isFrenzyEnding and (KillerFrenzyCooldownEnd - now) <= 0 then
+                LastKillerFrenzy = false
+                KillerFrenzyActiveEnd = 0
+                KillerFrenzyCooldownEnd = now + 20
+            end
+            if isFrenzy and (KillerFrenzyActiveEnd - now) <= 0 then
+                KillerFrenzyActiveEnd = now + 5
+            end
+            local frenzyActive = math.max(0, math.ceil(KillerFrenzyActiveEnd - now))
+            local frenzyCD = math.max(0, math.ceil(KillerFrenzyCooldownEnd - now))
+            local frenzyStatus = "Ready"
+            if isFrenzy or (frenzyActive > 0 and not isFrenzyEnding) then
+                frenzyStatus = frenzyActive > 0 and ("ACTIVE (" .. frenzyActive .. "s)") or "ACTIVE"
+            elseif isFrenzyEnding then
+                local cdLeft = frenzyCD > 0 and frenzyCD or 20
+                frenzyStatus = "Fatigue (CD " .. cdLeft .. "s)"
+            elseif frenzyCD > 0 then
+                frenzyStatus = "CD " .. frenzyCD .. "s"
+            else
+                frenzyStatus = "Ready"
+            end
+            table.insert(skillEntries, "Frenzy Sprint [" .. frenzyStatus .. "]")
+        elseif kName == "Abysswalker" then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local animator = hum and hum:FindFirstChildOfClass("Animator")
+            local tracks = {}
+            if animator then
+                pcall(function()
+                    for _, t in ipairs(animator:GetPlayingAnimationTracks()) do table.insert(tracks, t) end
+                end)
+            end
+            if hum and #tracks == 0 then
+                pcall(function()
+                    for _, t in ipairs(hum:GetPlayingAnimationTracks()) do table.insert(tracks, t) end
+                end)
+            end
+            local isSlashing = false
+            local isCorrupting = false
+            for _, t in ipairs(tracks) do
+                local aId = (t.Animation and t.Animation.AnimationId or ""):lower()
+                if aId:find("80411309607666") then
+                    isSlashing = true
+                elseif aId:find("117886494230451") or aId:find("100092272524635") then
+                    isCorrupting = true
+                end
+            end
+            if isSlashing and not LastAbyssSlash then
+                LastAbyssSlash = true
+                AbyssSlashCooldownEnd = now + 33
+            elseif not isSlashing and LastAbyssSlash then
+                LastAbyssSlash = false
+            end
+            if isCorrupting and not LastAbyssBurst then
+                LastAbyssBurst = true
+                AbyssBurstCooldownEnd = now + 30
+            elseif not isCorrupting and LastAbyssBurst then
+                LastAbyssBurst = false
+            end
+            local slashCD = math.max(0, math.ceil(AbyssSlashCooldownEnd - now))
+            local slashStatus = "Ready"
+            if isSlashing then
+                slashStatus = "LUNGING"
+            elseif slashCD > 0 then
+                slashStatus = "CD " .. slashCD .. "s"
+            end
+            table.insert(skillEntries, "Dark Severance [" .. slashStatus .. "]")
+            local burstCD = math.max(0, math.ceil(AbyssBurstCooldownEnd - now))
+            local burstStatus = "Ready"
+            if isCorrupting then
+                burstStatus = "CASTING"
+            elseif burstCD > 0 then
+                burstStatus = "CD " .. burstCD .. "s"
+            end
+            table.insert(skillEntries, "Abyssal Burst [" .. burstStatus .. "]")
+        elseif kName == "Butcher" or char:FindFirstChild("Beartrap") or char:FindFirstChild("BearTrap") or char:GetAttribute("Butcher") == true or char:GetAttribute("MorphedKiller") == "Butcher" or char:GetAttribute("PlacingTrap") ~= nil or char:GetAttribute("ChainLatched") ~= nil or char:GetAttribute("ChainMove1CD") ~= nil then
+            local attrCD = tonumber(char:GetAttribute("ChainMove1CD")) or 0
+            if attrCD <= 0 and ButcherChainCooldownEnd > now and char:GetAttribute("ChainMove1CD") ~= nil then
+                ButcherChainCooldownEnd = 0
+            elseif attrCD > 0 and ButcherChainCooldownEnd == 0 then
+                local windupAt = tonumber(char:GetAttribute("ChainWindupAt")) or 0
+                local srvNow = workspace:GetServerTimeNow()
+                if windupAt > 0 and (srvNow - windupAt) >= 0 and (srvNow - windupAt) < attrCD then
+                    ButcherChainCooldownEnd = now + (attrCD - (srvNow - windupAt))
+                else
+                    ButcherChainCooldownEnd = now + attrCD
+                end
+            end
+            local chainCD = math.max(0, math.ceil(ButcherChainCooldownEnd - now))
+            local srvNow = workspace:GetServerTimeNow()
+            local windupAt = tonumber(char:GetAttribute("ChainWindupAt")) or 0
+            local throwUntil = tonumber(char:GetAttribute("ChainThrowUntil")) or 0
+            local chainStatus = "Ready"
+            if char:GetAttribute("ChainLatched") then
+                chainStatus = "HOOKED!"
+            elseif char:GetAttribute("ChainInUse") or char:GetAttribute("ChainBusy") or (throwUntil > srvNow) or (windupAt > 0 and (srvNow - windupAt) >= 0 and (srvNow - windupAt) < 0.85) then
+                chainStatus = "THROWING!"
+            elseif chainCD > 0 then
+                chainStatus = "CD " .. chainCD .. "s"
+            end
+            table.insert(skillEntries, "Chain Throw [" .. chainStatus .. "]")
+            local trapCount = tonumber(char:GetAttribute("Beartraps"))
+            local trapCountStr = trapCount and (" (" .. trapCount .. ")") or ""
+            local trapEndsAt = tonumber(char:GetAttribute("TrapPlacementEndsAt")) or 0
+            local trapStatus = "Ready" .. trapCountStr
+            if char:GetAttribute("PlacingTrap") or (trapEndsAt > now) then
+                trapStatus = "PLACING TRAP!"
+            elseif trapCount and trapCount <= 0 then
+                trapStatus = "Empty (0)"
+            else
+                local trapCD = math.max(0, math.ceil(ButcherTrapCooldownEnd - now))
+                if trapCD > 0 then
+                    trapStatus = "CD " .. trapCD .. "s" .. trapCountStr
+                end
+            end
+            table.insert(skillEntries, "Bear Trap [" .. trapStatus .. "]")
+        else
+            table.insert(skillEntries, kName .. " Skill 1 [Ready]")
+            table.insert(skillEntries, kName .. " Skill 2 [Ready]")
+        end
+        local bl = tonumber(char:GetAttribute("BloodLust")) or 0
+        if bl > 0 then table.insert(extras, "Bloodlust T" .. bl) end
+        if char:GetAttribute("IsStunned") == true then table.insert(extras, "[STUNNED]") end
+        if char:GetAttribute("IsCarrying") == true then table.insert(extras, "[CARRYING]") end
+        local str = "[SKILL] " .. table.concat(skillEntries, "  |  ")
+        if #extras > 0 then
+            str = str .. "  |  " .. table.concat(extras, " | ")
+        end
+        return str
+    else
+        if IsKiller(player) then return nil end
+        local details = {}
+        local item = player:GetAttribute("EquippedItem") or (char and char:GetAttribute("EquippedItem"))
+            or player:GetAttribute("SelectedItem") or (char and char:GetAttribute("SelectedItem"))
+            or player:GetAttribute("Item") or (char and char:GetAttribute("Item"))
+        local bp = player:FindFirstChild("Backpack")
+        local function scanContainer(container)
+            if not container then return nil end
+            for _, c in ipairs(container:GetChildren()) do
+                if c:IsA("Model") or c:IsA("Tool") then
+                    local nm = c.Name
+                    if ItemIcons[nm] or nm == "Parrying Dagger" or nm == "Adrenaline Shot" or nm == "Flashlight" or nm == "Holy Water" or nm == "Riot Shield" or nm == "Gate" or nm == "WaxBound Candle" or nm == "Shadow Clone" or nm == "Twist of Fate" or nm:find("Syringe") or nm:find("Medkit") or nm == "Bandage" or nm == "Motion Tracker" then
+                        return nm
+                    end
+                end
+            end
+            for _, c in ipairs(container:GetChildren()) do
+                if c:IsA("Tool") and not c.Name:lower():find("fist") and not c.Name:lower():find("camera") and not c.Name:lower():find("phone") then
+                    return c.Name
+                end
+            end
+            return nil
+        end
+        if not item or item == "None" or item == "" then
+            item = scanContainer(char) or scanContainer(bp)
+        end
+        if not item or item == "None" or item == "" then
+            local ev = player:FindFirstChild("EquippedItem") or (char and char:FindFirstChild("EquippedItem"))
+                or player:FindFirstChild("Item") or (char and char:FindFirstChild("Item"))
+            if ev and (ev:IsA("StringValue") or ev:IsA("ObjectValue")) and ev.Value then
+                item = typeof(ev.Value) == "Instance" and ev.Value.Name or tostring(ev.Value)
+            end
+        end
+        if item and item ~= "None" and item ~= "" then
+            PlayerItemCache[player] = item
+        elseif not IsInLobby() and PlayerItemCache[player] and not IsKiller(player) then
+            item = PlayerItemCache[player]
+        else
+            item = nil
+        end
+        local isItemReady, qtyStr = true, ""
+        if item and item ~= "None" and item ~= "" then
+            local itemInst = char:FindFirstChild(item) or (bp and bp:FindFirstChild(item))
+            if not itemInst then
+                for _, c in ipairs(char:GetChildren()) do
+                    if (c:IsA("Model") or c:IsA("Tool")) and (c.Name == item or c.Name:find(item) or (item:find(c.Name) and #c.Name > 3)) then
+                        itemInst = c
+                        break
+                    end
+                end
+            end
+            if not itemInst and bp then
+                for _, c in ipairs(bp:GetChildren()) do
+                    if (c:IsA("Model") or c:IsA("Tool")) and (c.Name == item or c.Name:find(item) or (item:find(c.Name) and #c.Name > 3)) then
+                        itemInst = c
+                        break
+                    end
+                end
+            end
+            local uses = itemInst and (itemInst:GetAttribute("uses") or itemInst:GetAttribute("Uses") or itemInst:GetAttribute("charges") or itemInst:GetAttribute("Charges") or itemInst:GetAttribute("charge") or itemInst:GetAttribute("Charge"))
+            local maxUses = itemInst and (itemInst:GetAttribute("MaxUses") or itemInst:GetAttribute("maxUses") or itemInst:GetAttribute("MaxCharges") or itemInst:GetAttribute("maxCharges"))
+            local rem = itemInst and (itemInst:GetAttribute("remaining") or itemInst:GetAttribute("Remaining"))
+            if not rem and itemInst and (item == "Flashlight" or item:find("Flashlight")) then
+                local arm = itemInst:FindFirstChild("Right Arm") or itemInst:FindFirstChild("RightHand")
+                local flInner = (arm and arm:FindFirstChild("Flashlight")) or itemInst:FindFirstChild("Flashlight", true)
+                if flInner then
+                    rem = flInner:GetAttribute("remaining") or flInner:GetAttribute("Remaining")
+                end
+            end
+            local usesNum, maxUsesNum = tonumber(uses), tonumber(maxUses)
+            if item == "Twist of Fate" or item:find("Twist") then
+                local shots = itemInst and itemInst:GetAttribute("shots")
+                local maxShots = itemInst and itemInst:GetAttribute("MaxShots") or 3
+                local tofState = itemInst and itemInst:GetAttribute("tofState")
+                local sCount = tonumber(shots) or (tofState == "cooldown" and 0 or 3)
+                qtyStr = string.format(" [%d/%d]", sCount, maxShots)
+            elseif usesNum then
+                if item == "Bandage" or item:find("Bandage") then
+                    local pct = math.clamp(math.floor((usesNum / 20.0) * 100), 0, 100)
+                    qtyStr = string.format(" [%d%%]", pct)
+                elseif maxUsesNum then
+                    qtyStr = string.format(" [%d/%d]", usesNum, maxUsesNum)
+                else
+                    qtyStr = string.format(" [%d uses]", usesNum)
+                end
+            elseif rem and tonumber(rem) then
+                local remNum = tonumber(rem)
+                if item == "Flashlight" or item:find("Flashlight") then
+                    local pct = math.clamp(math.floor((remNum / 20.0) * 100), 0, 100)
+                    qtyStr = string.format(" [%d%%]", pct)
+                elseif remNum > 0 then
+                    qtyStr = string.format(" (%.1fs)", remNum)
+                end
+            end
+            local cdSec = GetItemCooldown(player, item)
+            if (item == "Twist of Fate" or item:find("Twist")) and itemInst then
+                local tofState = itemInst:GetAttribute("tofState")
+                local tofDur = tonumber(itemInst:GetAttribute("tofStateDur")) or 80
+                local tofStart = tonumber(itemInst:GetAttribute("tofStateStart")) or 0
+                if tofState == "cooldown" then
+                    local remTof = math.max(0, math.ceil(tofDur - (workspace:GetServerTimeNow() - tofStart)))
+                    if remTof > 0 then cdSec = remTof end
+                end
+            end
+            local itemStr = "Item: " .. item .. qtyStr
+            if cdSec > 0 then
+                isItemReady = false
+                itemStr = itemStr .. string.format(" (CD %ds)", cdSec)
+            elseif (rem and tonumber(rem) and tonumber(rem) <= 0) or (uses and tonumber(uses) and tonumber(uses) <= 0) then
+                isItemReady = false
+                itemStr = itemStr .. " [Empty]"
+            else
+                isItemReady = true
+            end
+            table.insert(details, itemStr)
+        else
+            isItemReady = nil
+        end
+        local otherDetails = {}
+        if player == LocalPlayer then
+            local debuff = player.PlayerGui:FindFirstChild("Survivor") and player.PlayerGui.Survivor:FindFirstChild("statuseffects") and player.PlayerGui.Survivor.statuseffects:FindFirstChild("Debuff")
+            local winded = debuff and debuff:FindFirstChild("Winded")
+            if winded and winded.Visible then
+                table.insert(details, "Exhausted")
+                table.insert(otherDetails, "Exhausted")
+            end
+        end
+        local isCarried = char:GetAttribute("IsCarried") or char:GetAttribute("BeingCarried") or char:GetAttribute("IsBeingCarried")
+        if isCarried then
+            local carryTime = tonumber(char:GetAttribute("RemainingCarryTime"))
+            if carryTime and carryTime > 0 then
+                local wStr = string.format("Wiggling: %.1fs", carryTime)
+                table.insert(details, wStr)
+                table.insert(otherDetails, wStr)
+            end
+        end
+        local isHooked = char:GetAttribute("IsHooked") or char:GetAttribute("HookProgressDepleting")
+        local hookProg = tonumber(char:GetAttribute("HookedProgress"))
+        if isHooked and hookProg and hookProg < 100 then
+            local hStr = string.format("Hook: %d%%", math.floor(hookProg))
+            table.insert(details, hStr)
+            table.insert(otherDetails, hStr)
+        end
+        local otherStr = #otherDetails > 0 and table.concat(otherDetails, " | ") or nil
+        return (#details > 0 and table.concat(details, " | ") or nil), isItemReady, item, qtyStr, otherStr
+    end
+end
+end
+do
+    local HitSounds = {
+        ["CoD"] = "rbxassetid://8679627751",
+        ["Neverlose"] = "rbxassetid://6534947240",
+        ["Skeet"] = "rbxassetid://5633695679",
+        ["Bell"] = "rbxassetid://6534947588",
+        ["Rust"] = "rbxassetid://5043539486",
+        ["Bonk"] = "rbxassetid://6607204501",
+        ["Minecraft"] = "rbxassetid://4018616850",
+        ["None"] = "",
+    }
+    TofCombat.HitSounds = HitSounds
+    local lastHitSoundTick = 0
+    function TofCombat.PlayHitSound(name, vol)
+        local now = os.clock()
+        if (now - lastHitSoundTick) < 0.05 then return end
+        lastHitSoundTick = now
+        local sndName = name or Config.HitmarkerSound or "CoD"
+        if sndName == "None" or sndName == "" then return end
+        local rbxId = HitSounds[sndName] or HitSounds["CoD"]
+        if not rbxId or rbxId == "" then return end
+        task.spawn(function()
+            pcall(function()
+                local s = Instance.new("Sound")
+                s.Name = "Nexara_HitSound"
+                s.SoundId = rbxId
+                s.Volume = math.clamp(tonumber(vol or Config.HitmarkerVolume) or 1.0, 0.1, 2.0)
+                s.Parent = game:GetService("SoundService")
+                s:Play()
+                task.delay(1.5, function()
+                    pcall(function() s:Destroy() end)
+                end)
+            end)
+        end)
+    end
+    function TofCombat.TriggerHitmarker(isCrit, worldPos, targetPart)
+        if not Config.Hitmarker then return end
+        TofCombat.HitmarkerAlpha = 1.0
+        TofCombat.HitmarkerIsCrit = (isCrit == true)
+        TofCombat.HitmarkerWorldPos = (typeof(worldPos) == "Vector3" and worldPos) or nil
+        TofCombat.HitmarkerTargetPart = (targetPart and targetPart:IsA("BasePart") and targetPart) or nil
+        TofCombat.PlayHitSound(Config.HitmarkerSound, Config.HitmarkerVolume)
+    end
+    local hitLogContainer = nil
+    local activeHitCards = {}
+    local function getOrCreateHitLogContainer()
+        if hitLogContainer and hitLogContainer.Parent then
+            return hitLogContainer
+        end
+        local parentGui = Window.Gui or (gethui and gethui()) or game:GetService("CoreGui")
+        local existing = parentGui:FindFirstChild("Nexara_HitLogContainer")
+        if existing then
+            hitLogContainer = existing
+            return hitLogContainer
+        end
+        local container = Instance.new("Frame")
+        container.Name = "Nexara_HitLogContainer"
+        container.Size = UDim2.new(0, 315, 0, 0)
+        container.AutomaticSize = Enum.AutomaticSize.Y
+        container.Position = UDim2.new(1, -22, 0, 48)
+        container.AnchorPoint = Vector2.new(1, 0)
+        container.BackgroundTransparency = 1
+        container.ZIndex = 80
+        container.Parent = parentGui
+        _G.Nexara_VD_HitLogContainer = container
+        local layout = Instance.new("UIListLayout")
+        layout.Name = "Layout"
+        layout.Padding = UDim.new(0, 5)
+        layout.SortOrder = Enum.SortOrder.LayoutOrder
+        layout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+        layout.VerticalAlignment = Enum.VerticalAlignment.Top
+        layout.Parent = container
+        hitLogContainer = container
+        return container
+    end
+    function TofCombat.PushHitLogCard(targetPlr, targetChar, hitPart, dist, isCrit)
+        if not Config.HitLog then return end
+        local container = getOrCreateHitLogContainer()
+        if not container then return end
+        local kName = (targetPlr and targetPlr:GetAttribute("SelectedKiller"))
+            or (targetChar and targetChar:GetAttribute("SelectedKiller"))
+            or (targetPlr and targetPlr.DisplayName)
+            or "The Killer"
+        local pName = (hitPart and hitPart.Name) or "Torso"
+        local distStuds = math.floor(dist or 0)
+        local tag = isCrit and "[CRIT]" or "[HIT]"
+        local effect = isCrit and "Stunned!" or "Slowed 10% (4s)"
+        local _, _, shots = TofCombat.GetGunCooldown()
+        local shotsStr = string.format(" | %d/3 Shots", shots)
+        while #activeHitCards >= 5 do
+            local oldest = table.remove(activeHitCards, 1)
+            if oldest and oldest.Card and oldest.Card.Parent then
+                pcall(function()
+                    local t = TweenService:Create(oldest.Card, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                        GroupTransparency = 1,
+                        Position = UDim2.fromOffset(25, 0)
+                    })
+                    t:Play()
+                    t.Completed:Connect(function() pcall(function() oldest.Card:Destroy() end) end)
+                end)
+            end
+        end
+        local card = Instance.new("CanvasGroup")
+        card.Name = "HitCard"
+        card.Size = UDim2.fromOffset(295, 26)
+        card.BackgroundColor3 = Color3.fromRGB(16, 17, 22)
+        card.BackgroundTransparency = 0.12
+        card.BorderSizePixel = 0
+        card.GroupTransparency = 1
+        card.Position = UDim2.fromOffset(24, 0)
+        card.ZIndex = 82
+        card.LayoutOrder = math.floor(os.clock() * 1000)
+        local cardScale = Instance.new("UIScale")
+        cardScale.Name = "Scale"
+        cardScale.Scale = 0.88
+        cardScale.Parent = card
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 6)
+        corner.Parent = card
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = isCrit and Color3.fromRGB(120, 35, 45) or Color3.fromRGB(38, 40, 52)
+        stroke.Thickness = 1
+        stroke.Parent = card
+        local bar = Instance.new("Frame")
+        bar.Name = "AccentBar"
+        bar.Size = UDim2.new(0, 3, 1, -8)
+        bar.Position = UDim2.new(0, 4, 0.5, 0)
+        bar.AnchorPoint = Vector2.new(0, 0.5)
+        bar.BackgroundColor3 = isCrit and Color3.fromRGB(255, 75, 75) or (Window.Theme.Accent or Color3.fromRGB(60, 230, 130))
+        bar.BorderSizePixel = 0
+        bar.ZIndex = 83
+        bar.Parent = card
+        Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 2)
+        local badge = Instance.new("TextLabel")
+        badge.Name = "Tag"
+        badge.Size = UDim2.new(0, 38, 1, 0)
+        badge.Position = UDim2.fromOffset(12, 0)
+        badge.BackgroundTransparency = 1
+        badge.Text = tag
+        badge.TextColor3 = isCrit and Color3.fromRGB(255, 80, 80) or (Window.Theme.Accent or Color3.fromRGB(80, 255, 140))
+        badge.TextSize = 10.5
+        badge.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+        badge.TextXAlignment = Enum.TextXAlignment.Left
+        badge.ZIndex = 83
+        badge.Parent = card
+        local detail = Instance.new("TextLabel")
+        detail.Name = "Detail"
+        detail.Size = UDim2.new(1, -54, 1, 0)
+        detail.Position = UDim2.fromOffset(50, 0)
+        detail.BackgroundTransparency = 1
+        detail.Text = string.format("%s in %s (%d studs) | %s%s", kName, pName, distStuds, effect, shotsStr)
+        detail.TextColor3 = Color3.fromRGB(235, 235, 245)
+        detail.TextSize = 10
+        detail.FontFace = GetPreferredFont()
+        detail.TextXAlignment = Enum.TextXAlignment.Left
+        detail.ZIndex = 83
+        detail.Parent = card
+        card.Parent = container
+        TweenService:Create(card, TweenInfo.new(0.26, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+            GroupTransparency = 0,
+            Position = UDim2.fromOffset(0, 0)
+        }):Play()
+        TweenService:Create(cardScale, TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Scale = 1.0
+        }):Play()
+        local cardData = { Card = card, Scale = cardScale, SpawnTime = os.clock(), Expired = false }
+        table.insert(activeHitCards, cardData)
+        task.delay(3.8, function()
+            if not cardData.Expired and card.Parent then
+                cardData.Expired = true
+                for idx, c in ipairs(activeHitCards) do
+                    if c == cardData then table.remove(activeHitCards, idx); break end
+                end
+                pcall(function()
+                    local fadeOut = TweenService:Create(card, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                        GroupTransparency = 1,
+                        Position = UDim2.fromOffset(25, 0)
+                    })
+                    local scaleDown = TweenService:Create(cardScale, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                        Scale = 0.88
+                    })
+                    fadeOut:Play()
+                    scaleDown:Play()
+                    fadeOut.Completed:Connect(function()
+                        pcall(function() card:Destroy() end)
+                    end)
+                end)
+            end
+        end)
+    end
+    function TofCombat.StepHitLogs(dt) end
+    function TofCombat.LogHit(targetPlr, targetChar, hitPart, dist, isCrit)
+        TofCombat.PushHitLogCard(targetPlr, targetChar, hitPart, dist, isCrit)
+    end
+    function TofCombat.StepHitmarker(dt)
+        local lines = TofCombat.HitmarkerLines
+        if not lines or #lines == 0 then return end
+        if TofCombat.HitmarkerAlpha and TofCombat.HitmarkerAlpha > 0.01 then
+            local stepDt = (type(dt) == "number" and dt) or 0.016
+            TofCombat.HitmarkerAlpha = math.max(0, TofCombat.HitmarkerAlpha - (stepDt * 3.8))
+            local cam = Workspace.CurrentCamera
+            if not cam then return end
+            local vp = cam.ViewportSize
+            local cx, cy = vp.X * 0.5, vp.Y * 0.5;
+            local isModeOnKiller = (Config.HitmarkerMode ~= "Screen Center")
+            if isModeOnKiller then
+                local targetWorld = nil
+                local tp = TofCombat.HitmarkerTargetPart
+                if tp and tp.Parent then
+                    targetWorld = tp.Position
+                elseif typeof(TofCombat.HitmarkerWorldPos) == "Vector3" then
+                    targetWorld = TofCombat.HitmarkerWorldPos
+                end
+                if targetWorld then
+                    local sPos, onScreen = cam:WorldToViewportPoint(targetWorld)
+                    if onScreen and sPos.Z > 0 then
+                        cx, cy = sPos.X, sPos.Y
+                    else
+                        for _, l in ipairs(lines) do
+                            if l.Visible then l.Visible = false end
+                        end
+                        return
+                    end
+                end
+            end
+            local gap = 4.5
+            local len = 11.5
+            local col = TofCombat.HitmarkerIsCrit and Color3.fromRGB(255, 65, 65) or (Config.Color_Hitmarker or Color3.fromRGB(255, 255, 255))
+            local a = TofCombat.HitmarkerAlpha
+            lines[1].From = Vector2.new(cx - gap, cy - gap)
+            lines[1].To = Vector2.new(cx - len, cy - len)
+            lines[2].From = Vector2.new(cx + gap, cy - gap)
+            lines[2].To = Vector2.new(cx + len, cy - len)
+            lines[3].From = Vector2.new(cx - gap, cy + gap)
+            lines[3].To = Vector2.new(cx - len, cy + len)
+            lines[4].From = Vector2.new(cx + gap, cy + gap)
+            lines[4].To = Vector2.new(cx + len, cy + len)
+            for _, l in ipairs(lines) do
+                l.Color = col
+                l.Transparency = a
+                if not l.Visible then l.Visible = true end
+            end
+        else
+            TofCombat.HitmarkerWorldPos = nil
+            TofCombat.HitmarkerTargetPart = nil
+            for _, l in ipairs(lines) do
+                if l.Visible then l.Visible = false end
+            end
+        end
+    end
+end
+do
+local skillCheckTriggered = false
+local lastTriggeredGoalRot = nil
+local lastLineRot = nil
+local cachedSkillCheckCheck = nil
+local lastSkillCheckLookupClock = 0
+StepAutoSkillCheck = function()
+        local now = os.clock()
+        if (not cachedSkillCheckCheck or not cachedSkillCheckCheck.Parent) and (now - lastSkillCheckLookupClock > 0.25) then
+            lastSkillCheckLookupClock = now
+            local pg = LocalPlayer:FindFirstChild("PlayerGui")
+            local scPrompt = pg and (pg:FindFirstChild("SkillCheckPromptGui") or pg:FindFirstChild("SkillCheckPromptGui-con"))
+            cachedSkillCheckCheck = scPrompt and scPrompt:FindFirstChild("Check") or nil
+        end
+        local check = cachedSkillCheckCheck
+        if check and check.Visible then
+            local line = check:FindFirstChild("Line")
+            if not line then return end
+            local trapGoal = check:FindFirstChild("TrapGoal")
+            local trapPerf = check:FindFirstChild("TrapPerfect")
+            local stdGoal = check:FindFirstChild("Goal")
+            local activeGoal = nil
+            if trapGoal and trapGoal.Visible then
+                activeGoal = trapGoal
+            elseif trapPerf and trapPerf.Visible then
+                activeGoal = trapPerf
+            elseif stdGoal and stdGoal.Visible then
+                activeGoal = stdGoal
+            else
+                activeGoal = stdGoal or trapGoal or trapPerf
+            end
+            if activeGoal then
+                local gRot = activeGoal.Rotation
+                local lRot = line.Rotation
+                if lastTriggeredGoalRot ~= nil and math.abs(gRot - lastTriggeredGoalRot) > 0.5 then
+                    skillCheckTriggered = false
+                end
+                if lastLineRot ~= nil and (lRot < lastLineRot - 15) then
+                    skillCheckTriggered = false
+                end
+                lastLineRot = lRot
+                local diff = (lRot - gRot) % 360
+                local isGreat = (diff >= 103.0 and diff <= 115.0) or (lRot >= gRot + 103.0 and lRot <= gRot + 115.0)
+                if isGreat and not skillCheckTriggered then
+                    skillCheckTriggered = true
+                    lastTriggeredGoalRot = gRot
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                    task.spawn(function()
+                        task.wait(0.015)
+                        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                    end)
+                end
+            end
+        else
+            skillCheckTriggered = false
+            lastTriggeredGoalRot = nil
+            lastLineRot = nil
+        end
+end
+mouseUnlockBound = false
+UpdateMouseUnlockBinding = function()
+    if Window and Window.Visible then
+        if not mouseUnlockBound then
+            mouseUnlockBound = true
+            pcall(function()
+                RunService:BindToRenderStep("Nexara_MouseUnlock", Enum.RenderPriority.Camera.Value + 1, function()
+                    if Window and Window.Visible then
+                        if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+                            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+                        end
+                        if not UserInputService.MouseIconEnabled then
+                            UserInputService.MouseIconEnabled = true
+                        end
+                    end
+                end)
+            end)
+        end
+        if CameraHooks.modalGui then CameraHooks.modalGui.Enabled = true end
+        if CameraHooks.modalBtn then CameraHooks.modalBtn.Visible = true; CameraHooks.modalBtn.Active = true end
+        if modalUnlockBtn and modalUnlockBtn.Parent then
+            modalUnlockBtn.Visible = true
+            modalUnlockBtn.Active = true
+        end
+        UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+        UserInputService.MouseIconEnabled = true
+    else
+        if mouseUnlockBound then
+            mouseUnlockBound = false
+            pcall(function() RunService:UnbindFromRenderStep("Nexara_MouseUnlock") end)
+        end
+        if CameraHooks.modalGui then CameraHooks.modalGui.Enabled = false end
+        if CameraHooks.modalBtn then CameraHooks.modalBtn.Visible = false; CameraHooks.modalBtn.Active = false end
+        if modalUnlockBtn and modalUnlockBtn.Parent then
+            modalUnlockBtn.Visible = false
+            modalUnlockBtn.Active = false
+        end
+        if not IsInLobby() then
+            UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+            UserInputService.MouseIconEnabled = false
+            if CameraHooks.origSetMouseBehavior then
+                pcall(function() CameraHooks.origSetMouseBehavior(Enum.MouseBehavior.LockCenter) end)
+            end
+        else
+            UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+            UserInputService.MouseIconEnabled = true
+        end
+    end
+end
+local function _SyncMouseState()
+    UpdateMouseUnlockBinding()
+end
+table.insert(ScriptConnections, UserInputService.InputBegan:Connect(function(input, gpe)
+    local toggleKey = (Window and Window.ToggleKey) or Enum.KeyCode.RightControl
+    if input.KeyCode == toggleKey then
+        task.defer(UpdateMouseUnlockBinding)
+    end
+end))
+pcall(function()
+    if Window and Window.MainFrame then
+        table.insert(ScriptConnections, Window.MainFrame:GetPropertyChangedSignal("Visible"):Connect(function()
+            UpdateMouseUnlockBinding()
+        end))
+    end
+end)
+table.insert(ScriptConnections, LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.2)
+    if SetupPlayerGuiModal then SetupPlayerGuiModal() end
+    UpdateMouseUnlockBinding()
+end))
+table.insert(ScriptConnections, UserInputService.InputBegan:Connect(function(input, gpe)
+    if not gpe and (not Window or not Window.Visible) and not IsInLobby() then
+        local it = input.UserInputType
+        local kc = input.KeyCode
+        if it == Enum.UserInputType.MouseButton1 or it == Enum.UserInputType.MouseButton2
+           or kc == Enum.KeyCode.W or kc == Enum.KeyCode.A or kc == Enum.KeyCode.S or kc == Enum.KeyCode.D
+           or kc == Enum.KeyCode.Space or kc == Enum.KeyCode.LeftShift or kc == Enum.KeyCode.RightShift then
+            if UserInputService.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+                UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+            end
+            if UserInputService.MouseIconEnabled then
+                UserInputService.MouseIconEnabled = false
+            end
+        end
+    end
+end))
+end
+do
+    local blindGuiParent = (gethui and gethui()) or game:GetService("CoreGui") or LocalPlayer:WaitForChild("PlayerGui")
+    local oldBlindGui = blindGuiParent:FindFirstChild("Nexara_BlindProgressGui")
+    if oldBlindGui then pcall(function() oldBlindGui:Destroy() end) end
+    local BlindGui = Instance.new("ScreenGui")
+    BlindGui.Name = "Nexara_BlindProgressGui"
+    BlindGui.ResetOnSpawn = false
+    BlindGui.IgnoreGuiInset = true
+    BlindGui.DisplayOrder = 999990
+    BlindGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    BlindGui.Parent = blindGuiParent
+    local BlindContainer = Instance.new("Frame")
+    BlindContainer.Name = "BlindContainer"
+    BlindContainer.Size = UDim2.fromOffset(230, 48)
+    BlindContainer.AnchorPoint = Vector2.new(0.5, 1)
+    BlindContainer.Position = UDim2.new(0.5, 0, 1, -26)
+    BlindContainer.BackgroundTransparency = 1
+    BlindContainer.Visible = false
+    BlindContainer.Parent = BlindGui
+    _G.Nexara_BlindProgressFrame = BlindContainer
+    local BlindTitle = Instance.new("TextLabel")
+    BlindTitle.Name = "BlindTitle"
+    BlindTitle.Size = UDim2.new(1, 0, 0, 20)
+    BlindTitle.Position = UDim2.fromOffset(0, 0)
+    BlindTitle.BackgroundTransparency = 1
+    BlindTitle.Text = "Blind Progress"
+    BlindTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    BlindTitle.TextSize = 15
+    BlindTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    BlindTitle.Parent = BlindContainer
+    local titleStroke = Instance.new("UIStroke")
+    titleStroke.Color = Color3.fromRGB(0, 0, 0)
+    titleStroke.Thickness = 1.4
+    titleStroke.Transparency = 0.15
+    titleStroke.Parent = BlindTitle
+    local BarBg = Instance.new("Frame")
+    BarBg.Name = "BarBg"
+    BarBg.Size = UDim2.new(1, 0, 0, 22)
+    BarBg.Position = UDim2.fromOffset(0, 23)
+    BarBg.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
+    BarBg.BackgroundTransparency = 0.1
+    BarBg.BorderSizePixel = 0
+    BarBg.Parent = BlindContainer
+    Instance.new("UICorner", BarBg).CornerRadius = UDim.new(0, 6)
+    local barStroke = Instance.new("UIStroke")
+    barStroke.Color = Color3.fromRGB(15, 15, 18)
+    barStroke.Thickness = 1.5
+    barStroke.Transparency = 0.1
+    barStroke.Parent = BarBg
+    local BarFillHolder = Instance.new("Frame")
+    BarFillHolder.Name = "BarFillHolder"
+    BarFillHolder.Size = UDim2.new(1, -4, 1, -4)
+    BarFillHolder.Position = UDim2.fromOffset(2, 2)
+    BarFillHolder.BackgroundTransparency = 1
+    BarFillHolder.ClipsDescendants = true
+    BarFillHolder.Parent = BarBg
+    local BarFill = Instance.new("Frame")
+    BarFill.Name = "BarFill"
+    BarFill.Size = UDim2.new(0, 0, 1, 0)
+    BarFill.Position = UDim2.fromOffset(0, 0)
+    BarFill.BackgroundColor3 = Color3.fromRGB(158, 150, 255)
+    BarFill.BorderSizePixel = 0
+    BarFill.Parent = BarFillHolder
+    Instance.new("UICorner", BarFill).CornerRadius = UDim.new(0, 5)
+    local PctLabel = Instance.new("TextLabel")
+    PctLabel.Name = "PctLabel"
+    PctLabel.Size = UDim2.new(1, 0, 1, 0)
+    PctLabel.Position = UDim2.fromOffset(0, 0)
+    PctLabel.BackgroundTransparency = 1
+    PctLabel.Text = "0%"
+    PctLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    PctLabel.TextSize = 14
+    PctLabel.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    PctLabel.ZIndex = 3
+    PctLabel.Parent = BarBg
+    local pctStroke = Instance.new("UIStroke")
+    pctStroke.Color = Color3.fromRGB(0, 0, 0)
+    pctStroke.Thickness = 1.3
+    pctStroke.Transparency = 0.15
+    pctStroke.Parent = PctLabel
+    local blindProgress = 0
+    local blindHoldUntil = 0
+    local lastRawBlindness = 0
+    local blindUiAlpha = 0
+    pcall(function()
+        local remItems = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("Items")
+        local remFl = remItems and remItems:FindFirstChild("Flashlight")
+        local gotBlinded = remFl and remFl:FindFirstChild("GotBlinded")
+        if gotBlinded and gotBlinded:IsA("RemoteEvent") then
+            table.insert(ScriptConnections, gotBlinded.OnClientEvent:Connect(function()
+                if Config.BlindProgressEnabled then
+                    blindProgress = 1
+                    blindHoldUntil = os.clock() + 1.0
+                end
+            end))
+        end
+    end)
+    UpdateFlashlightBlindness = function(dt)
+        local shouldShowBlind = Config.BlindProgressEnabled and TofCombat.IsFlashlightActive()
+        if shouldShowBlind then
+            blindUiAlpha = math.min(1, blindUiAlpha + dt * 4.5)
+        else
+            blindUiAlpha = math.max(0, blindUiAlpha - dt * 4.5)
+        end
+        if blindUiAlpha <= 0.01 then
+            if BlindContainer.Visible then BlindContainer.Visible = false end
+            blindProgress = 0
+            lastRawBlindness = 0
+            return
+        end
+        if not BlindContainer.Visible then
+            BlindContainer.Visible = true
+        end
+        BlindTitle.TextTransparency = 1 - blindUiAlpha
+        titleStroke.Transparency = 1 - (0.85 * blindUiAlpha)
+        BarBg.BackgroundTransparency = 1 - (0.90 * blindUiAlpha)
+        barStroke.Transparency = 1 - (0.90 * blindUiAlpha)
+        BarFill.BackgroundTransparency = 1 - blindUiAlpha
+        PctLabel.TextTransparency = 1 - blindUiAlpha
+        pctStroke.Transparency = 1 - (0.85 * blindUiAlpha)
+        local now = os.clock()
+        local rawBlindness = nil
+        local kp = ctx.GetCurrentKiller and ctx.GetCurrentKiller() or nil
+        if kp and kp.Character and not IsPlayerDead(kp) then
+            local head = kp.Character:FindFirstChild("Head")
+            local bAttr = (head and head:GetAttribute("Blindness")) or kp.Character:GetAttribute("Blindness")
+            if type(bAttr) == "number" then
+                rawBlindness = math.clamp(bAttr, 0, 100)
+            end
+        end
+        if rawBlindness ~= nil then
+            if (lastRawBlindness >= 88 and rawBlindness <= 1) or rawBlindness >= 99.5 then
+                blindHoldUntil = math.max(blindHoldUntil, now + 0.65)
+            elseif rawBlindness > 1 and rawBlindness < 99.5 then
+                blindHoldUntil = 0
+            end
+            lastRawBlindness = rawBlindness
+            if now < blindHoldUntil and rawBlindness <= 1 then
+                blindProgress = 1
+            else
+                local targetProg = math.clamp(rawBlindness / 100, 0, 1)
+                blindProgress = blindProgress + (targetProg - blindProgress) * math.clamp(dt * 24, 0, 1)
+                if targetProg == 0 and blindProgress < 0.005 then
+                    blindProgress = 0
+                elseif targetProg >= 0.995 then
+                    blindProgress = 1
+                end
+            end
+        else
+            blindProgress = 0
+            lastRawBlindness = 0
+        end
+        local pct = math.clamp(math.floor(blindProgress * 100 + 0.5), 0, 100)
+        BarFill.Size = UDim2.new(blindProgress, 0, 1, 0)
+        PctLabel.Text = tostring(pct) .. "%"
+    end
+    end
+    ctx.ClearPlayerCooldowns = ClearPlayerCooldowns
+    ctx.GetItemCooldown = GetItemCooldown
+    ctx.GetPlayerPerks = GetPlayerPerks
+    ctx.GetPlayerSkillInfo = GetPlayerSkillInfo
+    ctx.StepAutoSkillCheck = StepAutoSkillCheck
+    ctx.UpdateMouseUnlockBinding = UpdateMouseUnlockBinding
+    ctx.UpdateFlashlightBlindness = UpdateFlashlightBlindness
 local origCreateTab = Window.CreateTab
 function Window:CreateTab(tabName, tabIcon)
     local TabObj = origCreateTab(self, tabName, tabIcon)
