@@ -1,0 +1,4711 @@
+return function(ctx)
+    local Window = ctx.Window
+    local Config = ctx.Config
+    local Nexara = ctx.Nexara
+    local TofCombat = ctx.TofCombat
+    local _AutoParry = ctx.AutoParry
+    local _CameraHooks = ctx.CameraHooks
+    local UnloadScript = ctx.UnloadScript
+    local ApplyFullbrightNow = ctx.ApplyFullbrightNow
+    local RestoreOriginalLighting = ctx.RestoreOriginalLighting
+    local IsInLobby = ctx.IsInLobby
+    local IsPlayerInLobby = ctx.IsPlayerInLobby
+    local IsPlayerDead = ctx.IsPlayerDead
+    local IsKiller = ctx.IsKiller
+    local _IsCarried = ctx.IsCarried
+    local _IsCarrying = ctx.IsCarrying
+    local _IsHooked = ctx.IsHooked
+    local _IsStunned = ctx.IsStunned
+    local GetRoot = ctx.GetRoot
+    local GetPreferredFont = ctx.GetPreferredFont
+    local GetPlayerSkillInfo = ctx.GetPlayerSkillInfo
+    local GetPlayerPerks = ctx.GetPlayerPerks
+    local PlayerPerkTiers = ctx.PlayerPerkTiers
+    local PlayerItemCache = ctx.PlayerItemCache
+    local ScanActivePumpkins = ctx.ScanActivePumpkins
+    local _IsPumpkinValidAndIntact = ctx.IsPumpkinValidAndIntact
+    local _CrushedPumpkinsCache = ctx.CrushedPumpkinsCache or {}
+    local _ActivePumpkinsList = ctx.ActivePumpkinsList or {}
+    local ScriptConnections = ctx.ScriptConnections
+    local ScriptRunning = ctx.ScriptRunning
+    local cachedRosterRows = ctx.cachedRosterRows
+    local TopKillerSkillText = ctx.TopKillerSkillText
+    local ItemIcons = ctx.ItemIcons
+    local ESP_Objects = ctx.ESP_Objects
+    local GenAuras = ctx.GenAuras
+    local PalletAuras = ctx.PalletAuras
+    local WindowAuras = ctx.WindowAuras
+    local WindowAdornments = ctx.WindowAdornments
+    local PumpkinAuras = ctx.PumpkinAuras
+
+    local Players = game:GetService("Players")
+    local Workspace = game:GetService("Workspace")
+    local RunService = game:GetService("RunService")
+    local UserInputService = game:GetService("UserInputService")
+    local _Lighting = game:GetService("Lighting")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local MarketplaceService = game:GetService("MarketplaceService")
+    local VirtualInputManager = game:GetService("VirtualInputManager")
+    local TweenService = game:GetService("TweenService")
+    local _CollectionService = game:GetService("CollectionService")
+    local LocalPlayer = Players.LocalPlayer
+    local Camera = Workspace.CurrentCamera
+
+local origCreateTab = Window.CreateTab
+function Window:CreateTab(tabName, tabIcon)
+    local TabObj = origCreateTab(self, tabName, tabIcon)
+    local al = TabObj.ActiveLine or (TabObj.Button and TabObj.Button:FindFirstChild("ActiveLine"))
+    if al then
+        al.AnchorPoint = Vector2.new(0.5, 1)
+        al.Position = UDim2.new(0.5, 0, 1, 0)
+        al:GetPropertyChangedSignal("Position"):Connect(function()
+            if al.Position ~= UDim2.new(0.5, 0, 1, 0) then
+                al.AnchorPoint = Vector2.new(0.5, 1)
+                al.Position = UDim2.new(0.5, 0, 1, 0)
+            end
+        end)
+    end
+    local origSelect = TabObj.Select
+    if origSelect then
+        function TabObj:Select()
+            origSelect(self)
+            for _, t in ipairs(Window.Tabs or {}) do
+                local isAct = (Window.ActiveTab == t)
+                if t.Button then
+                    t.Button.BackgroundTransparency = isAct and 0.12 or 0.45
+                end
+            end
+        end
+    end
+    local origCreateColumn = TabObj.CreateColumn
+    function TabObj:CreateColumn()
+        local ColObj = origCreateColumn(self)
+        local origCreateSection = ColObj.CreateSection
+        function ColObj:CreateSection(secTitle)
+            local SecObj = origCreateSection(self, secTitle)
+            local _origAddToggle = SecObj.AddToggle
+            function SecObj:AddToggle(toggleOpts)
+                toggleOpts = toggleOpts or {}
+                local tName = toggleOpts.Name or "Toggle"
+                local tFlag = toggleOpts.Flag or tName
+                local tDefault = toggleOpts.Default or false
+                local tCallback = toggleOpts.Callback or function() end
+                local hasColor = (toggleOpts.Color ~= nil)
+                local currentColor = toggleOpts.Color or Window.Theme.Accent
+
+                local Row = Instance.new("Frame")
+                Row.Name = "ToggleRow_" .. tName
+                Row.Size = UDim2.new(1, 0, 0, 20)
+                Row.BackgroundTransparency = 1
+                Row.Parent = self.Container
+
+                local Trigger = Instance.new("TextButton")
+                Trigger.Name = "Trigger"
+                Trigger.Size = UDim2.new(1, 0, 1, 0)
+                Trigger.BackgroundTransparency = 1
+                Trigger.Text = ""
+                Trigger.Parent = Row
+
+                local Label = Instance.new("TextLabel")
+                Label.Name = "Label"
+                Label.Size = UDim2.new(1, hasColor and -64 or -44, 1, 0)
+                Label.Position = UDim2.fromOffset(0, 0)
+                Label.BackgroundTransparency = 1
+                Label.Text = tName
+                Label.TextColor3 = Window.Theme.Text
+                Label.TextSize = 11
+                Label.TextXAlignment = Enum.TextXAlignment.Left
+                Label.FontFace = GetPreferredFont()
+                Label.Parent = Trigger
+                Window:RegisterThemeElement(Label, "TextColor3", "Text")
+
+                local Pill = Instance.new("Frame")
+                Pill.Name = "Pill"
+                Pill.Size = UDim2.fromOffset(34, 18)
+                Pill.Position = UDim2.new(1, -34, 0.5, -9)
+                local offPillColor = Color3.fromRGB(20, 23, 32)
+                Pill.BackgroundColor3 = tDefault and Window.Theme.Accent or offPillColor
+                Pill.BorderSizePixel = 0
+                Pill.Parent = Trigger
+
+                local PillCorner = Instance.new("UICorner")
+                PillCorner.CornerRadius = UDim.new(1, 0)
+                PillCorner.Parent = Pill
+
+                local PillStroke = Instance.new("UIStroke")
+                PillStroke.Color = tDefault and Window.Theme.Accent:Lerp(Color3.new(1, 1, 1), 0.25) or Color3.fromRGB(44, 50, 68)
+                PillStroke.Transparency = tDefault and 0.35 or 0.15
+                PillStroke.Thickness = 1
+                PillStroke.Parent = Pill
+
+                local Knob = Instance.new("Frame")
+                Knob.Name = "Knob"
+                Knob.Size = UDim2.fromOffset(14, 14)
+                Knob.AnchorPoint = Vector2.new(0, 0.5)
+                local posOn = UDim2.new(1, -16, 0.5, 0)
+                local posOff = UDim2.new(0, 2, 0.5, 0)
+                Knob.Position = tDefault and posOn or posOff
+                local knobColorOn = Color3.fromRGB(10, 12, 18)
+                local knobColorOff = Color3.fromRGB(132, 142, 162)
+                Knob.BackgroundColor3 = tDefault and knobColorOn or knobColorOff
+                Knob.BorderSizePixel = 0
+                Knob.Parent = Pill
+
+                local KnobCorner = Instance.new("UICorner")
+                KnobCorner.CornerRadius = UDim.new(1, 0)
+                KnobCorner.Parent = Knob
+
+                local state = tDefault
+                local ToggleItem = { State = state, Color = currentColor, Name = tName, Flag = tFlag, Pill = Pill, PillStroke = PillStroke, Knob = Knob }
+
+                local function GetOffPillColor()
+                    local surf = (Window.Theme and Window.Theme.Section) or Color3.fromRGB(15, 17, 25)
+                    return surf:Lerp(Color3.fromRGB(28, 32, 46), 0.45)
+                end
+
+                local function SetState(val, silent)
+                    state = val
+                    ToggleItem.State = state
+                    local curOffPill = GetOffPillColor()
+                    local targetPillCol = state and Window.Theme.Accent or curOffPill
+                    local targetKnobCol = state and knobColorOn or knobColorOff
+                    local targetPos = state and posOn or posOff
+                    local targetStrokeCol = state and Window.Theme.Accent:Lerp(Color3.new(1, 1, 1), 0.25) or curOffPill:Lerp(Window.Theme.Accent, 0.22)
+
+                    TweenService:Create(Pill, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        BackgroundColor3 = targetPillCol
+                    }):Play()
+                    TweenService:Create(PillStroke, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        Color = targetStrokeCol,
+                        Transparency = state and 0.35 or 0.15
+                    }):Play()
+                    TweenService:Create(Knob, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        Position = targetPos,
+                        BackgroundColor3 = targetKnobCol
+                    }):Play()
+
+                    Window.ConfigValues[tFlag] = state
+                    tCallback(state, ToggleItem.Color)
+                    if not silent and Window.OnSilentAutoSave then
+                        Window.OnSilentAutoSave()
+                    end
+                end
+
+                Window:OnAccentChanged(function(newAccent)
+                    local curOffPill = GetOffPillColor()
+                    if state then
+                        TweenService:Create(Pill, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                            BackgroundColor3 = newAccent
+                        }):Play()
+                        PillStroke.Color = newAccent:Lerp(Color3.new(1, 1, 1), 0.25)
+                    else
+                        Pill.BackgroundColor3 = curOffPill
+                        PillStroke.Color = curOffPill:Lerp(newAccent, 0.22)
+                    end
+                end)
+
+                local lastToggleTick = 0
+                local function DoToggle()
+                    if os.clock() - lastToggleTick < 0.08 then return end
+                    lastToggleTick = os.clock()
+                    SetState(not state)
+                end
+                Trigger.MouseButton1Click:Connect(DoToggle)
+
+                local ColorBadge = nil
+                if hasColor then
+                    ColorBadge = Instance.new("TextButton")
+                    ColorBadge.Name = "ColorBadge"
+                    ColorBadge.Size = UDim2.fromOffset(18, 14)
+                    ColorBadge.Position = UDim2.new(1, -58, 0.5, -7)
+                    ColorBadge.BackgroundColor3 = currentColor
+                    ColorBadge.BorderSizePixel = 0
+                    ColorBadge.Text = ""
+                    ColorBadge.ZIndex = 5
+                    ColorBadge.Parent = Row
+
+                    local BadgeCorner = Instance.new("UICorner")
+                    BadgeCorner.CornerRadius = UDim.new(0, 3)
+                    BadgeCorner.Parent = ColorBadge
+
+                    local BadgeStroke = Instance.new("UIStroke")
+                    BadgeStroke.Color = Window.Theme.Outline
+                    BadgeStroke.Thickness = 1
+                    BadgeStroke.Parent = ColorBadge
+
+                    ColorBadge.MouseButton1Click:Connect(function()
+                        Nexara:OpenColorPicker(ColorBadge, ToggleItem.Color, function(newCol)
+                            ToggleItem.Color = newCol
+                            ColorBadge.BackgroundColor3 = newCol
+                            Window.ConfigValues[tFlag .. "_Color"] = { math.floor(newCol.R * 255), math.floor(newCol.G * 255), math.floor(newCol.B * 255) }
+                            tCallback(ToggleItem.State, newCol)
+                            if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
+                        end)
+                    end)
+                    Window.ConfigValues[tFlag .. "_Color"] = { math.floor(currentColor.R * 255), math.floor(currentColor.G * 255), math.floor(currentColor.B * 255) }
+                end
+
+                function ToggleItem:Set(val, silent)
+                    SetState(val, silent)
+                end
+                function ToggleItem:SetColor(newCol, silent)
+                    ToggleItem.Color = newCol
+                    if ColorBadge then ColorBadge.BackgroundColor3 = newCol end
+                    if hasColor then
+                        Window.ConfigValues[tFlag .. "_Color"] = { math.floor(newCol.R * 255), math.floor(newCol.G * 255), math.floor(newCol.B * 255) }
+                    end
+                    if not silent then tCallback(ToggleItem.State, newCol) end
+                end
+
+                Window.ConfigFlags[tFlag] = ToggleItem
+                Window.ConfigValues[tFlag] = tDefault
+                if tDefault then
+                    pcall(tCallback, true, ToggleItem.Color)
+                end
+                return ToggleItem
+            end
+            return SecObj
+        end
+        return ColObj
+    end
+    return TabObj
+end
+
+local MainTab = Window:CreateTab("Main", "rbxassetid://7733960981")
+do
+local MainCol1 = MainTab:CreateColumn()
+local MainCol2 = MainTab:CreateColumn()
+
+local WelcomeCard, WelcomeAccent = MainCol1:CreateCustomCard(110)
+Window:RegisterAccent(WelcomeAccent, "BackgroundColor3")
+
+local TopBadge = Instance.new("TextLabel")
+TopBadge.Size = UDim2.new(0, 140, 0, 14)
+TopBadge.Position = UDim2.fromOffset(10, 8)
+TopBadge.BackgroundTransparency = 1
+TopBadge.Text = "NEXARA | VIOLENCE DISTRICT"
+TopBadge.TextColor3 = Window.Theme.Accent
+TopBadge.TextSize = 9
+TopBadge.TextXAlignment = Enum.TextXAlignment.Left
+TopBadge.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+TopBadge.Parent = WelcomeCard
+Window:RegisterAccent(TopBadge, "TextColor3")
+
+local WelcomeTitle = Instance.new("TextLabel")
+WelcomeTitle.Size = UDim2.new(1, -20, 0, 16)
+WelcomeTitle.Position = UDim2.fromOffset(10, 24)
+WelcomeTitle.BackgroundTransparency = 1
+WelcomeTitle.Text = "Welcome back,"
+WelcomeTitle.TextColor3 = Window.Theme.SubText
+WelcomeTitle.TextSize = 10
+WelcomeTitle.TextXAlignment = Enum.TextXAlignment.Left
+WelcomeTitle.FontFace = GetPreferredFont()
+WelcomeTitle.Parent = WelcomeCard
+
+local WelcomeName = Instance.new("TextLabel")
+WelcomeName.Size = UDim2.new(1, -20, 0, 20)
+WelcomeName.Position = UDim2.fromOffset(10, 40)
+WelcomeName.BackgroundTransparency = 1
+WelcomeName.Text = LocalPlayer.DisplayName
+WelcomeName.TextColor3 = Window.Theme.Text
+WelcomeName.TextSize = 16
+WelcomeName.TextXAlignment = Enum.TextXAlignment.Left
+WelcomeName.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+WelcomeName.Parent = WelcomeCard
+
+local WelcomeTag = Instance.new("TextLabel")
+WelcomeTag.Size = UDim2.new(1, -20, 0, 14)
+WelcomeTag.Position = UDim2.fromOffset(10, 60)
+WelcomeTag.BackgroundTransparency = 1
+WelcomeTag.Text = "@" .. LocalPlayer.Name
+WelcomeTag.TextColor3 = Window.Theme.SubText
+WelcomeTag.TextSize = 10
+WelcomeTag.TextXAlignment = Enum.TextXAlignment.Left
+WelcomeTag.FontFace = GetPreferredFont()
+WelcomeTag.Parent = WelcomeCard
+
+local StatsRow = Instance.new("Frame")
+StatsRow.Size = UDim2.new(1, -20, 0, 24)
+StatsRow.Position = UDim2.fromOffset(10, 80)
+StatsRow.BackgroundTransparency = 1
+StatsRow.Parent = WelcomeCard
+
+local function MiniStat(parent, xScale, xOffset, label, val)
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(xScale, -4, 1, 0)
+    f.Position = UDim2.new(xOffset, 2, 0, 0)
+    f.BackgroundColor3 = Window.Theme.ElementBackground
+    f.BorderSizePixel = 0
+    f.Parent = parent
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 4)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, 0, 0, 11)
+    lbl.Position = UDim2.fromOffset(0, 1)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = label
+    lbl.TextColor3 = Window.Theme.SubText
+    lbl.TextSize = 8
+    lbl.FontFace = GetPreferredFont()
+    lbl.Parent = f
+
+    local v = Instance.new("TextLabel")
+    v.Size = UDim2.new(1, 0, 0, 12)
+    v.Position = UDim2.fromOffset(0, 11)
+    v.BackgroundTransparency = 1
+    v.Text = val
+    v.TextColor3 = Window.Theme.Text
+    v.TextSize = 10
+    v.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    v.Parent = f
+    return v
+end
+
+local statRole = MiniStat(StatsRow, 0.5, 0, "Location", IsInLobby() and "Lobby" or "In Match")
+local statPlace = MiniStat(StatsRow, 0.5, 0.5, "Role", IsKiller(LocalPlayer) and "Killer" or "Survivor")
+
+local GameCard, GameAccent = MainCol1:CreateCustomCard(48)
+Window:RegisterAccent(GameAccent, "BackgroundColor3")
+
+local gameName = "Violence District"
+
+local GameIcon = Instance.new("ImageLabel")
+GameIcon.Size = UDim2.fromOffset(32, 32)
+GameIcon.Position = UDim2.fromOffset(8, 8)
+GameIcon.BackgroundTransparency = 1
+GameIcon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(game.GameId) .. "&w=150&h=150"
+GameIcon.Parent = GameCard
+Instance.new("UICorner", GameIcon).CornerRadius = UDim.new(0, 6)
+
+local GameTitle = Instance.new("TextLabel")
+GameTitle.Size = UDim2.new(1, -50, 0, 16)
+GameTitle.Position = UDim2.fromOffset(46, 7)
+GameTitle.BackgroundTransparency = 1
+GameTitle.Text = gameName
+GameTitle.TextColor3 = Window.Theme.Text
+GameTitle.TextSize = 11
+GameTitle.TextXAlignment = Enum.TextXAlignment.Left
+GameTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+GameTitle.Parent = GameCard
+
+task.spawn(function()
+    pcall(function()
+        local info = MarketplaceService:GetProductInfo(game.PlaceId)
+        if info and info.Name and GameTitle and GameTitle.Parent then
+            GameTitle.Text = info.Name
+        end
+    end)
+end)
+
+local GameSub = Instance.new("TextLabel")
+GameSub.Size = UDim2.new(1, -50, 0, 12)
+GameSub.Position = UDim2.fromOffset(46, 24)
+GameSub.BackgroundTransparency = 1
+GameSub.Text = #Players:GetPlayers() .. " Players in Server"
+GameSub.TextColor3 = Window.Theme.SubText
+GameSub.TextSize = 9
+GameSub.TextXAlignment = Enum.TextXAlignment.Left
+GameSub.FontFace = GetPreferredFont()
+GameSub.Parent = GameCard
+
+local SysCard, SysAccent = MainCol2:CreateCustomCard(120)
+Window:RegisterAccent(SysAccent, "BackgroundColor3")
+
+local function SysRow(parent, y, label, val, color)
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(0.5, -8, 0, 16)
+    l.Position = UDim2.fromOffset(10, y)
+    l.BackgroundTransparency = 1
+    l.Text = label
+    l.TextColor3 = Window.Theme.SubText
+    l.TextSize = 10
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.FontFace = GetPreferredFont()
+    l.Parent = parent
+
+    local v = Instance.new("TextLabel")
+    v.Size = UDim2.new(0.5, -8, 0, 16)
+    v.Position = UDim2.new(0.5, 4, 0, y)
+    v.BackgroundTransparency = 1
+    v.Text = val
+    v.TextColor3 = color or Window.Theme.Text
+    v.TextSize = 10
+    v.TextXAlignment = Enum.TextXAlignment.Right
+    v.FontFace = GetPreferredFont()
+    v.Parent = parent
+    return v
+end
+
+local sysTitle = Instance.new("TextLabel")
+sysTitle.Size = UDim2.new(1, -10, 0, 16)
+sysTitle.Position = UDim2.fromOffset(10, 4)
+sysTitle.BackgroundTransparency = 1
+sysTitle.Text = "System Information"
+sysTitle.TextColor3 = Window.Theme.Text
+sysTitle.TextSize = 11
+sysTitle.TextXAlignment = Enum.TextXAlignment.Left
+sysTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+sysTitle.Parent = SysCard
+
+local execName, execVer = "Unknown", "Unknown"
+if identifyexecutor then
+    local ok, n, v = pcall(identifyexecutor)
+    if ok and n then
+        execName = tostring(n)
+        if v and tostring(v) ~= "" then execVer = tostring(v) end
+    end
+end
+if execVer == "Unknown" and getexecutorname then
+    local ok, _, v = pcall(getexecutorname)
+    if ok and v and tostring(v) ~= "" then execVer = tostring(v) end
+end
+SysRow(SysCard, 24, "Executor", execName, Window.Theme.Accent)
+SysRow(SysCard, 42, "Version", execVer)
+local pingLabel = SysRow(SysCard, 60, "Data Ping", math.floor(LocalPlayer:GetNetworkPing() * 1000) .. " ms")
+SysRow(SysCard, 78, "Menu Keybind", "RightControl")
+SysRow(SysCard, 96, "Place ID", tostring(game.PlaceId))
+
+local QuickCard, QuickAccent = MainCol2:CreateCustomCard(90)
+Window:RegisterAccent(QuickAccent, "BackgroundColor3")
+
+local qaTitle = Instance.new("TextLabel")
+qaTitle.Size = UDim2.new(1, -10, 0, 16)
+qaTitle.Position = UDim2.fromOffset(10, 4)
+qaTitle.BackgroundTransparency = 1
+qaTitle.Text = "Quick Actions"
+qaTitle.TextColor3 = Window.Theme.Text
+qaTitle.TextSize = 11
+qaTitle.TextXAlignment = Enum.TextXAlignment.Left
+qaTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+qaTitle.Parent = QuickCard
+
+local function QuickBtn(parent, y, label, btnText, callback, isRed)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, -20, 0, 20)
+    row.Position = UDim2.fromOffset(10, y)
+    row.BackgroundColor3 = Window.Theme.ElementBackground
+    row.BorderSizePixel = 0
+    row.Parent = parent
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 4)
+
+    local rl = Instance.new("TextLabel")
+    rl.Size = UDim2.new(1, -60, 1, 0)
+    rl.Position = UDim2.fromOffset(6, 0)
+    rl.BackgroundTransparency = 1
+    rl.Text = label
+    rl.TextColor3 = Window.Theme.Text
+    rl.TextSize = 10
+    rl.TextXAlignment = Enum.TextXAlignment.Left
+    rl.FontFace = GetPreferredFont()
+    rl.Parent = row
+
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.fromOffset(48, 16)
+    b.Position = UDim2.new(1, -52, 0.5, -8)
+    b.BackgroundColor3 = isRed and Color3.fromRGB(220, 50, 50) or Window.Theme.Accent
+    b.BorderSizePixel = 0
+    b.Text = btnText
+    b.TextColor3 = Color3.new(1, 1, 1)
+    b.TextSize = 9
+    b.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    b.Parent = row
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 3)
+    if not isRed then Window:RegisterAccent(b, "BackgroundColor3") end
+    b.MouseButton1Click:Connect(callback)
+end
+
+QuickBtn(QuickCard, 22, "Rejoin Server", "Run", function()
+    pcall(function() game:GetService("TeleportService"):TeleportToPlaceInstance(game.PlaceId, game.JobId) end)
+end)
+
+QuickBtn(QuickCard, 44, "Copy Place ID", "Copy", function()
+    pcall(function() setclipboard(tostring(game.PlaceId)) end)
+    Nexara:Notify({ Title = "Copied", Content = "Place ID: " .. tostring(game.PlaceId), Duration = 2 })
+end)
+
+QuickBtn(QuickCard, 66, "Unload Script", "Unload", function()
+    UnloadScript()
+end, true)
+
+task.spawn(function()
+    while ScriptRunning do
+        task.wait(1)
+        pcall(function()
+            if pingLabel and pingLabel.Parent then pingLabel.Text = math.floor(LocalPlayer:GetNetworkPing() * 1000) .. " ms" end
+            if statRole and statRole.Parent then statRole.Text = IsInLobby() and "Lobby" or "In Match" end
+            if statPlace and statPlace.Parent then statPlace.Text = IsKiller(LocalPlayer) and "Killer" or "Survivor" end
+        end)
+    end
+end)
+end
+
+local TabVisuals = Window:CreateTab("Visuals", "rbxassetid://10723346959")
+do
+
+local viewLayout = TabVisuals.View:FindFirstChildOfClass("UIListLayout")
+if viewLayout then
+    viewLayout:Destroy()
+end
+
+local TopCategoryNav = Instance.new("Frame")
+TopCategoryNav.Name = "TopCategoryNav"
+TopCategoryNav.Size = UDim2.new(1, 0, 0, 32)
+TopCategoryNav.Position = UDim2.new(0, 0, 0, 0)
+TopCategoryNav.BackgroundColor3 = Window.Theme.Section
+TopCategoryNav.BackgroundTransparency = Window.TransparentEnabled and 0.25 or 0
+TopCategoryNav.BorderSizePixel = 0
+TopCategoryNav.Parent = TabVisuals.View
+Instance.new("UICorner", TopCategoryNav).CornerRadius = UDim.new(0, 6)
+Window:RegisterThemeElement(TopCategoryNav, "BackgroundColor3", "Surface")
+
+local navStroke = Instance.new("UIStroke")
+navStroke.Color = Window.Theme.SectionBorder
+navStroke.Thickness = 1
+navStroke.Parent = TopCategoryNav
+
+local navLayout = Instance.new("UIListLayout")
+navLayout.FillDirection = Enum.FillDirection.Horizontal
+navLayout.SortOrder = Enum.SortOrder.LayoutOrder
+navLayout.Padding = UDim.new(0, 4)
+navLayout.Parent = TopCategoryNav
+
+local navPad = Instance.new("UIPadding")
+navPad.PaddingTop = UDim.new(0, 3)
+navPad.PaddingBottom = UDim.new(0, 3)
+navPad.PaddingLeft = UDim.new(0, 4)
+navPad.PaddingRight = UDim.new(0, 4)
+navPad.Parent = TopCategoryNav
+
+local ColumnsFrame = Instance.new("Frame")
+ColumnsFrame.Name = "ColumnsFrame"
+ColumnsFrame.Size = UDim2.new(1, 0, 1, -38)
+ColumnsFrame.Position = UDim2.new(0, 0, 0, 38)
+ColumnsFrame.BackgroundTransparency = 1
+ColumnsFrame.BorderSizePixel = 0
+ColumnsFrame.Parent = TabVisuals.View
+
+local colContainerLayout = Instance.new("UIListLayout")
+colContainerLayout.FillDirection = Enum.FillDirection.Horizontal
+colContainerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+colContainerLayout.Padding = UDim.new(0, 8)
+colContainerLayout.Parent = ColumnsFrame
+
+local colV1 = TabVisuals:CreateColumn()
+local colV2 = TabVisuals:CreateColumn()
+colV1.Frame.Parent = ColumnsFrame
+colV2.Frame.Parent = ColumnsFrame
+colV1.Frame.Size = UDim2.new(0.5, -4, 1, 0)
+colV2.Frame.Size = UDim2.new(0.5, -4, 1, 0)
+colV1.Frame.Visible = true
+colV2.Frame.Visible = true
+
+local secSurv1 = colV1:CreateSection("Survivor ESP & Boxes")
+secSurv1:AddToggle({ Name = "Enable Survivor ESP", Default = false, Callback = function(v)
+    Config.ESP_SurvivorEnabled = v
+end })
+secSurv1:AddToggle({
+    Name = "Survivor 2D Boxes",
+    Default = false,
+    Color = Config.Color_SurvivorBox,
+    Callback = function(v, col)
+        Config.ESP_SurvivorBoxes = v
+        if col then Config.Color_SurvivorBox = col end
+    end
+})
+secSurv1:AddToggle({
+    Name = "Survivor Skeleton",
+    Default = false,
+    Color = Config.Color_SurvivorSkeleton,
+    Callback = function(v, col)
+        Config.ESP_SurvivorSkeleton = v
+        if col then Config.Color_SurvivorSkeleton = col end
+    end
+})
+secSurv1:AddToggle({
+    Name = "Survivor Chams",
+    Default = false,
+    Color = Config.Color_SurvivorChams,
+    Callback = function(v, col)
+        Config.ESP_SurvivorChams = v
+        if col then Config.Color_SurvivorChams = col end
+    end
+})
+secSurv1:AddToggle({
+    Name = "Survivor Names & Distance",
+    Default = false,
+    Color = Config.Color_SurvivorNames,
+    Callback = function(v, col)
+        Config.ESP_SurvivorNames = v
+        if col then Config.Color_SurvivorNames = col end
+    end
+})
+
+local secSurv2 = colV2:CreateSection("Survivor Status & Items")
+secSurv2:AddToggle({ Name = "Survivor Status (Knock/Hook)", Default = false, Callback = function(v)
+    Config.ESP_SurvivorStatus = v
+end })
+secSurv2:AddToggle({ Name = "Survivor Items & Cooldowns", Default = false, Callback = function(v)
+    Config.ESP_SurvivorSkills = v
+end })
+secSurv2:AddToggle({ Name = "Flashlight Blind Progress", Default = false, Callback = function(v)
+    Config.BlindProgressEnabled = v
+end })
+
+local secSurvCam = colV1:CreateSection("Camera & Movement")
+secSurvCam:AddToggle({ Name = "Enable Custom FOV", Default = false, Callback = function(v)
+    Config.CustomFOVEnabled = v
+    if not v then
+        Camera.FieldOfView = 70
+    else
+        Camera.FieldOfView = Config.FOV
+    end
+end })
+
+secSurvCam:AddSlider({ Name = "Field of View (FOV)", Min = 70, Max = 120, Default = 80, Callback = function(v)
+    Config.FOV = v
+    if Config.CustomFOVEnabled then
+        Camera.FieldOfView = v
+    end
+end })
+
+local secSurvSkill = colV2:CreateSection("Auto Skill Check")
+secSurvSkill:AddToggle({ Name = "Skill Check Perfect", Default = false, Callback = function(v)
+    Config.AutoSkillCheck = v
+end })
+
+local secFastVault = colV2:CreateSection("Fast Vault")
+secFastVault:AddToggle({
+    Name = "Always Fast Vault",
+    Default = false,
+    Callback = function(v)
+        Config.AlwaysFastVault = v
+        _G.__Nexara_AlwaysFastVault = v
+    end
+})
+
+local secKiller1 = colV1:CreateSection("Killer ESP & Skeleton")
+secKiller1:AddToggle({ Name = "Enable Killer ESP", Default = false, Callback = function(v)
+    Config.ESP_KillerEnabled = v
+end })
+secKiller1:AddToggle({
+    Name = "Stick Skeleton",
+    Default = false,
+    Color = Config.Color_KillerSkeleton,
+    Callback = function(v, col)
+        Config.ESP_KillerSkeleton = v
+        if col then Config.Color_KillerSkeleton = col end
+    end
+})
+secKiller1:AddSlider({ Name = "Skeleton Line Width", Min = 1, Max = 3, Default = 1.3, Decimals = 1, Callback = function(v)
+    Config.KillerSkeletonThickness = v
+    for _, esp in pairs(ESP_Objects) do
+        for _, l in pairs(esp.Skeleton) do l.Thickness = v end
+    end
+end })
+secKiller1:AddToggle({
+    Name = "Killer Chams",
+    Default = false,
+    Color = Config.Color_KillerChams,
+    Callback = function(v, col)
+        Config.ESP_KillerChams = v
+        if col then Config.Color_KillerChams = col end
+    end
+})
+secKiller1:AddToggle({
+    Name = "Killer Name & Distance",
+    Default = false,
+    Color = Config.Color_KillerNames,
+    Callback = function(v, col)
+        Config.ESP_KillerNames = v
+        if col then Config.Color_KillerNames = col end
+    end
+})
+
+local secKiller2 = colV2:CreateSection("Killer Skills & Traps")
+secKiller2:AddToggle({
+    Name = "The Masked: Mask Alert",
+    Default = true,
+    Callback = function(v)
+        Config.Alert_MaskChange = v
+    end
+})
+secKiller2:AddToggle({
+    Name = "Killer Skills, Charges & CD",
+    Default = true,
+    Color = Config.Color_KillerSkills,
+    Callback = function(v, col)
+        Config.ESP_KillerSkills = v
+        if col then
+            Config.Color_KillerSkills = col
+            TopKillerSkillText.Color = col
+        end
+    end
+})
+secKiller2:AddSlider({ Name = "Top Killer Skill Size", Min = 12, Max = 26, Default = 16, Float = 1, Callback = function(v)
+    Config.TopKillerSkillSize = v
+    TopKillerSkillText.Size = v
+end })
+secKiller2:AddToggle({
+    Name = "Bear Traps ESP",
+    Default = true,
+    Color = Config.Color_BearTraps,
+    Callback = function(v, col)
+        Config.ESP_BearTraps = v
+        if col then Config.Color_BearTraps = col end
+    end
+})
+secKiller2:AddSlider({ Name = "Bear Trap Max Distance", Flag = "Bear Trap Max Distance", Min = 50, Max = 2500, Default = 1000, Suffix = " studs", Callback = function(v) Config.BearTrapMaxDist = v end })
+
+local secObj1 = colV1:CreateSection("Generators & Exit Gates")
+secObj1:AddToggle({
+    Name = "Generator ESP",
+    Default = false,
+    Color = Config.Color_Generators,
+    Callback = function(v, col)
+        Config.ESP_Generators = v
+        if col then Config.Color_Generators = col end
+    end
+})
+secObj1:AddToggle({
+    Name = "Generator Chams",
+    Default = false,
+    Color = Config.Color_GenChams,
+    Callback = function(v, col)
+        Config.ESP_GenChams = v
+        if col then
+            Config.Color_GenChams = col
+            for _, hl in pairs(GenAuras) do
+                pcall(function()
+                    hl.FillColor = col
+                    hl.OutlineColor = col
+                end)
+            end
+        end
+    end
+})
+secObj1:AddToggle({ Name = "Generator Progress %", Default = false, Callback = function(v) Config.ESP_GenProgress = v end })
+secObj1:AddToggle({
+    Name = "Exit Gates ESP",
+    Default = false,
+    Color = Config.Color_ExitGates,
+    Callback = function(v, col)
+        Config.ESP_ExitGates = v
+        if col then Config.Color_ExitGates = col end
+    end
+})
+
+local secObj2 = colV2:CreateSection("Pallets & Vaults")
+secObj2:AddToggle({
+    Name = "Pallet 3D Aura",
+    Default = false,
+    Color = Config.Color_PalletAura,
+    Callback = function(v, col)
+        Config.ESP_PalletAura = v
+        if col then
+            Config.Color_PalletAura = col
+            for _, hl in pairs(PalletAuras) do
+                pcall(function()
+                    hl.FillColor = col
+                    hl.OutlineColor = col
+                end)
+            end
+        end
+    end
+})
+secObj2:AddToggle({
+    Name = "Pallet Name & Distance",
+    Default = false,
+    Color = Config.Color_PalletNames,
+    Callback = function(v, col)
+        Config.ESP_Pallets = v
+        if col then Config.Color_PalletNames = col end
+    end
+})
+secObj2:AddSlider({ Name = "Pallet Max Distance", Flag = "Pallet Max Distance", Min = 50, Max = 3000, Default = 1500, Suffix = " studs", Callback = function(v) Config.PalletMaxDist = v end })
+
+secObj2:AddToggle({
+    Name = "Window 3D Aura",
+    Default = false,
+    Color = Config.Color_WindowAura,
+    Callback = function(v, col)
+        Config.ESP_WindowAura = v
+        if col then
+            Config.Color_WindowAura = col
+            local glowCol = col:Lerp(Color3.new(1, 1, 1), 0.35)
+            for _, glow in pairs(WindowAuras) do pcall(function() glow.Color3 = glowCol end) end
+            for _, bha in pairs(WindowAdornments) do pcall(function() bha.Color3 = col end) end
+        end
+    end
+})
+secObj2:AddToggle({
+    Name = "Window Name & Distance",
+    Default = false,
+    Color = Config.Color_WindowNames,
+    Callback = function(v, col)
+        Config.ESP_Windows = v
+        if col then Config.Color_WindowNames = col end
+    end
+})
+secObj2:AddSlider({ Name = "Window Max Distance", Flag = "Window Max Distance", Min = 50, Max = 3000, Default = 1500, Suffix = " studs", Callback = function(v) Config.WindowMaxDist = v end })
+
+
+local secWorld1 = colV1:CreateSection("World & Lighting")
+secWorld1:AddToggle({ Name = "Fullbright (Clear Vision)", Default = false, Callback = function(v)
+    Config.Fullbright = v
+    if v then
+        ApplyFullbrightNow()
+    else
+        RestoreOriginalLighting()
+    end
+end })
+
+
+local currentVisualCategory = "Survivor"
+local categoryButtons = {}
+local isInitialCategorySelect = true
+
+local visualCategories = {
+    { Id = "Survivor", Name = "Survivor" },
+    { Id = "Killer", Name = "Killer" },
+    { Id = "Objectives", Name = "Objectives" },
+    { Id = "World", Name = "World" },
+}
+
+local function selectVisualCategory(catId)
+    currentVisualCategory = catId
+
+    local showSurv = (catId == "Survivor")
+    local showKiller = (catId == "Killer")
+    local showObj = (catId == "Objectives")
+    local showWorld = (catId == "World")
+
+    secSurv1.Box.Visible = showSurv
+    secSurv2.Box.Visible = showSurv
+    secSurvCam.Box.Visible = showSurv
+    secSurvSkill.Box.Visible = showSurv
+    secFastVault.Box.Visible = showSurv
+
+    secKiller1.Box.Visible = showKiller
+    secKiller2.Box.Visible = showKiller
+
+    secObj1.Box.Visible = showObj
+    secObj2.Box.Visible = showObj
+
+    secWorld1.Box.Visible = showWorld
+
+    for _, btnData in ipairs(categoryButtons) do
+        local isSelected = (btnData.Id == catId)
+        if isSelected then
+            TweenService:Create(btnData.Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 0.45,
+                TextColor3 = Window.Theme.Text
+            }):Play()
+            btnData.Indicator.Visible = true
+            if not isInitialCategorySelect then
+                btnData.Indicator.Size = UDim2.new(0, 0, 0, 2)
+            end
+            TweenService:Create(btnData.Indicator, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+                Size = UDim2.new(0.7, 0, 0, 2)
+            }):Play()
+        else
+            TweenService:Create(btnData.Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 1,
+                TextColor3 = Window.Theme.SubText
+            }):Play()
+            if btnData.Indicator.Visible then
+                local shrinkTw = TweenService:Create(btnData.Indicator, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                    Size = UDim2.new(0, 0, 0, 2)
+                })
+                shrinkTw:Play()
+                task.delay(0.18, function()
+                    if currentVisualCategory ~= btnData.Id then
+                        btnData.Indicator.Visible = false
+                    end
+                end)
+            end
+        end
+    end
+
+    if not isInitialCategorySelect and TabVisuals.View.Visible then
+        ColumnsFrame.Position = UDim2.new(0, 0, 0, 48)
+        TweenService:Create(ColumnsFrame, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0, 0, 0, 38)
+        }):Play()
+    end
+end
+
+for _, catData in ipairs(visualCategories) do
+    local itemBtn = Instance.new("TextButton")
+    itemBtn.Name = "NavBtn_" .. catData.Id
+    itemBtn.Size = UDim2.new(0.25, -5, 1, 0)
+    itemBtn.BackgroundColor3 = Window.Theme.Inline
+    itemBtn.BackgroundTransparency = 1
+    itemBtn.BorderSizePixel = 0
+    itemBtn.Text = catData.Name
+    itemBtn.TextColor3 = Window.Theme.SubText
+    itemBtn.TextSize = 11
+    itemBtn.FontFace = GetPreferredFont()
+    itemBtn.AutoButtonColor = false
+    itemBtn.Parent = TopCategoryNav
+    Instance.new("UICorner", itemBtn).CornerRadius = UDim.new(0, 4)
+
+    local activeIndicator = Instance.new("Frame")
+    activeIndicator.Name = "ActiveIndicator"
+    activeIndicator.Size = UDim2.new(0.7, 0, 0, 2)
+    activeIndicator.AnchorPoint = Vector2.new(0.5, 1)
+    activeIndicator.Position = UDim2.new(0.5, 0, 1, -1)
+    activeIndicator.BackgroundColor3 = Window.Theme.Accent
+    activeIndicator.BorderSizePixel = 0
+    activeIndicator.Visible = false
+    activeIndicator.Parent = itemBtn
+    Instance.new("UICorner", activeIndicator).CornerRadius = UDim.new(0, 1)
+    Window:RegisterAccent(activeIndicator, "BackgroundColor3")
+
+    table.insert(categoryButtons, {
+        Id = catData.Id,
+        Button = itemBtn,
+        Indicator = activeIndicator
+    })
+
+    itemBtn.MouseEnter:Connect(function()
+        if currentVisualCategory ~= catData.Id then
+            TweenService:Create(itemBtn, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 0.8,
+                TextColor3 = Window.Theme.Text
+            }):Play()
+        end
+    end)
+    itemBtn.MouseLeave:Connect(function()
+        if currentVisualCategory ~= catData.Id then
+            TweenService:Create(itemBtn, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 1,
+                TextColor3 = Window.Theme.SubText
+            }):Play()
+        end
+    end)
+    itemBtn.MouseButton1Click:Connect(function()
+        selectVisualCategory(catData.Id)
+    end)
+end
+
+selectVisualCategory("Survivor")
+isInitialCategorySelect = false
+
+local function playVisualsEntrance()
+    if not TabVisuals.View.Visible then return end
+
+    TopCategoryNav.Position = UDim2.new(0, 0, 0, -22)
+    TweenService:Create(TopCategoryNav, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0, 0, 0, 0)
+    }):Play()
+
+    ColumnsFrame.Position = UDim2.new(0, 0, 0, 50)
+    TweenService:Create(ColumnsFrame, TweenInfo.new(0.32, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0, 0, 0, 38)
+    }):Play()
+end
+
+TabVisuals.View:GetPropertyChangedSignal("Visible"):Connect(function()
+    if TabVisuals.View.Visible then
+        playVisualsEntrance()
+    end
+end)
+end
+
+do
+local TabLegit = Window:CreateTab("Legit", "rbxassetid://7733916988")
+
+local legitViewLayout = TabLegit.View:FindFirstChildOfClass("UIListLayout")
+if legitViewLayout then
+    legitViewLayout:Destroy()
+end
+
+local LegitWarnBanner = Instance.new("Frame")
+LegitWarnBanner.Name = "Nexara_AutoWarnFloating"
+LegitWarnBanner.Size = UDim2.fromOffset(720, 32)
+LegitWarnBanner.Position = UDim2.fromOffset(0, 0)
+LegitWarnBanner.BackgroundColor3 = Color3.fromRGB(28, 17, 15)
+LegitWarnBanner.BackgroundTransparency = 1
+LegitWarnBanner.BorderSizePixel = 0
+LegitWarnBanner.ClipsDescendants = true
+LegitWarnBanner.Visible = false
+LegitWarnBanner.ZIndex = 50
+LegitWarnBanner.Parent = Window.Gui or (Window.MainFrame and Window.MainFrame.Parent)
+Instance.new("UICorner", LegitWarnBanner).CornerRadius = UDim.new(0, 7)
+
+local warnStroke = Instance.new("UIStroke")
+warnStroke.Color = Color3.fromRGB(255, 170, 50)
+warnStroke.Thickness = 1.2
+warnStroke.Transparency = 1
+warnStroke.Parent = LegitWarnBanner
+
+local warnAccentBar = Instance.new("Frame")
+warnAccentBar.Name = "WarnAccentBar"
+warnAccentBar.Size = UDim2.new(0, 3, 1, 0)
+warnAccentBar.Position = UDim2.new(0, 0, 0, 0)
+warnAccentBar.BackgroundColor3 = Color3.fromRGB(255, 175, 45)
+warnAccentBar.BackgroundTransparency = 1
+warnAccentBar.BorderSizePixel = 0
+warnAccentBar.ZIndex = 51
+warnAccentBar.Parent = LegitWarnBanner
+
+local warnIcon = Instance.new("ImageLabel")
+warnIcon.Name = "WarnIcon"
+warnIcon.Size = UDim2.fromOffset(16, 16)
+warnIcon.Position = UDim2.new(0, 12, 0.5, -8)
+warnIcon.BackgroundTransparency = 1
+warnIcon.Image = "rbxassetid://10709753149"
+warnIcon.ImageColor3 = Color3.fromRGB(255, 185, 55)
+warnIcon.ImageTransparency = 1
+warnIcon.ZIndex = 51
+warnIcon.Parent = LegitWarnBanner
+
+local warnText = Instance.new("TextLabel")
+warnText.Name = "WarnText"
+warnText.Size = UDim2.new(1, -40, 1, 0)
+warnText.Position = UDim2.fromOffset(35, 0)
+warnText.BackgroundTransparency = 1
+warnText.Text = "WARNING: Using these automated features carries a risk of being recorded and reported for a ban."
+warnText.TextColor3 = Color3.fromRGB(255, 215, 145)
+warnText.TextTransparency = 1
+warnText.TextSize = 11
+warnText.TextXAlignment = Enum.TextXAlignment.Left
+warnText.TextTruncate = Enum.TextTruncate.AtEnd
+warnText.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+warnText.ZIndex = 51
+warnText.Parent = LegitWarnBanner
+
+local warnAlpha = 0
+local warnSlideOffset = 10
+
+table.insert(ScriptConnections, RunService.RenderStepped:Connect(function(dt)
+    local mf = Window and Window.MainFrame
+    local shouldShowWarn = (Window and Window.Visible and mf and mf.Visible and TabLegit.View and TabLegit.View.Visible) == true
+    if not shouldShowWarn and warnAlpha <= 0.001 then
+        if LegitWarnBanner.Visible then LegitWarnBanner.Visible = false end
+        return
+    end
+    if shouldShowWarn then
+        warnAlpha = math.min(1, warnAlpha + dt * 5.5)
+        warnSlideOffset = warnSlideOffset + (0 - warnSlideOffset) * math.clamp(dt * 12, 0, 1)
+    else
+        warnAlpha = math.max(0, warnAlpha - dt * 6.5)
+        warnSlideOffset = warnSlideOffset + (10 - warnSlideOffset) * math.clamp(dt * 12, 0, 1)
+    end
+
+    if warnAlpha <= 0.01 then
+        if LegitWarnBanner.Visible then LegitWarnBanner.Visible = false end
+        return
+    end
+
+    if not LegitWarnBanner.Visible then
+        LegitWarnBanner.Visible = true
+    end
+
+    if mf then
+        local guiParent = LegitWarnBanner.Parent
+        local guiAbs = (guiParent and guiParent:IsA("GuiBase2d")) and guiParent.AbsolutePosition or Vector2.zero
+        local absPos = mf.AbsolutePosition
+        local absSize = mf.AbsoluteSize
+        LegitWarnBanner.Size = UDim2.fromOffset(absSize.X, 32)
+        LegitWarnBanner.Position = UDim2.fromOffset(math.floor(absPos.X - guiAbs.X), math.floor(absPos.Y - guiAbs.Y - 36 + warnSlideOffset))
+    end
+
+    LegitWarnBanner.BackgroundTransparency = 1 - (0.94 * warnAlpha)
+    warnStroke.Transparency = 1 - (0.68 * warnAlpha)
+    warnAccentBar.BackgroundTransparency = 1 - warnAlpha
+    warnIcon.ImageTransparency = 1 - warnAlpha
+    warnText.TextTransparency = 1 - warnAlpha
+end))
+
+local TopLegitNav = Instance.new("Frame")
+TopLegitNav.Name = "TopAutoNav"
+TopLegitNav.Size = UDim2.new(1, 0, 0, 32)
+TopLegitNav.Position = UDim2.new(0, 0, 0, 0)
+TopLegitNav.BackgroundColor3 = Window.Theme.Section
+TopLegitNav.BackgroundTransparency = Window.TransparentEnabled and 0.25 or 0
+TopLegitNav.BorderSizePixel = 0
+TopLegitNav.Parent = TabLegit.View
+Instance.new("UICorner", TopLegitNav).CornerRadius = UDim.new(0, 6)
+Window:RegisterThemeElement(TopLegitNav, "BackgroundColor3", "Surface")
+
+local legitNavStroke = Instance.new("UIStroke")
+legitNavStroke.Color = Window.Theme.SectionBorder
+legitNavStroke.Thickness = 1
+legitNavStroke.Parent = TopLegitNav
+
+local legitNavLayout = Instance.new("UIListLayout")
+legitNavLayout.FillDirection = Enum.FillDirection.Horizontal
+legitNavLayout.SortOrder = Enum.SortOrder.LayoutOrder
+legitNavLayout.Padding = UDim.new(0, 4)
+legitNavLayout.Parent = TopLegitNav
+
+local legitNavPad = Instance.new("UIPadding")
+legitNavPad.PaddingTop = UDim.new(0, 3)
+legitNavPad.PaddingBottom = UDim.new(0, 3)
+legitNavPad.PaddingLeft = UDim.new(0, 4)
+legitNavPad.PaddingRight = UDim.new(0, 4)
+legitNavPad.Parent = TopLegitNav
+
+local LegitColumnsFrame = Instance.new("Frame")
+LegitColumnsFrame.Name = "AutoColumnsFrame"
+LegitColumnsFrame.Size = UDim2.new(1, 0, 1, -38)
+LegitColumnsFrame.Position = UDim2.new(0, 0, 0, 38)
+LegitColumnsFrame.BackgroundTransparency = 1
+LegitColumnsFrame.BorderSizePixel = 0
+LegitColumnsFrame.Parent = TabLegit.View
+
+local legitColLayout = Instance.new("UIListLayout")
+legitColLayout.FillDirection = Enum.FillDirection.Horizontal
+legitColLayout.SortOrder = Enum.SortOrder.LayoutOrder
+legitColLayout.Padding = UDim.new(0, 8)
+legitColLayout.Parent = LegitColumnsFrame
+
+local colA1 = TabLegit:CreateColumn()
+local colA2 = TabLegit:CreateColumn()
+colA1.Frame.Parent = LegitColumnsFrame
+colA2.Frame.Parent = LegitColumnsFrame
+colA1.Frame.Size = UDim2.new(0.5, -4, 1, 0)
+colA2.Frame.Size = UDim2.new(0.5, -4, 1, 0)
+colA1.Frame.Visible = true
+colA2.Frame.Visible = true
+
+local secTwist1 = colA1:CreateSection("Twist of Fate: Combat")
+secTwist1:AddToggle({
+    Name = "Silent Aim",
+    Default = false,
+    Callback = function(v)
+        Config.Tof_SilentAim = v
+    end
+})
+
+TofCombat.AimbotToggle = secTwist1:AddToggle({
+    Name = "Aimbot",
+    Default = false,
+    Callback = function(v)
+        Config.Tof_Aimbot = v
+    end
+})
+
+pcall(function()
+    local elems = secTwist1.Box and secTwist1.Box:FindFirstChild("Elements")
+    local aimRow = elems and elems:FindFirstChild("ToggleRow_Aimbot")
+    if aimRow then
+        local trig = aimRow:FindFirstChild("Trigger")
+        local lbl = trig and trig:FindFirstChild("Label")
+        if lbl then
+            lbl.Size = UDim2.new(1, -110, 1, 0)
+        end
+
+        local aimKeyBtn = Instance.new("TextButton")
+        TofCombat.AimKeyBtn = aimKeyBtn
+        aimKeyBtn.Name = "AimbotKeyBtn"
+        aimKeyBtn.Size = UDim2.fromOffset(64, 16)
+        aimKeyBtn.Position = UDim2.new(1, -104, 0.5, -8)
+        aimKeyBtn.BackgroundColor3 = Window.Theme.Inline
+        aimKeyBtn.BorderSizePixel = 0
+        aimKeyBtn.Text = "[" .. (Config.Tof_AimKeyName or "None") .. "]"
+        aimKeyBtn.TextColor3 = Window.Theme.Accent
+        aimKeyBtn.TextSize = 10
+        aimKeyBtn.FontFace = GetPreferredFont()
+        aimKeyBtn.AutoButtonColor = false
+        aimKeyBtn.ZIndex = 5
+        aimKeyBtn.Parent = aimRow
+        Instance.new("UICorner", aimKeyBtn).CornerRadius = UDim.new(0, 4)
+
+        local keyStroke = Instance.new("UIStroke")
+        keyStroke.Color = Window.Theme.ElementBorder
+        keyStroke.Thickness = 1
+        keyStroke.Parent = aimKeyBtn
+
+        local isBindingKey = false
+        aimKeyBtn.MouseButton1Click:Connect(function()
+            if isBindingKey then return end
+            isBindingKey = true
+            TofCombat.IsBindingToggleKey = true
+            aimKeyBtn.Text = "[...]"
+            aimKeyBtn.TextColor3 = Color3.fromRGB(255, 175, 45)
+
+            local conn
+            conn = UserInputService.InputBegan:Connect(function(input)
+                local keyName = nil
+                local inputType = input.UserInputType
+                local keyCode = input.KeyCode
+
+                if inputType == Enum.UserInputType.Keyboard and (keyCode == Enum.KeyCode.Backspace or keyCode == Enum.KeyCode.Escape) then
+                    keyName = "None"
+                    Config.Tof_AimKeyType = "None"
+                    Config.Tof_AimKeyCode = nil
+                elseif inputType == Enum.UserInputType.MouseButton3 then
+                    keyName = "MB3"
+                    Config.Tof_AimKeyType = "Mouse"
+                    Config.Tof_AimKeyCode = Enum.UserInputType.MouseButton3
+                elseif inputType == Enum.UserInputType.Keyboard and keyCode ~= Enum.KeyCode.Unknown then
+                    keyName = keyCode.Name
+                    Config.Tof_AimKeyType = "Keyboard"
+                    Config.Tof_AimKeyCode = keyCode
+                end
+
+                if keyName then
+                    Config.Tof_AimKeyName = keyName
+                    aimKeyBtn.Text = "[" .. keyName .. "]"
+                    aimKeyBtn.TextColor3 = Window.Theme.Accent
+                    isBindingKey = false
+                    task.delay(0.05, function() TofCombat.IsBindingToggleKey = false end)
+                    conn:Disconnect()
+                    Window.ConfigValues["Aimbot Toggle Key"] = keyName
+                    if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
+                end
+            end)
+        end)
+
+        table.insert(ScriptConnections, UserInputService.InputBegan:Connect(function(input, gp)
+            if gp or TofCombat.IsBindingToggleKey or UserInputService:GetFocusedTextBox() then return end
+            if not Config.Tof_AimKeyCode or Config.Tof_AimKeyType == "None" then return end
+
+            local matched = false
+            if Config.Tof_AimKeyType == "Keyboard" and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == Config.Tof_AimKeyCode then
+                matched = true
+            elseif Config.Tof_AimKeyType == "Mouse" and input.UserInputType == Config.Tof_AimKeyCode then
+                matched = true
+            end
+
+            if matched then
+                local newState = not Config.Tof_Aimbot
+                local flagItem = Window.ConfigFlags and Window.ConfigFlags["Aimbot"]
+                if flagItem and flagItem.Set then
+                    flagItem:Set(newState)
+                elseif TofCombat.AimbotToggle and TofCombat.AimbotToggle.Set then
+                    TofCombat.AimbotToggle:Set(newState)
+                elseif trig and firesignal then
+                    pcall(function() firesignal(trig.MouseButton1Click) end)
+                else
+                    Config.Tof_Aimbot = newState
+                end
+            end
+        end))
+    end
+end)
+
+secTwist1:AddToggle({
+    Name = "Laser Tracer",
+    Default = false,
+    Color = Config.Color_Tof_Laser,
+    Callback = function(v, col)
+        Config.Tof_Laser = v
+        if col then Config.Color_Tof_Laser = col end
+    end
+})
+
+Config.Tof_TargetMode = "Auto (Killer)" 
+
+local secTwist2 = colA2:CreateSection("Twist of Fate: Settings")
+secTwist2:AddToggle({
+    Name = "Show FOV Circle",
+    Default = false,
+    Color = Config.Color_Tof_FOV,
+    Callback = function(v, col)
+        Config.Tof_ShowFOV = v
+        if col then
+            Config.Color_Tof_FOV = col
+            if TofCombat.FovCircle then TofCombat.FovCircle.Color = col end
+        end
+    end
+})
+secTwist2:AddSlider({
+    Name = "FOV Radius",
+    Min = 30,
+    Max = 800,
+    Default = 220,
+    Callback = function(v)
+        Config.Tof_FOV = v
+        if TofCombat.FovCircle then TofCombat.FovCircle.Radius = v end
+    end
+})
+secTwist2:AddSlider({
+    Name = "Aimbot Smoothness",
+    Min = 1,
+    Max = 25,
+    Default = 10,
+    Callback = function(v)
+        Config.Tof_AimbotSmooth = v
+    end
+})
+secTwist2:AddSlider({
+    Name = "Laser Beam Duration",
+    Min = 0.2,
+    Max = 2.0,
+    Default = 0.6,
+    Decimals = 1,
+    Suffix = "s",
+    Callback = function(v)
+        Config.Tof_LaserDuration = v
+    end
+})
+
+secTwist2:AddToggle({
+    Name = "Hitmarker",
+    Default = Config.Hitmarker,
+    Color = Config.Color_Hitmarker,
+    Callback = function(v, col)
+        Config.Hitmarker = v
+        if col then Config.Color_Hitmarker = col end
+    end
+})
+
+secTwist2:AddDropdown({
+    Name = "Hitmarker Position",
+    Flag = "Hitmarker Position",
+    Options = { "On Killer", "Screen Center" },
+    Default = Config.HitmarkerMode or "On Killer",
+    Callback = function(v)
+        Config.HitmarkerMode = v
+    end
+})
+
+local isInitialSoundLoad = true
+secTwist2:AddDropdown({
+    Name = "Hitmarker Sound",
+    Flag = "Hitmarker Sound",
+    Options = { "CoD", "Neverlose", "Skeet", "Bell", "Rust", "Bonk", "Minecraft", "None" },
+    Default = Config.HitmarkerSound or "CoD",
+    Callback = function(v)
+        Config.HitmarkerSound = v
+        if isInitialSoundLoad then
+            isInitialSoundLoad = false
+            return
+        end
+        if TofCombat.PlayHitSound then
+            TofCombat.PlayHitSound(v, Config.HitmarkerVolume or 1.0)
+        end
+    end
+})
+
+secTwist2:AddSlider({
+    Name = "Hit Sound Volume",
+    Min = 0.1,
+    Max = 2.0,
+    Default = 1.0,
+    Decimals = 1,
+    Callback = function(v)
+        Config.HitmarkerVolume = v
+    end
+})
+
+local secParry1 = colA1:CreateSection("Parry: Automation")
+secParry1.Box.Visible = false
+
+secParry1:AddToggle({
+    Name = "Auto Parry",
+    Default = false,
+    Callback = function(v)
+        Config.AutoParry_Enabled = v
+    end
+})
+
+secParry1:AddSlider({
+    Name = "Parry Radius",
+    Min = 6,
+    Max = 12,
+    Default = Config.AutoParry_Radius or 8.5,
+    Decimals = 1,
+    Suffix = " studs",
+    Callback = function(v)
+        Config.AutoParry_Radius = v
+    end
+})
+
+secParry1:AddSlider({
+    Name = "Windup Delay",
+    Min = 0,
+    Max = 0.35,
+    Default = Config.AutoParry_Delay or 0.14,
+    Decimals = 2,
+    Suffix = "s",
+    Callback = function(v)
+        Config.AutoParry_Delay = v
+    end
+})
+
+secParry1:AddToggle({
+    Name = "Show Radius Circle",
+    Default = false,
+    Color = Config.Color_AutoParry_Radius,
+    Callback = function(v, col)
+        Config.AutoParry_ShowRadius = v
+        if col then Config.Color_AutoParry_Radius = col end
+    end
+})
+
+local secParry2 = colA2:CreateSection("Parry: Killer Skills")
+secParry2.Box.Visible = false
+
+secParry2:AddToggle({
+    Name = "The Killer: Frenzy Slash",
+    Default = Config.AutoParry_Skill_Frenzy == true,
+    Callback = function(v)
+        Config.AutoParry_Skill_Frenzy = v
+    end
+})
+
+secParry2:AddToggle({
+    Name = "The Hidden: Shadow Leap",
+    Default = Config.AutoParry_Skill_ShadowLeap ~= false,
+    Callback = function(v)
+        Config.AutoParry_Skill_ShadowLeap = v
+    end
+})
+
+secParry2:AddToggle({
+    Name = "Abysswalker: Dark Severance",
+    Default = Config.AutoParry_Skill_DarkSeverance ~= false,
+    Callback = function(v)
+        Config.AutoParry_Skill_DarkSeverance = v
+    end
+})
+
+secParry2:AddToggle({
+    Name = "The Masked: Chainsaw Dash",
+    Default = Config.AutoParry_Skill_ChainsawDash ~= false,
+    Callback = function(v)
+        Config.AutoParry_Skill_ChainsawDash = v
+    end
+})
+
+local ComingSoonFrame = Instance.new("Frame")
+ComingSoonFrame.Name = "LegitComingSoon"
+ComingSoonFrame.Size = UDim2.new(1, 0, 1, -44)
+ComingSoonFrame.Position = UDim2.new(0, 0, 0, 44)
+ComingSoonFrame.BackgroundTransparency = 1
+ComingSoonFrame.Visible = false
+ComingSoonFrame.Parent = TabLegit.View
+
+local csLabel = Instance.new("TextLabel")
+csLabel.Name = "Label"
+csLabel.Size = UDim2.new(1, 0, 1, 0)
+csLabel.Position = UDim2.new(0, 0, 0, 0)
+csLabel.BackgroundTransparency = 1
+csLabel.Text = "Coming Soon."
+csLabel.TextColor3 = Window.Theme.SubText or Color3.fromRGB(150, 155, 170)
+csLabel.TextSize = 16
+csLabel.TextXAlignment = Enum.TextXAlignment.Center
+csLabel.TextYAlignment = Enum.TextYAlignment.Center
+csLabel.FontFace = Font.fromEnum(Enum.Font.GothamMedium)
+csLabel.Parent = ComingSoonFrame
+
+local currentLegitCategory = "TwistOfFate"
+local legitCategoryButtons = {}
+local isInitialLegitSelect = true
+
+local legitCategories = {
+    { Id = "TwistOfFate", Name = "Twist of Fate" },
+    { Id = "Veil", Name = "Veil" },
+    { Id = "Parry", Name = "Parry" },
+}
+
+local function selectLegitCategory(catId)
+    currentLegitCategory = catId
+
+    local showTwist = (catId == "TwistOfFate")
+    local showParry = (catId == "Parry")
+    local showVeil = (catId == "Veil")
+
+    secTwist1.Box.Visible = showTwist
+    secTwist2.Box.Visible = showTwist
+    if secParry1 and secParry1.Box then
+        secParry1.Box.Visible = showParry
+    end
+    if secParry2 and secParry2.Box then
+        secParry2.Box.Visible = showParry
+    end
+
+    LegitColumnsFrame.Visible = showTwist or showParry
+    ComingSoonFrame.Visible = showVeil
+
+    for _, btnData in ipairs(legitCategoryButtons) do
+        local isSelected = (btnData.Id == catId)
+        if isSelected then
+            TweenService:Create(btnData.Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 0.45,
+                TextColor3 = Window.Theme.Text
+            }):Play()
+            btnData.Indicator.Visible = true
+            if not isInitialLegitSelect then
+                btnData.Indicator.Size = UDim2.new(0, 0, 0, 2)
+            end
+            TweenService:Create(btnData.Indicator, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+                Size = UDim2.new(0.7, 0, 0, 2)
+            }):Play()
+        else
+            TweenService:Create(btnData.Button, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 1,
+                TextColor3 = Window.Theme.SubText
+            }):Play()
+            if btnData.Indicator.Visible then
+                local shrinkTw = TweenService:Create(btnData.Indicator, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                    Size = UDim2.new(0, 0, 0, 2)
+                })
+                shrinkTw:Play()
+                task.delay(0.18, function()
+                    if currentLegitCategory ~= btnData.Id then
+                        btnData.Indicator.Visible = false
+                    end
+                end)
+            end
+        end
+    end
+
+    if not isInitialLegitSelect and TabLegit.View.Visible then
+        LegitColumnsFrame.Position = UDim2.new(0, 0, 0, 48)
+        TweenService:Create(LegitColumnsFrame, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0, 0, 0, 38)
+        }):Play()
+    end
+end
+
+for _, catData in ipairs(legitCategories) do
+    local itemBtn = Instance.new("TextButton")
+    itemBtn.Name = "LegitNavBtn_" .. catData.Id
+    itemBtn.Size = UDim2.new(1 / 3, -4, 1, 0)
+    itemBtn.BackgroundColor3 = Window.Theme.Inline
+    itemBtn.BackgroundTransparency = 1
+    itemBtn.BorderSizePixel = 0
+    itemBtn.Text = catData.Name
+    itemBtn.TextColor3 = Window.Theme.SubText
+    itemBtn.TextSize = 11
+    itemBtn.FontFace = GetPreferredFont()
+    itemBtn.AutoButtonColor = false
+    itemBtn.Parent = TopLegitNav
+    Instance.new("UICorner", itemBtn).CornerRadius = UDim.new(0, 4)
+
+    local activeIndicator = Instance.new("Frame")
+    activeIndicator.Name = "ActiveIndicator"
+    activeIndicator.Size = UDim2.new(0.7, 0, 0, 2)
+    activeIndicator.AnchorPoint = Vector2.new(0.5, 1)
+    activeIndicator.Position = UDim2.new(0.5, 0, 1, -1)
+    activeIndicator.BackgroundColor3 = Window.Theme.Accent
+    activeIndicator.BorderSizePixel = 0
+    activeIndicator.Visible = false
+    activeIndicator.Parent = itemBtn
+    Instance.new("UICorner", activeIndicator).CornerRadius = UDim.new(0, 1)
+    Window:RegisterAccent(activeIndicator, "BackgroundColor3")
+
+    table.insert(legitCategoryButtons, {
+        Id = catData.Id,
+        Button = itemBtn,
+        Indicator = activeIndicator
+    })
+
+    itemBtn.MouseEnter:Connect(function()
+        if currentLegitCategory ~= catData.Id then
+            TweenService:Create(itemBtn, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 0.8,
+                TextColor3 = Window.Theme.Text
+            }):Play()
+        end
+    end)
+    itemBtn.MouseLeave:Connect(function()
+        if currentLegitCategory ~= catData.Id then
+            TweenService:Create(itemBtn, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundTransparency = 1,
+                TextColor3 = Window.Theme.SubText
+            }):Play()
+        end
+    end)
+    itemBtn.MouseButton1Click:Connect(function()
+        selectLegitCategory(catData.Id)
+    end)
+end
+
+selectLegitCategory("TwistOfFate")
+isInitialLegitSelect = false
+
+local function playLegitEntrance()
+    if not TabLegit.View.Visible then return end
+
+    warnSlideOffset = 10
+
+    TopLegitNav.Position = UDim2.new(0, 0, 0, -22)
+    TweenService:Create(TopLegitNav, TweenInfo.new(0.28, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0, 0, 0, 0)
+    }):Play()
+
+    LegitColumnsFrame.Position = UDim2.new(0, 0, 0, 50)
+    TweenService:Create(LegitColumnsFrame, TweenInfo.new(0.32, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0, 0, 0, 38)
+    }):Play()
+end
+
+TabLegit.View:GetPropertyChangedSignal("Visible"):Connect(function()
+    if TabLegit.View.Visible then
+        playLegitEntrance()
+    end
+end)
+end
+
+do
+local KillerPortraits = {
+    ["cure"] = "rbxassetid://116667641951505",
+    ["veil"] = "rbxassetid://107207953517546",
+    ["masked"] = "rbxassetid://110441838520158",
+    ["stalker"] = "rbxassetid://85894094209457",
+    ["killer"] = "rbxassetid://108114231850675",
+    ["thekiller"] = "rbxassetid://108114231850675",
+    ["hidden"] = "rbxassetid://129570234771869",
+    ["abysswalker"] = "rbxassetid://100395868673407",
+    ["slasher"] = "rbxassetid://134862031194933",
+    ["Cure"] = "rbxassetid://116667641951505",
+    ["Veil"] = "rbxassetid://107207953517546",
+    ["Masked"] = "rbxassetid://110441838520158",
+    ["Stalker"] = "rbxassetid://85894094209457",
+    ["Killer"] = "rbxassetid://108114231850675",
+    ["The Killer"] = "rbxassetid://108114231850675",
+    ["Hidden"] = "rbxassetid://129570234771869",
+    ["The Hidden"] = "rbxassetid://129570234771869",
+    ["Abysswalker"] = "rbxassetid://100395868673407",
+    ["Slasher"] = "rbxassetid://134862031194933",
+    ["butcher"] = "rbxassetid://106695569058121",
+    ["Butcher"] = "rbxassetid://106695569058121",
+    ["The Butcher"] = "rbxassetid://106695569058121",
+}
+
+local KillerPowerIcons = {
+    ["Cure"] = "rbxassetid://119792658841268",
+    ["Veil"] = "rbxassetid://110881025348309",
+    ["Slasher"] = "rbxassetid://136973921948245",
+    ["Hidden"] = "http://www.roblox.com/asset/?id=130915693370693",
+    ["Stalker"] = "rbxassetid://110045688062234",
+    ["Abysswalker"] = "rbxassetid://86213737463907",
+    ["Masked"] = "rbxassetid://110441838520158",
+    ["Killer"] = "rbxassetid://106695569058121",
+    ["Butcher"] = "rbxassetid://103063690210494",
+}
+
+local PerkIconCache = {}
+local function GetPerkIcon(perkName, desiredTier)
+    if not perkName or perkName == "" or perkName == "---" then return nil end
+    local tierStr = tostring(desiredTier or 3)
+    local cacheKey = perkName .. "_" .. tierStr
+    if PerkIconCache[cacheKey] then return PerkIconCache[cacheKey] end
+
+    local clean = perkName:lower():gsub("%s+", ""):gsub("[^%a]", "")
+    local rs = game:GetService("ReplicatedStorage")
+    local tiersToCheck = { tierStr }
+    for _, t in ipairs({"3", "2", "1"}) do
+        if t ~= tierStr then table.insert(tiersToCheck, t) end
+    end
+
+    if rs:FindFirstChild("Perks") then
+        for _, pFolder in ipairs(rs.Perks:GetChildren()) do
+            local pClean = pFolder.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if pClean == clean then
+                for _, tier in ipairs(tiersToCheck) do
+                    local tObj = pFolder:FindFirstChild(tier)
+                    if tObj and (tObj:IsA("ImageLabel") or tObj:IsA("ImageButton")) and tObj.Image ~= "" then
+                        PerkIconCache[cacheKey] = tObj.Image
+                        return tObj.Image
+                    end
+                end
+            end
+        end
+    end
+
+    if rs:FindFirstChild("Killers") then
+        for _, kFolder in ipairs(rs.Killers:GetChildren()) do
+            local kPerks = kFolder:FindFirstChild("Perks")
+            if kPerks then
+                for _, pFolder in ipairs(kPerks:GetChildren()) do
+                    local pClean = pFolder.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+                    if pClean == clean then
+                        for _, tier in ipairs(tiersToCheck) do
+                            local tObj = pFolder:FindFirstChild(tier)
+                            if tObj and (tObj:IsA("ImageLabel") or tObj:IsA("ImageButton")) and tObj.Image ~= "" then
+                                PerkIconCache[cacheKey] = tObj.Image
+                                return tObj.Image
+                            end
+                        end
+                        for _, c in ipairs(pFolder:GetChildren()) do
+                            if (c:IsA("ImageLabel") or c:IsA("ImageButton")) and c.Image ~= "" then
+                                PerkIconCache[cacheKey] = c.Image
+                                return c.Image
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local ItemIconCache = {}
+local function GetItemIcon(itemName)
+    if not itemName or itemName == "" or itemName == "No Item" or itemName == "None" then return nil end
+    if ItemIconCache[itemName] then return ItemIconCache[itemName] end
+    if ItemIcons[itemName] then
+        ItemIconCache[itemName] = ItemIcons[itemName]
+        return ItemIcons[itemName]
+    end
+
+    local rs = game:GetService("ReplicatedStorage")
+    if rs:FindFirstChild("Items") then
+        local itLower = itemName:lower()
+        for _, it in ipairs(rs.Items:GetChildren()) do
+            local nLower = it.Name:lower()
+            if nLower == itLower or itLower:find(nLower) or nLower:find(itLower) then
+                local defObj = it:FindFirstChild("Default", true)
+                if defObj then
+                    if defObj:IsA("Decal") and defObj.Texture ~= "" then
+                        ItemIconCache[itemName] = defObj.Texture
+                        return defObj.Texture
+                    elseif (defObj:IsA("ImageLabel") or defObj:IsA("ImageButton")) and defObj.Image ~= "" then
+                        ItemIconCache[itemName] = defObj.Image
+                        return defObj.Image
+                    end
+                end
+                for _, c in ipairs(it:GetDescendants()) do
+                    if c:IsA("Decal") and c.Texture ~= "" and not c.Texture:find("18720210000") then
+                        ItemIconCache[itemName] = c.Texture
+                        return c.Texture
+                    elseif (c:IsA("ImageLabel") or c:IsA("ImageButton")) and c.Image ~= "" and not c.Image:find("Placeholder") and not c.Image:find("18720210000") then
+                        ItemIconCache[itemName] = c.Image
+                        return c.Image
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function ResolveKillerType(player)
+    if not player then return "The Killer" end
+    local char = player.Character
+    if char then
+        if char:FindFirstChild("Flask") or char:FindFirstChild("Curetool") or char:GetAttribute("corpsecharge") then
+            return "Cure"
+        elseif char:FindFirstChild("spearmanager") or char:FindFirstChild("Spear1") or char:FindFirstChild("Spear2") or char:GetAttribute("Spears") or char:GetAttribute("spearmode") then
+            return "Veil"
+        elseif char:GetAttribute("StalkerStage2Remaining") ~= nil or char:GetAttribute("Stage") ~= nil or char:GetAttribute("StalkStage") ~= nil or char:FindFirstChild("Chainsaw") or char:FindFirstChild("Stalker") then
+            return "Stalker"
+        elseif char:FindFirstChild("Katana") or char:FindFirstChild("Sword") then
+            return "Slasher"
+        end
+    end
+    local kAttr = player:GetAttribute("SelectedKiller") or (char and char:GetAttribute("SelectedKiller"))
+    if kAttr and type(kAttr) == "string" and kAttr ~= "" then
+        local clean = kAttr:lower():gsub("%s+", ""):gsub("[^%a]", "")
+        if clean:sub(1, 3) == "the" and #clean > 3 then clean = clean:sub(4) end
+        local map = {
+            cure = "Cure", veil = "Veil", masked = "Masked", stalker = "Stalker",
+            killer = "Killer", hidden = "Hidden", abysswalker = "Abysswalker", slasher = "Slasher",
+            butcher = "Butcher"
+        }
+        if map[clean] then return map[clean] end
+        return kAttr
+    end
+    return "The Killer"
+end
+
+local function GetKillerPortrait(kName)
+    if not kName then return KillerPortraits["killer"] end
+    local clean = tostring(kName):lower():gsub("%s+", ""):gsub("[^%a]", "")
+    if clean:sub(1, 3) == "the" and #clean > 3 then clean = clean:sub(4) end
+    if KillerPortraits[clean] then return KillerPortraits[clean] end
+
+    local rs = game:GetService("ReplicatedStorage")
+    if rs:FindFirstChild("Killers") then
+        for _, kf in ipairs(rs.Killers:GetChildren()) do
+            local kfClean = kf.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if kfClean == clean or kfClean:find(clean, 1, true) or clean:find(kfClean, 1, true) then
+                local frame = kf:FindFirstChild("Frame")
+                if frame then
+                    for _, d in ipairs(frame:GetDescendants()) do
+                        if (d:IsA("ImageLabel") or d:IsA("ImageButton")) and d.Image ~= "" and not d.Image:find("Placeholder") and not d.Image:find("8012052454") and not d.Image:find("13662414759") and not d.Image:find("106695569058121") then
+                            return d.Image
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return KillerPortraits["killer"]
+end
+
+local function SetupKillerAvatar(row, kName, plr)
+    local avatarBox = row.AvatarBox
+    local avatarImg = row.AvatarImg
+    local avatarText = row.AvatarText
+
+    if row._renderedKiller == kName and row._renderedVpf and row._renderedVpf.Parent == avatarBox then
+        avatarImg.Visible = false
+        avatarText.Visible = false
+        row._renderedVpf.Visible = true
+        return
+    end
+
+    if row._renderedVpf then
+        pcall(function() row._renderedVpf:Destroy() end)
+        row._renderedVpf = nil
+    end
+    local oldVpf = avatarBox:FindFirstChild("KillerViewport")
+    if oldVpf then pcall(function() oldVpf:Destroy() end) end
+
+    local clean = tostring(kName or "Veil"):lower():gsub("%s+", ""):gsub("[^%a]", "")
+    if clean:sub(1, 3) == "the" and #clean > 3 then clean = clean:sub(4) end
+
+    local rs = game:GetService("ReplicatedStorage")
+    local kFolder = nil
+    if rs:FindFirstChild("Killers") then
+        for _, kf in ipairs(rs.Killers:GetChildren()) do
+            local kfClean = kf.Name:lower():gsub("%s+", ""):gsub("[^%a]", "")
+            if kfClean == clean or kfClean:find(clean, 1, true) or clean:find(kfClean, 1, true) then
+                kFolder = kf
+                break
+            end
+        end
+    end
+
+    local sourceModel = kFolder and kFolder:FindFirstChild("Model")
+    if not sourceModel and plr and plr.Character and plr.Character:FindFirstChild("Head") then
+        pcall(function() plr.Character.Archivable = true end)
+        sourceModel = plr.Character
+    end
+
+    if sourceModel then
+        local ok, vpf = pcall(function()
+            if not sourceModel.Archivable then
+                pcall(function() sourceModel.Archivable = true end)
+            end
+            local clone = sourceModel:Clone()
+            if not clone and kFolder and kFolder:FindFirstChild("Model") then
+                kFolder.Model.Archivable = true
+                clone = kFolder.Model:Clone()
+            end
+            if not clone then return nil end
+
+            local head = clone:FindFirstChild("Head") or clone.PrimaryPart or clone:FindFirstChildWhichIsA("BasePart")
+            if not head then
+                clone:Destroy()
+                return nil
+            end
+
+            for _, d in ipairs(clone:GetDescendants()) do
+                if d:IsA("BasePart") then
+                    d.Anchored = true
+                    d.CanCollide = false
+                elseif d:IsA("Script") or d:IsA("LocalScript") or d:IsA("Sound") or d:IsA("ParticleEmitter") or d:IsA("BillboardGui") or d:IsA("Highlight") then
+                    d:Destroy()
+                end
+            end
+
+            local newVpf = Instance.new("ViewportFrame")
+            newVpf.Name = "KillerViewport"
+            newVpf.Size = UDim2.new(1, 0, 1, 0)
+            newVpf.Position = UDim2.new(0, 0, 0, 0)
+            newVpf.BackgroundTransparency = 1
+            newVpf.BorderSizePixel = 0
+            newVpf.LightColor = Color3.fromRGB(255, 245, 245)
+            newVpf.Ambient = Color3.fromRGB(175, 175, 185)
+            Instance.new("UICorner", newVpf).CornerRadius = UDim.new(0, 6)
+
+            clone.Parent = newVpf
+
+            local cam = Instance.new("Camera")
+            cam.FieldOfView = 40
+            local look = head.CFrame.LookVector
+            local horizLook = Vector3.new(look.X, 0, look.Z)
+            if horizLook.Magnitude > 0.05 then
+                horizLook = horizLook.Unit
+            else
+                horizLook = Vector3.new(0, 0, -1)
+            end
+
+            local targetPos = head.Position + Vector3.new(0, -0.1, 0)
+            local camPos = targetPos + (horizLook * 3.2) + Vector3.new(0, 0.2, 0)
+            cam.CFrame = CFrame.new(camPos, targetPos)
+            cam.Parent = newVpf
+
+            newVpf.CurrentCamera = cam
+            newVpf.LightDirection = (-horizLook + Vector3.new(0.2, 0.5, 0)).Unit
+            newVpf.Parent = avatarBox
+            return newVpf
+        end)
+
+        if ok and vpf then
+            row._renderedKiller = kName
+            row._renderedVpf = vpf
+            avatarImg.Visible = false
+            avatarText.Visible = false
+            return
+        end
+    end
+
+    local portrait = GetKillerPortrait(kName)
+    if portrait and portrait ~= "" then
+        avatarImg.Image = portrait
+        avatarImg.ScaleType = Enum.ScaleType.Fit
+        avatarImg.Visible = true
+        avatarText.Visible = false
+    elseif plr and plr.UserId then
+        avatarImg.Image = "rbxthumb://type=AvatarHeadShot&id=" .. plr.UserId .. "&w=150&h=150"
+        avatarImg.ScaleType = Enum.ScaleType.Fit
+        avatarImg.Visible = true
+        avatarText.Visible = false
+    end
+end
+
+local KillerPowerIconCache = {}
+local function _GetKillerPowerIcon(kName)
+    if not kName then return nil end
+    local clean = tostring(kName):lower():gsub("%s+", ""):gsub("[^%a]", "")
+    if clean:sub(1, 3) == "the" and #clean > 3 then clean = clean:sub(4) end
+    if KillerPowerIcons[kName] then return KillerPowerIcons[kName] end
+    for k, v in pairs(KillerPowerIcons) do
+        if k:lower() == clean then return v end
+    end
+    if KillerPowerIconCache[clean] then return KillerPowerIconCache[clean] end
+
+    local rs = game:GetService("ReplicatedStorage")
+    if rs:FindFirstChild("Killers") then
+        local kFolder = rs.Killers:FindFirstChild(kName) or rs.Killers:FindFirstChild("The " .. kName)
+        if not kFolder then
+            for _, kf in ipairs(rs.Killers:GetChildren()) do
+                if kf.Name:lower():gsub("%s+", ""):gsub("[^%a]", "") == clean then
+                    kFolder = kf
+                    break
+                end
+            end
+        end
+        if kFolder and kFolder:FindFirstChild("Frame") then
+            for _, c in ipairs(kFolder.Frame:GetDescendants()) do
+                if (c:IsA("ImageLabel") or c:IsA("ImageButton")) and c.Image ~= "" and not c.Image:find("Placeholder") and not c.Image:find("8012052454") and not c.Image:find("13662414759") then
+                    if not (c.Name:lower():find("icon") or c.Name:lower():find("portrait") or c.Name:lower():find("head") or c.Name == "Background") then
+                        KillerPowerIconCache[clean] = c.Image
+                        return c.Image
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local TabPlayerlist = Window:CreateTab("Playerlist", "rbxassetid://10723415766")
+local colRoster = TabPlayerlist:CreateColumn()
+colRoster.Frame.Size = UDim2.new(1, 0, 1, 0)
+
+local RosterHeaderCard, RosterHeaderAccent = colRoster:CreateCustomCard(36)
+Window:RegisterAccent(RosterHeaderAccent, "BackgroundColor3")
+
+local RosterHeaderIcon = Instance.new("ImageLabel")
+RosterHeaderIcon.Size = UDim2.fromOffset(18, 18)
+RosterHeaderIcon.Position = UDim2.fromOffset(10, 9)
+RosterHeaderIcon.BackgroundTransparency = 1
+RosterHeaderIcon.Image = "rbxassetid://10723415766"
+RosterHeaderIcon.ImageColor3 = Window.Theme.Accent
+RosterHeaderIcon.Parent = RosterHeaderCard
+Window:RegisterAccent(RosterHeaderIcon, "ImageColor3")
+
+local RosterTitle = Instance.new("TextLabel")
+RosterTitle.Size = UDim2.new(1, -45, 0, 18)
+RosterTitle.Position = UDim2.fromOffset(36, 9)
+RosterTitle.BackgroundTransparency = 1
+RosterTitle.Text = "Match Info Beta"
+RosterTitle.TextColor3 = Window.Theme.Text
+RosterTitle.TextSize = 13
+RosterTitle.TextXAlignment = Enum.TextXAlignment.Left
+RosterTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+RosterTitle.Parent = RosterHeaderCard
+
+local RosterListContainer = Instance.new("Frame")
+RosterListContainer.Name = "RosterListContainer"
+RosterListContainer.Size = UDim2.new(1, 0, 0, 0)
+RosterListContainer.AutomaticSize = Enum.AutomaticSize.Y
+RosterListContainer.BackgroundTransparency = 1
+RosterListContainer.BorderSizePixel = 0
+RosterListContainer.Parent = colRoster.Frame
+
+local RosterListLayout = Instance.new("UIListLayout")
+RosterListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+RosterListLayout.Padding = UDim.new(0, 6)
+RosterListLayout.Parent = RosterListContainer
+
+cachedRosterRows = {}
+
+local function GetRosterSurvivorState(plr)
+    if IsInLobby() or IsPlayerInLobby(plr) then
+        return "Lobby", Color3.fromRGB(0, 210, 255), Color3.fromRGB(10, 40, 55)
+    end
+    if IsPlayerDead(plr) then
+        return "[DEAD]", Color3.fromRGB(150, 150, 150), Color3.fromRGB(35, 35, 35)
+    end
+    local char = plr.Character
+    if not char or not char.Parent then
+        return "[DEAD]", Color3.fromRGB(150, 150, 150), Color3.fromRGB(35, 35, 35)
+    end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum and hum.Health <= 0 then
+        return "[DEAD]", Color3.fromRGB(150, 150, 150), Color3.fromRGB(35, 35, 35)
+    end
+
+    local CollectionService = game:GetService("CollectionService")
+
+    local isHooked = (char:GetAttribute("IsHooked") == true) or CollectionService:HasTag(char, "Hooked")
+    if isHooked then
+        return "[HOOKED]", Color3.fromRGB(255, 70, 90), Color3.fromRGB(70, 15, 25)
+    end
+
+    local isCarried = (char:GetAttribute("IsCarried") == true) or (char:GetAttribute("Carried") == true)
+    if isCarried then
+        return "[CARRIED]", Color3.fromRGB(210, 120, 255), Color3.fromRGB(55, 20, 75)
+    end
+
+    local isDown = (char:GetAttribute("Knocked") == true) or CollectionService:HasTag(char, "Knocked")
+    if isDown then
+        return "[DOWN]", Color3.fromRGB(255, 150, 40), Color3.fromRGB(65, 35, 10)
+    end
+
+    if hum and hum.Health < 99 then
+        return "Injured (" .. math.floor(hum.Health) .. "%)", Color3.fromRGB(255, 200, 60), Color3.fromRGB(60, 50, 10)
+    end
+
+    return "Healthy", Color3.fromRGB(60, 230, 120), Color3.fromRGB(15, 55, 30)
+end
+
+local function GetRosterKillerState(plr)
+    if IsInLobby() then
+        return "Lobby", Color3.fromRGB(255, 100, 120), Color3.fromRGB(55, 15, 20)
+    end
+    local char = plr.Character
+    if char then
+        if char:GetAttribute("IsStunned") == true then
+            return "[STUNNED]", Color3.fromRGB(255, 200, 50), Color3.fromRGB(65, 50, 10)
+        end
+        if char:GetAttribute("IsCarrying") == true then
+            return "[CARRYING]", Color3.fromRGB(210, 120, 255), Color3.fromRGB(55, 20, 75)
+        end
+    end
+    return "Hunting", Color3.fromRGB(255, 70, 90), Color3.fromRGB(70, 15, 25)
+end
+
+local function GetRosterItemDisplay(plr, isK)
+    local rawInfo, isReady = nil, nil
+    pcall(function()
+        rawInfo, isReady = GetPlayerSkillInfo(plr)
+    end)
+    if isK then
+        local kType = plr:GetAttribute("SelectedKiller") or "The Killer"
+        local pwr = kType .. " Power"
+        local det = "Ready"
+        if rawInfo then
+            local clean = rawInfo:gsub("^%[SKILL%]%s*", "")
+            pwr = clean
+            det = "Active"
+        end
+        return pwr, det, Color3.fromRGB(255, 100, 120)
+    else
+        local char = plr.Character
+        local bp = plr:FindFirstChild("Backpack")
+        local item = plr:GetAttribute("EquippedItem") or (char and char:GetAttribute("EquippedItem"))
+            or plr:GetAttribute("SelectedItem") or (char and char:GetAttribute("SelectedItem"))
+            or plr:GetAttribute("Item") or (char and char:GetAttribute("Item"))
+
+        local function scanContainer(container)
+            if not container then return nil end
+            for _, c in ipairs(container:GetChildren()) do
+                if c:IsA("Model") or c:IsA("Tool") then
+                    local nm = c.Name
+                    if ItemIcons[nm] or nm == "Parrying Dagger" or nm == "Adrenaline Shot" or nm == "Flashlight" or nm == "Holy Water" or nm == "Riot Shield" or nm == "Gate" or nm == "WaxBound Candle" or nm == "Shadow Clone" or nm == "Twist of Fate" or nm:find("Syringe") or nm:find("Medkit") or nm == "Bandage" or nm == "Motion Tracker" then
+                        return nm
+                    end
+                end
+            end
+            for _, c in ipairs(container:GetChildren()) do
+                if c:IsA("Tool") and not c.Name:lower():find("fist") and not c.Name:lower():find("camera") and not c.Name:lower():find("phone") then
+                    return c.Name
+                end
+            end
+            return nil
+        end
+
+        if not item or item == "" or item == "None" then
+            item = scanContainer(char) or scanContainer(bp)
+        end
+
+        if not item or item == "" or item == "None" then
+            local ev = plr:FindFirstChild("EquippedItem") or (char and char:FindFirstChild("EquippedItem"))
+                or plr:FindFirstChild("Item") or (char and char:FindFirstChild("Item"))
+            if ev and (ev:IsA("StringValue") or ev:IsA("ObjectValue")) and ev.Value then
+                item = typeof(ev.Value) == "Instance" and ev.Value.Name or tostring(ev.Value)
+            end
+        end
+
+        if item and item ~= "" and item ~= "None" then
+            PlayerItemCache[plr] = item
+        elseif not IsInLobby() and PlayerItemCache[plr] then
+            item = PlayerItemCache[plr]
+        end
+
+        if not item or item == "" or item == "None" then
+            return "No Item", "---", Window.Theme.SubText
+        end
+
+        local det = "Ready"
+        local col = Color3.fromRGB(80, 255, 120)
+        if rawInfo then
+            local clean = rawInfo:gsub("^%[ITEM%]%s*", "")
+            det = clean
+            if isReady == false then
+                col = Color3.fromRGB(255, 80, 80)
+            elseif isReady == true then
+                col = Color3.fromRGB(80, 255, 120)
+            else
+                col = Color3.fromRGB(255, 195, 60)
+            end
+        end
+        return item, det, col
+    end
+end
+
+local function CreatePlayerRow(plr)
+    local card = Instance.new("Frame")
+    card.Name = "PlayerCard_" .. plr.Name
+    card.Size = UDim2.new(1, -2, 0, 72)
+    card.BackgroundColor3 = Window.Theme.Section
+    card.BackgroundTransparency = Window.TransparentEnabled and 0.25 or 0
+    card.BorderSizePixel = 0
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+    local cardStroke = Instance.new("UIStroke", card)
+    cardStroke.Color = Window.Theme.SectionBorder
+    cardStroke.Thickness = 1
+    card.Parent = RosterListContainer
+
+    local accentBar = Instance.new("Frame")
+    accentBar.Size = UDim2.new(0, 4, 1, -12)
+    accentBar.Position = UDim2.new(0, 0, 0, 6)
+    accentBar.BorderSizePixel = 0
+    accentBar.Parent = card
+    Instance.new("UICorner", accentBar).CornerRadius = UDim.new(0, 2)
+
+    local avatarBox = Instance.new("Frame")
+    avatarBox.Size = UDim2.fromOffset(50, 50)
+    avatarBox.Position = UDim2.fromOffset(12, 11)
+    avatarBox.BackgroundColor3 = Window.Theme.ElementBackground
+    avatarBox.BorderSizePixel = 0
+    avatarBox.ClipsDescendants = true
+    avatarBox.Parent = card
+    Instance.new("UICorner", avatarBox).CornerRadius = UDim.new(0, 6)
+
+    local avatarStroke = Instance.new("UIStroke", avatarBox)
+    avatarStroke.Thickness = 1.3
+
+    local avatarImg = Instance.new("ImageLabel")
+    avatarImg.Size = UDim2.new(1, 0, 1, 0)
+    avatarImg.BackgroundTransparency = 1
+    avatarImg.ScaleType = Enum.ScaleType.Fit
+    avatarImg.Image = "rbxthumb://type=AvatarHeadShot&id=" .. plr.UserId .. "&w=150&h=150"
+    avatarImg.Parent = avatarBox
+    Instance.new("UICorner", avatarImg).CornerRadius = UDim.new(0, 6)
+
+    local avatarText = Instance.new("TextLabel")
+    avatarText.Size = UDim2.new(1, 0, 1, 0)
+    avatarText.BackgroundTransparency = 1
+    avatarText.Text = ""
+    avatarText.TextColor3 = Window.Theme.Text
+    avatarText.TextSize = 10
+    avatarText.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    avatarText.Visible = false
+    avatarText.Parent = avatarBox
+
+    local lvlBadge = Instance.new("Frame")
+    lvlBadge.Name = "LevelBadge"
+    lvlBadge.Size = UDim2.fromOffset(20, 20)
+    lvlBadge.Position = UDim2.fromOffset(6, 5)
+    lvlBadge.BackgroundColor3 = Color3.fromRGB(16, 20, 28)
+    lvlBadge.BorderSizePixel = 0
+    lvlBadge.ZIndex = 8
+    lvlBadge.Parent = card
+    Instance.new("UICorner", lvlBadge).CornerRadius = UDim.new(1, 0)
+
+    local lvlStroke = Instance.new("UIStroke", lvlBadge)
+    lvlStroke.Color = Color3.fromRGB(0, 205, 255)
+    lvlStroke.Thickness = 1.4
+
+    local lvlText = Instance.new("TextLabel")
+    lvlText.Size = UDim2.new(1, -2, 1, 0)
+    lvlText.Position = UDim2.fromOffset(1, 0)
+    lvlText.BackgroundTransparency = 1
+    lvlText.Text = "1"
+    lvlText.TextColor3 = Color3.fromRGB(245, 248, 255)
+    lvlText.TextSize = 8.5
+    lvlText.TextScaled = true
+    lvlText.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    lvlText.ZIndex = 9
+    lvlText.Parent = lvlBadge
+    local lvlTextConstraint = Instance.new("UITextSizeConstraint", lvlText)
+    lvlTextConstraint.MaxTextSize = 9
+    lvlTextConstraint.MinTextSize = 6
+
+    local infoCol = Instance.new("Frame")
+    infoCol.Size = UDim2.new(0, 160, 0, 56)
+    infoCol.Position = UDim2.fromOffset(70, 8)
+    infoCol.BackgroundTransparency = 1
+    infoCol.Parent = card
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 0, 16)
+    nameLabel.Position = UDim2.fromOffset(0, 2)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = (plr == LocalPlayer and "★ " or "") .. plr.DisplayName
+    nameLabel.TextColor3 = Window.Theme.Text
+    nameLabel.TextSize = 12.5
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    nameLabel.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    nameLabel.Parent = infoCol
+
+    local userLabel = Instance.new("TextLabel")
+    userLabel.Size = UDim2.new(1, 0, 0, 13)
+    userLabel.Position = UDim2.fromOffset(0, 19)
+    userLabel.BackgroundTransparency = 1
+    userLabel.Text = "@" .. plr.Name
+    userLabel.TextColor3 = Window.Theme.SubText
+    userLabel.TextSize = 9.5
+    userLabel.TextXAlignment = Enum.TextXAlignment.Left
+    userLabel.FontFace = GetPreferredFont()
+    userLabel.Parent = infoCol
+
+    local tagRow = Instance.new("Frame")
+    tagRow.Size = UDim2.new(1, 0, 0, 16)
+    tagRow.Position = UDim2.fromOffset(0, 36)
+    tagRow.BackgroundTransparency = 1
+    tagRow.Visible = true
+    tagRow.Parent = infoCol
+
+    local tagLayout = Instance.new("UIListLayout")
+    tagLayout.FillDirection = Enum.FillDirection.Horizontal
+    tagLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    tagLayout.Padding = UDim.new(0, 4)
+    tagLayout.Parent = tagRow
+
+    local rolePill = Instance.new("Frame")
+    rolePill.Size = UDim2.new(0, 0, 1, 0)
+    rolePill.AutomaticSize = Enum.AutomaticSize.X
+    rolePill.BorderSizePixel = 0
+    rolePill.Visible = false
+    rolePill.Parent = tagRow
+    Instance.new("UICorner", rolePill).CornerRadius = UDim.new(0, 3)
+
+    local roleText = Instance.new("TextLabel")
+    roleText.Size = UDim2.new(0, 0, 1, 0)
+    roleText.AutomaticSize = Enum.AutomaticSize.X
+    roleText.BackgroundTransparency = 1
+    roleText.TextSize = 8.5
+    roleText.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    roleText.Parent = rolePill
+
+    local rolePadding = Instance.new("UIPadding")
+    rolePadding.PaddingLeft = UDim.new(0, 4)
+    rolePadding.PaddingRight = UDim.new(0, 4)
+    rolePadding.Parent = rolePill
+
+    local statusPill = Instance.new("Frame")
+    statusPill.Size = UDim2.new(0, 0, 1, 0)
+    statusPill.AutomaticSize = Enum.AutomaticSize.X
+    statusPill.BorderSizePixel = 0
+    statusPill.Visible = false
+    statusPill.Parent = tagRow
+    Instance.new("UICorner", statusPill).CornerRadius = UDim.new(0, 3)
+
+    local statusText = Instance.new("TextLabel")
+    statusText.Size = UDim2.new(0, 0, 1, 0)
+    statusText.AutomaticSize = Enum.AutomaticSize.X
+    statusText.BackgroundTransparency = 1
+    statusText.TextSize = 8.5
+    statusText.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    statusText.Parent = statusPill
+
+    local statusPadding = Instance.new("UIPadding")
+    statusPadding.PaddingLeft = UDim.new(0, 4)
+    statusPadding.PaddingRight = UDim.new(0, 4)
+    statusPadding.Parent = statusPill
+
+    local platPill = Instance.new("Frame")
+    platPill.Size = UDim2.new(0, 0, 1, 0)
+    platPill.AutomaticSize = Enum.AutomaticSize.X
+    platPill.BackgroundColor3 = Color3.fromRGB(22, 26, 38)
+    platPill.BorderSizePixel = 0
+    platPill.Parent = tagRow
+    Instance.new("UICorner", platPill).CornerRadius = UDim.new(0, 3)
+
+    local platText = Instance.new("TextLabel")
+    platText.Size = UDim2.new(0, 0, 1, 0)
+    platText.AutomaticSize = Enum.AutomaticSize.X
+    platText.BackgroundTransparency = 1
+    platText.TextSize = 8.5
+    platText.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    platText.Text = "PC"
+    platText.TextColor3 = Color3.fromRGB(190, 205, 235)
+    platText.Parent = platPill
+
+    local platPadding = Instance.new("UIPadding")
+    platPadding.PaddingLeft = UDim.new(0, 4)
+    platPadding.PaddingRight = UDim.new(0, 4)
+    platPadding.Parent = platPill
+
+    local perksSection = Instance.new("Frame")
+    perksSection.Size = UDim2.new(0, 285, 0, 60)
+    perksSection.Position = UDim2.fromOffset(238, 6)
+    perksSection.BackgroundTransparency = 1
+    perksSection.Parent = card
+
+    local perksHeader = Instance.new("TextLabel")
+    perksHeader.Size = UDim2.new(1, 0, 0, 12)
+    perksHeader.BackgroundTransparency = 1
+    perksHeader.Text = "PERKS (3 SLOTS)"
+    perksHeader.TextColor3 = Window.Theme.SubText
+    perksHeader.TextSize = 8
+    perksHeader.TextXAlignment = Enum.TextXAlignment.Left
+    perksHeader.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    perksHeader.Parent = perksSection
+
+    local perkBoxes = {}
+    local perkImgs = {}
+    local perkLabels = {}
+    for i = 1, 3 do
+        local pb = Instance.new("Frame")
+        pb.Size = UDim2.fromOffset(90, 42)
+        pb.Position = UDim2.fromOffset((i - 1) * 95, 16)
+        pb.BackgroundColor3 = Window.Theme.ElementBackground
+        pb.BorderSizePixel = 0
+        pb.ClipsDescendants = true
+        pb.Parent = perksSection
+        Instance.new("UICorner", pb).CornerRadius = UDim.new(0, 6)
+        local pbs = Instance.new("UIStroke", pb)
+        pbs.Color = Window.Theme.ElementBorder
+        pbs.Thickness = 1
+
+        local pImg = Instance.new("ImageLabel")
+        pImg.Size = UDim2.fromOffset(34, 34)
+        pImg.Position = UDim2.fromOffset(4, 4)
+        pImg.BackgroundTransparency = 1
+        pImg.ScaleType = Enum.ScaleType.Fit
+        pImg.Visible = false
+        pImg.Parent = pb
+        Instance.new("UICorner", pImg).CornerRadius = UDim.new(0, 4)
+
+        local pl = Instance.new("TextLabel")
+        pl.Size = UDim2.new(1, -42, 1, -4)
+        pl.Position = UDim2.fromOffset(40, 2)
+        pl.BackgroundTransparency = 1
+        pl.Text = "---"
+        pl.TextColor3 = Window.Theme.SubText
+        pl.TextSize = 8
+        pl.TextWrapped = true
+        pl.TextXAlignment = Enum.TextXAlignment.Left
+        pl.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+        pl.Parent = pb
+
+        table.insert(perkBoxes, pb)
+        table.insert(perkImgs, pImg)
+        table.insert(perkLabels, pl)
+    end
+
+    local itemSection = Instance.new("Frame")
+    itemSection.Size = UDim2.new(0, 150, 0, 60)
+    itemSection.Position = UDim2.fromOffset(530, 6)
+    itemSection.BackgroundTransparency = 1
+    itemSection.Parent = card
+
+    local itemHeader = Instance.new("TextLabel")
+    itemHeader.Size = UDim2.new(1, 0, 0, 12)
+    itemHeader.BackgroundTransparency = 1
+    itemHeader.Text = "POWER / ITEM"
+    itemHeader.TextColor3 = Window.Theme.SubText
+    itemHeader.TextSize = 8
+    itemHeader.TextXAlignment = Enum.TextXAlignment.Left
+    itemHeader.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    itemHeader.Parent = itemSection
+
+    local itemBox = Instance.new("Frame")
+    itemBox.Size = UDim2.fromOffset(150, 42)
+    itemBox.Position = UDim2.fromOffset(0, 16)
+    itemBox.BackgroundColor3 = Window.Theme.ElementBackground
+    itemBox.BorderSizePixel = 0
+    itemBox.ClipsDescendants = true
+    itemBox.Parent = itemSection
+    Instance.new("UICorner", itemBox).CornerRadius = UDim.new(0, 6)
+    local itemStroke = Instance.new("UIStroke", itemBox)
+    itemStroke.Thickness = 1
+
+    local itImg = Instance.new("ImageLabel")
+    itImg.Size = UDim2.fromOffset(34, 34)
+    itImg.Position = UDim2.fromOffset(4, 4)
+    itImg.BackgroundTransparency = 1
+    itImg.ScaleType = Enum.ScaleType.Fit
+    itImg.Visible = false
+    itImg.Parent = itemBox
+    Instance.new("UICorner", itImg).CornerRadius = UDim.new(0, 4)
+
+    local itemNameLabel = Instance.new("TextLabel")
+    itemNameLabel.Size = UDim2.new(1, -42, 0, 16)
+    itemNameLabel.Position = UDim2.fromOffset(42, 4)
+    itemNameLabel.BackgroundTransparency = 1
+    itemNameLabel.Text = "None"
+    itemNameLabel.TextColor3 = Window.Theme.Text
+    itemNameLabel.TextSize = 9
+    itemNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    itemNameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    itemNameLabel.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    itemNameLabel.Parent = itemBox
+
+    local itemDetLabel = Instance.new("TextLabel")
+    itemDetLabel.Size = UDim2.new(1, -42, 0, 15)
+    itemDetLabel.Position = UDim2.fromOffset(42, 21)
+    itemDetLabel.BackgroundTransparency = 1
+    itemDetLabel.Text = "---"
+    itemDetLabel.TextColor3 = Window.Theme.SubText
+    itemDetLabel.TextSize = 8.5
+    itemDetLabel.TextXAlignment = Enum.TextXAlignment.Left
+    itemDetLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    itemDetLabel.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    itemDetLabel.Parent = itemBox
+
+    local rowObj = {
+        Card = card,
+        AccentBar = accentBar,
+        AvatarBox = avatarBox,
+        AvatarImg = avatarImg,
+        AvatarText = avatarText,
+        AvatarStroke = avatarStroke,
+        LvlBadge = lvlBadge,
+        LvlStroke = lvlStroke,
+        LvlText = lvlText,
+        NameLabel = nameLabel,
+        UserLabel = userLabel,
+        RolePill = rolePill,
+        RoleText = roleText,
+        StatusPill = statusPill,
+        StatusText = statusText,
+        PlatPill = platPill,
+        PlatText = platText,
+        PerksHeader = perksHeader,
+        ItemHeader = itemHeader,
+        ItemBox = itemBox,
+        ItemStroke = itemStroke,
+        ItemImg = itImg,
+        ItemNameLabel = itemNameLabel,
+        ItemDetLabel = itemDetLabel,
+        PerkBoxes = perkBoxes,
+        PerkImgs = perkImgs,
+        PerkLabels = perkLabels,
+    }
+
+    cachedRosterRows[plr] = rowObj
+    return rowObj
+end
+
+local LocalKillerLevelCache = {}
+local LastKillerLevelQuery = {}
+
+local function GetResolvedKillerLevel(plr, kType)
+    local cleanK = tostring(kType or "Killer"):gsub("^The%s+", "")
+    local char = plr and plr.Character
+    local attrLvl = (char and (char:GetAttribute("KillerLevel") or char:GetAttribute("Level") or char:GetAttribute(cleanK .. "Level")))
+                 or (plr and (plr:GetAttribute("KillerLevel") or plr:GetAttribute(cleanK .. "Level")))
+    if type(attrLvl) == "number" and attrLvl > 0 then
+        return attrLvl
+    end
+
+    if plr == LocalPlayer then
+        local now = os.clock()
+        if not LocalKillerLevelCache[cleanK] or (now - (LastKillerLevelQuery[cleanK] or 0) > 15) then
+            LastKillerLevelQuery[cleanK] = now
+            task.spawn(function()
+                pcall(function()
+                    local sk = ReplicatedStorage:FindFirstChild("Remotes") and ReplicatedStorage.Remotes:FindFirstChild("ShopKillers")
+                    local gkl = sk and sk:FindFirstChild("GetKillerLevel")
+                    if gkl and gkl:IsA("RemoteFunction") then
+                        local lv = gkl:InvokeServer(cleanK)
+                        if type(lv) == "number" and lv > 0 then
+                            LocalKillerLevelCache[cleanK] = lv
+                        end
+                    end
+                end)
+            end)
+        end
+        if LocalKillerLevelCache[cleanK] then
+            return LocalKillerLevelCache[cleanK]
+        end
+        local ok, guiLv = pcall(function()
+            local inv = LocalPlayer.PlayerGui:FindFirstChild("Spectator") and LocalPlayer.PlayerGui.Spectator:FindFirstChild("Inventory")
+            local blk = inv and inv:FindFirstChild("Browse_loadout_killer")
+            local sel = inv and inv:FindFirstChild("SelectedKiller")
+            if blk and sel and tostring(sel.Value):lower() == cleanK:lower() then
+                local lbl = blk:FindFirstChild("LevelLabel")
+                local num = lbl and tonumber(tostring(lbl.Text):match("(%d+)"))
+                return num
+            end
+            return nil
+        end)
+        if ok and guiLv and guiLv > 0 then
+            LocalKillerLevelCache[cleanK] = guiLv
+            return guiLv
+        end
+    end
+
+    return tonumber(plr and plr:GetAttribute("Level")) or 1
+end
+
+local function UpdateRoster(force)
+    local allPlayers = Players:GetPlayers()
+    local killerPlr = nil
+    local survivors = {}
+
+    for _, p in ipairs(allPlayers) do
+        if not killerPlr and IsKiller(p) then
+            killerPlr = p
+        else
+            table.insert(survivors, p)
+        end
+    end
+
+    local inLobby = IsInLobby()
+    RosterTitle.Text = "Match Info Beta"
+
+    for p, row in pairs(cachedRosterRows) do
+        if not table.find(allPlayers, p) then
+            pcall(function() row.Card:Destroy() end)
+            cachedRosterRows[p] = nil
+        end
+    end
+
+    local ordered = {}
+    if killerPlr then
+        table.insert(ordered, killerPlr)
+    end
+    if table.find(survivors, LocalPlayer) then
+        table.insert(ordered, LocalPlayer)
+    end
+    table.sort(survivors, function(a, b) return a.DisplayName:lower() < b.DisplayName:lower() end)
+    for _, s in ipairs(survivors) do
+        if s ~= LocalPlayer and not table.find(ordered, s) then
+            table.insert(ordered, s)
+        end
+    end
+
+    for rank, plr in ipairs(ordered) do
+        local ok, err = pcall(function()
+            local row = cachedRosterRows[plr] or CreatePlayerRow(plr)
+            row.Card.LayoutOrder = rank
+            local isK = (plr == killerPlr)
+            local kType = nil
+
+        local plrLevel = tonumber(plr:GetAttribute("Level")) or 1
+        local rawPlat = tostring(plr:GetAttribute("platform") or "PC")
+        local platUpper = rawPlat:upper()
+        local platDisplay = (platUpper == "MOBILE" and "MOBILE") or (platUpper == "CONSOLE" and "CONSOLE") or "PC"
+
+        if isK then
+            local kCol = Color3.fromRGB(255, 60, 80)
+            row.AccentBar.BackgroundColor3 = kCol
+            row.AvatarStroke.Color = kCol
+            row.AvatarBox.BackgroundColor3 = Color3.fromRGB(45, 15, 20)
+
+            kType = ResolveKillerType(plr)
+            local cleanK = tostring(kType or "Killer"):gsub("^The%s+", "")
+            local kLevel = GetResolvedKillerLevel(plr, kType)
+
+            SetupKillerAvatar(row, kType, plr)
+
+            if row.LvlBadge then
+                row.LvlBadge.BackgroundColor3 = Color3.fromRGB(42, 12, 18)
+                row.LvlStroke.Color = kCol
+                row.LvlText.Text = tostring(kLevel)
+                row.LvlText.TextColor3 = Color3.fromRGB(255, 210, 215)
+            end
+
+            row.RolePill.BackgroundColor3 = Color3.fromRGB(60, 15, 22)
+            row.RoleText.Text = "[" .. cleanK:upper() .. " • LV." .. tostring(kLevel) .. "]"
+            row.RoleText.TextColor3 = Color3.fromRGB(255, 85, 105)
+
+            local kState = inLobby and "Lobby" or GetRosterKillerState(plr)
+            row.StatusPill.BackgroundColor3 = Color3.fromRGB(50, 15, 20)
+            row.StatusText.Text = kState
+            row.StatusText.TextColor3 = Color3.fromRGB(255, 120, 140)
+
+            row.PerksHeader.Text = "KILLER PERKS (3 SLOTS)"
+            row.ItemHeader.Visible = false
+            row.ItemBox.Visible = false
+        else
+            local accentCol = Color3.fromRGB(0, 205, 255)
+            row.AccentBar.BackgroundColor3 = accentCol
+            row.AvatarStroke.Color = accentCol
+            row.AvatarBox.BackgroundColor3 = Window.Theme.ElementBackground
+            local oldVpf = row.AvatarBox:FindFirstChild("KillerViewport")
+            if oldVpf then pcall(function() oldVpf:Destroy() end) end
+            if row._renderedVpf then
+                pcall(function() row._renderedVpf:Destroy() end)
+                row._renderedVpf = nil
+            end
+            row._renderedKiller = nil
+            row.AvatarImg.Image = "rbxthumb://type=AvatarHeadShot&id=" .. plr.UserId .. "&w=150&h=150"
+            row.AvatarImg.Visible = true
+            row.AvatarText.Visible = false
+
+            if row.LvlBadge then
+                row.LvlBadge.BackgroundColor3 = Color3.fromRGB(14, 22, 32)
+                row.LvlStroke.Color = accentCol
+                row.LvlText.Text = tostring(plrLevel)
+                row.LvlText.TextColor3 = Color3.fromRGB(240, 248, 255)
+            end
+
+            local isLobby = inLobby or IsPlayerInLobby(plr)
+            row.RolePill.BackgroundColor3 = isLobby and Color3.fromRGB(15, 40, 55) or Color3.fromRGB(15, 45, 60)
+            row.RoleText.Text = isLobby and "[LOBBY]" or "[SURVIVOR]"
+            row.RoleText.TextColor3 = Color3.fromRGB(80, 220, 255)
+
+            local stText, stCol, stBg = GetRosterSurvivorState(plr)
+            row.StatusPill.BackgroundColor3 = stBg
+            row.StatusText.Text = stText
+            row.StatusText.TextColor3 = stCol
+
+            row.PerksHeader.Text = "PERKS (3 SLOTS)"
+            row.ItemHeader.Visible = true
+            row.ItemBox.Visible = true
+            row.ItemHeader.Text = "EQUIPPED ITEM"
+            row.ItemStroke.Color = Color3.fromRGB(255, 180, 50)
+        end
+
+        if row.PlatPill and row.PlatText then
+            row.PlatText.Text = platDisplay
+            if platDisplay == "MOBILE" then
+                row.PlatPill.BackgroundColor3 = Color3.fromRGB(48, 36, 14)
+                row.PlatText.TextColor3 = Color3.fromRGB(255, 205, 80)
+            elseif platDisplay == "CONSOLE" then
+                row.PlatPill.BackgroundColor3 = Color3.fromRGB(36, 20, 56)
+                row.PlatText.TextColor3 = Color3.fromRGB(205, 140, 255)
+            else
+                row.PlatPill.BackgroundColor3 = Color3.fromRGB(20, 28, 42)
+                row.PlatText.TextColor3 = Color3.fromRGB(175, 210, 255)
+            end
+        end
+
+        local perks = GetPlayerPerks(plr) or {}
+        local _maxDisplaySlots = 3
+        for i = 1, 3 do
+            local pb = row.PerkBoxes and row.PerkBoxes[i]
+            local pName = perks[i]
+            local pImg = row.PerkImgs[i]
+            local pLbl = row.PerkLabels[i]
+
+            if pb then pb.Visible = true end
+            if pName and pName ~= "" and pName ~= "---" then
+                local pTier = (PlayerPerkTiers[plr] and PlayerPerkTiers[plr][pName]) or 3
+                local pIcon = GetPerkIcon(pName, pTier) or "rbxassetid://115375812494391"
+                if pIcon and pIcon ~= "" then
+                    pImg.Image = pIcon
+                    pImg.Visible = true
+                    pLbl.Position = UDim2.fromOffset(40, 2)
+                    pLbl.Size = UDim2.new(1, -42, 1, -4)
+                else
+                    pImg.Visible = false
+                    pLbl.Position = UDim2.fromOffset(4, 2)
+                    pLbl.Size = UDim2.new(1, -8, 1, -4)
+                end
+                pLbl.Text = pName
+                pLbl.TextColor3 = Color3.fromRGB(240, 245, 250)
+            else
+                pImg.Visible = false
+                pLbl.Position = UDim2.fromOffset(4, 2)
+                pLbl.Size = UDim2.new(1, -8, 1, -4)
+                pLbl.Text = "---"
+                pLbl.TextColor3 = Window.Theme.SubText
+            end
+        end
+
+        local itemName, itemDet, itemCol = GetRosterItemDisplay(plr, isK)
+        row.ItemNameLabel.Text = itemName or "No Item"
+        row.ItemDetLabel.Text = itemDet or "---"
+        row.ItemDetLabel.TextColor3 = itemCol or Window.Theme.SubText
+
+        if isK then
+            row.ItemHeader.Visible = false
+            row.ItemBox.Visible = false
+        else
+            row.ItemHeader.Visible = true
+            row.ItemBox.Visible = true
+            local itIcon = GetItemIcon(itemName)
+            if itIcon and itIcon ~= "" and itemName ~= "No Item" and itemName ~= "None" then
+                row.ItemImg.Image = itIcon
+                row.ItemImg.Visible = true
+                row.ItemNameLabel.Position = UDim2.fromOffset(42, 4)
+                row.ItemNameLabel.Size = UDim2.new(1, -44, 0, 16)
+                row.ItemDetLabel.Position = UDim2.fromOffset(42, 21)
+                row.ItemDetLabel.Size = UDim2.new(1, -44, 0, 15)
+            else
+                row.ItemImg.Visible = false
+                row.ItemNameLabel.Position = UDim2.fromOffset(8, 4)
+                row.ItemNameLabel.Size = UDim2.new(1, -12, 0, 16)
+                row.ItemDetLabel.Position = UDim2.fromOffset(8, 21)
+                row.ItemDetLabel.Size = UDim2.new(1, -12, 0, 15)
+            end
+        end
+    end)
+    if not ok then
+        warn("Nexara: Roster render error for player " .. tostring(plr) .. ": " .. tostring(err))
+    end
+end
+
+    colRoster.Frame.CanvasSize = UDim2.new(0, 0, 0, 50 + (#ordered * 78))
+end
+
+TabPlayerlist.Button.MouseButton1Click:Connect(function()
+    task.spawn(function()
+        task.wait(0.05)
+        UpdateRoster(true)
+    end)
+end)
+
+task.spawn(function()
+    while ScriptRunning do
+        task.wait(1.5)
+        if Window.Visible and Window.ActiveTab == TabPlayerlist then
+            pcall(function() UpdateRoster() end)
+        end
+    end
+end)
+end
+
+local TabEvent = Window:CreateTab("Event", "rbxassetid://10723407389")
+do
+    local colE1 = TabEvent:CreateColumn()
+    local colE2 = TabEvent:CreateColumn()
+
+    local secPumpkinESP = colE2:CreateSection("Halloween Pumpkin ESP")
+    secPumpkinESP:AddToggle({
+        Name = "Pumpkin 3D Aura",
+        Default = false,
+        Color = Config.Color_PumpkinAura,
+        Callback = function(v, col)
+            Config.ESP_PumpkinAura = v
+            if col then
+                Config.Color_PumpkinAura = col
+                for _, hl in pairs(PumpkinAuras) do
+                    pcall(function()
+                        hl.FillColor = col
+                        hl.OutlineColor = col
+                    end)
+                end
+            end
+        end
+    })
+    secPumpkinESP:AddToggle({
+        Name = "Pumpkin Name & Distance",
+        Default = false,
+        Color = Config.Color_PumpkinNames,
+        Callback = function(v, col)
+            Config.ESP_Pumpkins = v
+            if col then Config.Color_PumpkinNames = col end
+        end
+    })
+    secPumpkinESP:AddToggle({
+        Name = "Pumpkin Tracer Line",
+        Default = false,
+        Color = Config.Color_PumpkinTracer,
+        Callback = function(v, col)
+            Config.ESP_PumpkinTracer = v
+            if col then Config.Color_PumpkinTracer = col end
+        end
+    })
+    secPumpkinESP:AddSlider({
+        Name = "Pumpkin Max Distance",
+        Flag = "Pumpkin Max Distance",
+        Min = 50,
+        Max = 3000,
+        Default = 3000,
+        Suffix = " studs",
+        Callback = function(v)
+            Config.PumpkinMaxDist = v
+        end
+    })
+
+    local EventStatusCard, EventStatusAccent = colE1:CreateCustomCard(66)
+    Window:RegisterAccent(EventStatusAccent, "BackgroundColor3")
+
+    local evTitle = Instance.new("TextLabel")
+    evTitle.Size = UDim2.new(1, -16, 0, 16)
+    evTitle.Position = UDim2.fromOffset(10, 5)
+    evTitle.BackgroundTransparency = 1
+    evTitle.Text = "Halloween Pumpkin Radar"
+    evTitle.TextColor3 = Window.Theme.Text
+    evTitle.TextSize = 11
+    evTitle.TextXAlignment = Enum.TextXAlignment.Left
+    evTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    evTitle.Parent = EventStatusCard
+
+    local evCountLbl = Instance.new("TextLabel")
+    evCountLbl.Size = UDim2.new(1, -16, 0, 16)
+    evCountLbl.Position = UDim2.fromOffset(10, 24)
+    evCountLbl.BackgroundTransparency = 1
+    evCountLbl.Text = "Active Pumpkins in Map: 0"
+    evCountLbl.TextColor3 = Color3.fromRGB(255, 165, 45)
+    evCountLbl.TextSize = 10
+    evCountLbl.TextXAlignment = Enum.TextXAlignment.Left
+    evCountLbl.FontFace = GetPreferredFont()
+    evCountLbl.Parent = EventStatusCard
+
+    local evNearLbl = Instance.new("TextLabel")
+    evNearLbl.Size = UDim2.new(1, -16, 0, 16)
+    evNearLbl.Position = UDim2.fromOffset(10, 42)
+    evNearLbl.BackgroundTransparency = 1
+    evNearLbl.Text = "Nearest Pumpkin: None"
+    evNearLbl.TextColor3 = Window.Theme.SubText
+    evNearLbl.TextSize = 10
+    evNearLbl.TextXAlignment = Enum.TextXAlignment.Left
+    evNearLbl.FontFace = GetPreferredFont()
+    evNearLbl.Parent = EventStatusCard
+
+    local function GetNearestPumpkinEntry()
+        local list = ScanActivePumpkins(true)
+        local myRoot = GetRoot(LocalPlayer)
+        local myPos = myRoot and myRoot.Position or Camera.CFrame.Position
+        local best, bestDist = nil, math.huge
+        for _, entry in ipairs(list) do
+            if entry.Part and entry.Part.Parent then
+                local d = (entry.Part.Position - myPos).Magnitude
+                if d < bestDist then
+                    bestDist = d
+                    best = entry
+                end
+            end
+        end
+        return best, bestDist
+    end
+
+    task.spawn(function()
+        while ScriptRunning do
+            task.wait(0.5)
+            pcall(function()
+                if IsInLobby() then
+                    if evCountLbl then evCountLbl.Text = "Active Pumpkins in Map: 0 (In Lobby)" end
+                    if evNearLbl then evNearLbl.Text = "Nearest Pumpkin: Waiting for Match" end
+                    return
+                end
+
+                local list = ScanActivePumpkins(false)
+                local best, bestDist = GetNearestPumpkinEntry()
+                if evCountLbl then
+                    evCountLbl.Text = string.format("Active Pumpkins in Map: %d", #list)
+                end
+                if evNearLbl then
+                    if best and bestDist < math.huge then
+                        evNearLbl.Text = string.format("Nearest Pumpkin: %dm away", math.floor(bestDist))
+                    else
+                        evNearLbl.Text = "Nearest Pumpkin: None"
+                    end
+                end
+            end)
+        end
+    end)
+end
+
+local IsRestoringConfig = false
+local function WrapConfigFlagsForAutoLoad()
+    if not Window or not Window.ConfigFlags then return end
+    for flag, item in pairs(Window.ConfigFlags) do
+        if item and type(item.Set) == "function" and not item._wrappedForCallbacks then
+            local rawSet = item.Set
+            item._wrappedForCallbacks = true
+            item.Set = function(selfItem, val, silent)
+                if silent or IsRestoringConfig then
+                    local origAutoSave = Window.OnSilentAutoSave
+                    Window.OnSilentAutoSave = nil
+                    pcall(function()
+                        rawSet(selfItem, val, false)
+                    end)
+                    Window.OnSilentAutoSave = origAutoSave
+                else
+                    pcall(function()
+                        rawSet(selfItem, val, false)
+                    end)
+                    if Window.OnSilentAutoSave then
+                        pcall(Window.OnSilentAutoSave)
+                    end
+                end
+            end
+        end
+        if item and type(item.Open) == "function" and not item._wrappedForPopupPos then
+            item._wrappedForPopupPos = true
+            local rawOpen = item.Open
+            item.Open = function(selfItem)
+                rawOpen(selfItem)
+                task.defer(function()
+                    local gs = game:GetService("GuiService")
+                    local insetY = (Window.Gui and Window.Gui.IgnoreGuiInset and gs:GetGuiInset().Y) or 0
+                    if insetY > 0 then
+                        pcall(function()
+                            local btn, popup
+                            for i = 1, 15 do
+                                local ok, val = pcall(function() return debug.getupvalue(rawOpen, i) end)
+                                if not ok then break end
+                                if typeof(val) == "Instance" then
+                                    local valName = tostring(val.Name)
+                                    if valName == "Button" and val:IsA("TextButton") then
+                                        btn = val
+                                    elseif valName == "DropdownPopup" and val:IsA("ScrollingFrame") then
+                                        popup = val
+                                    end
+                                end
+                            end
+                            if btn and popup and popup.Visible then
+                                local targetY = btn.AbsolutePosition.Y + btn.AbsoluteSize.Y + 2 + insetY
+                                popup.Position = UDim2.fromOffset(btn.AbsolutePosition.X, targetY)
+                            end
+                        end)
+                    end
+                end)
+            end
+        end
+    end
+end
+
+WrapConfigFlagsForAutoLoad()
+
+local ConfigDirName = "Nexara Config"
+local InitialSavedConfig = nil
+local ActiveConfigProfile = "Default"
+pcall(function()
+    local hs = game:GetService("HttpService")
+    if isfile and readfile then
+        local alPath = ConfigDirName .. "/_autoload.txt"
+        if isfile(alPath) then
+            local al = readfile(alPath):gsub("%s+", "")
+            if al ~= "" and al ~= "none" then ActiveConfigProfile = al end
+        end
+        local cfgPath = ConfigDirName .. "/" .. ActiveConfigProfile .. ".json"
+        if isfile(cfgPath) then
+            local raw = readfile(cfgPath)
+            if raw and raw ~= "" then
+                InitialSavedConfig = hs:JSONDecode(raw)
+            end
+        end
+    end
+end)
+
+local SettingsTabObj = Window:CreateSettingsTab({ ConfigDirectory = ConfigDirName, DefaultTheme = (InitialSavedConfig and InitialSavedConfig["ThemePreset"]) or "NexaraTheme" })
+
+pcall(function()
+    if SettingsTabObj and SettingsTabObj.Col2 then
+        local secCombatLogs = SettingsTabObj.Col2:CreateSection("Combat & Hit Logs")
+        secCombatLogs:AddToggle({
+            Name = "Hit Log",
+            Default = (Config.HitLog ~= false),
+            Callback = function(v)
+                Config.HitLog = v
+                if _G.Nexara_VD_HitLogContainer then
+                    _G.Nexara_VD_HitLogContainer.Visible = v
+                end
+            end
+        })
+    end
+end)
+
+pcall(function()
+    local contentArea = Window.ContentArea or (Window.MainFrame and Window.MainFrame:FindFirstChild("ContentArea"))
+    if contentArea then
+        for _, desc in ipairs(contentArea:GetDescendants()) do
+            if desc:IsA("TextLabel") and type(desc.Text) == "string" then
+                if desc.Text:find("^Accent:") then
+                    local row = desc.Parent
+                    if row and row:IsA("Frame") and row.Name == "Label" then
+                        row:Destroy()
+                    else
+                        desc:Destroy()
+                    end
+                elseif desc.Text == "Disable Game Custom Cursor" then
+                    local row = desc.Parent
+                    if row and row.Name == "Trigger" and row.Parent and row.Parent:IsA("Frame") then
+                        row.Parent:Destroy()
+                    elseif row and row:IsA("GuiObject") then
+                        row:Destroy()
+                    else
+                        desc:Destroy()
+                    end
+                end
+            end
+        end
+    end
+end)
+
+local KeybindsHUD = {}
+do
+    pcall(function()
+        if _G.Nexara_VD_KeybindsHUD then
+            _G.Nexara_VD_KeybindsHUD:Destroy()
+            _G.Nexara_VD_KeybindsHUD = nil
+        end
+    end)
+
+    local hudFrame = Instance.new("CanvasGroup")
+    hudFrame.Name = "Nexara_KeybindsHUD"
+    hudFrame.Size = UDim2.fromOffset(185, 0)
+    hudFrame.AutomaticSize = Enum.AutomaticSize.Y
+    hudFrame.Position = UDim2.new(0, 24, 0, 280)
+    hudFrame.BackgroundColor3 = Color3.fromRGB(16, 17, 22)
+    hudFrame.BackgroundTransparency = 0.12
+    hudFrame.BorderSizePixel = 0
+    hudFrame.ZIndex = 60
+    hudFrame.Parent = Window.Gui or (gethui and gethui()) or game:GetService("CoreGui")
+    _G.Nexara_VD_KeybindsHUD = hudFrame
+
+    local uiScale = Instance.new("UIScale")
+    uiScale.Name = "HUDScale"
+    uiScale.Scale = 1.0
+    uiScale.Parent = hudFrame
+
+    local hudCorner = Instance.new("UICorner")
+    hudCorner.CornerRadius = UDim.new(0, 8)
+    hudCorner.Parent = hudFrame
+
+    local hudStroke = Instance.new("UIStroke")
+    hudStroke.Color = Color3.fromRGB(38, 40, 52)
+    hudStroke.Thickness = 1
+    hudStroke.Parent = hudFrame
+
+    local header = Instance.new("Frame")
+    header.Name = "Header"
+    header.Size = UDim2.new(1, 0, 0, 28)
+    header.BackgroundTransparency = 1
+    header.ZIndex = 61
+    header.Parent = hudFrame
+
+    local headerIcon = Instance.new("ImageLabel")
+    headerIcon.Name = "Icon"
+    headerIcon.Size = UDim2.fromOffset(14, 14)
+    headerIcon.Position = UDim2.fromOffset(10, 7)
+    headerIcon.AnchorPoint = Vector2.new(0, 0)
+    headerIcon.BackgroundTransparency = 1
+    headerIcon.Image = "rbxassetid://10709791437"
+    headerIcon.Rotation = 90
+    headerIcon.ImageColor3 = Window.Theme.Accent or Color3.fromRGB(245, 245, 250)
+    headerIcon.ZIndex = 62
+    headerIcon.Parent = header
+    Window:RegisterAccent(headerIcon, "ImageColor3")
+
+    local headerTitle = Instance.new("TextLabel")
+    headerTitle.Name = "Title"
+    headerTitle.Size = UDim2.new(1, -34, 1, 0)
+    headerTitle.Position = UDim2.fromOffset(30, 0)
+    headerTitle.BackgroundTransparency = 1
+    headerTitle.Text = "Keybinds"
+    headerTitle.TextColor3 = Window.Theme.Text or Color3.fromRGB(245, 245, 250)
+    headerTitle.TextSize = 12
+    headerTitle.TextXAlignment = Enum.TextXAlignment.Left
+    headerTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    headerTitle.ZIndex = 62
+    headerTitle.Parent = header
+
+    local listContainer = Instance.new("Frame")
+    listContainer.Name = "List"
+    listContainer.Size = UDim2.new(1, 0, 0, 0)
+    listContainer.Position = UDim2.fromOffset(0, 28)
+    listContainer.AutomaticSize = Enum.AutomaticSize.Y
+    listContainer.BackgroundTransparency = 1
+    listContainer.ZIndex = 61
+    listContainer.Parent = hudFrame
+
+    local listPadding = Instance.new("UIPadding")
+    listPadding.PaddingLeft = UDim.new(0, 10)
+    listPadding.PaddingRight = UDim.new(0, 10)
+    listPadding.PaddingBottom = UDim.new(0, 8)
+    listPadding.PaddingTop = UDim.new(0, 2)
+    listPadding.Parent = listContainer
+
+    local listLayout = Instance.new("UIListLayout")
+    listLayout.Padding = UDim.new(0, 4)
+    listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    listLayout.Parent = listContainer
+
+    local dragging = false
+    local dragInput, dragStart, startPos
+    header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = hudFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    header.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    table.insert(ScriptConnections, UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            hudFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end))
+
+    local entries = {
+        {
+            Id = "Menu",
+            Name = "Menu",
+            GetKey = function() return (Window.ToggleKey and Window.ToggleKey.Name) or "RightControl" end,
+            IsActive = function() return Window.Visible == true end,
+            IsVisible = function() return true end,
+            LayoutOrder = 1,
+        },
+        {
+            Id = "Aimbot",
+            Name = "Aimbot",
+            GetKey = function() return Config.Tof_AimKeyName or "None" end,
+            IsActive = function() return Config.Tof_Aimbot == true end,
+            IsVisible = function()
+                local kn = Config.Tof_AimKeyName
+                return kn and kn ~= "None" and kn ~= ""
+            end,
+            LayoutOrder = 2,
+        }
+    }
+
+    local renderedRows = {}
+
+    local function updateRows()
+        for _, entry in ipairs(entries) do
+            local visible = entry.IsVisible()
+            local row = renderedRows[entry.Id]
+
+            if visible then
+                if not row then
+                    row = {}
+                    local rowFrame = Instance.new("Frame")
+                    rowFrame.Name = "Row_" .. entry.Id
+                    rowFrame.Size = UDim2.new(1, 0, 0, 18)
+                    rowFrame.BackgroundTransparency = 1
+                    rowFrame.LayoutOrder = entry.LayoutOrder or 1
+                    rowFrame.ZIndex = 62
+                    rowFrame.Parent = listContainer
+
+                    local nameLbl = Instance.new("TextLabel")
+                    nameLbl.Name = "Name"
+                    nameLbl.Size = UDim2.new(1, -60, 1, 0)
+                    nameLbl.BackgroundTransparency = 1
+                    nameLbl.Text = entry.Name
+                    nameLbl.TextColor3 = Color3.fromRGB(115, 115, 125)
+                    nameLbl.TextSize = 11
+                    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+                    nameLbl.FontFace = GetPreferredFont()
+                    nameLbl.ZIndex = 63
+                    nameLbl.Parent = rowFrame
+
+                    local keyLbl = Instance.new("TextLabel")
+                    keyLbl.Name = "Key"
+                    keyLbl.Size = UDim2.new(0, 56, 1, 0)
+                    keyLbl.Position = UDim2.new(1, -56, 0, 0)
+                    keyLbl.BackgroundTransparency = 1
+                    keyLbl.Text = "[" .. entry.GetKey() .. "]"
+                    keyLbl.TextColor3 = Color3.fromRGB(100, 100, 110)
+                    keyLbl.TextSize = 11
+                    keyLbl.TextXAlignment = Enum.TextXAlignment.Right
+                    keyLbl.FontFace = GetPreferredFont()
+                    keyLbl.ZIndex = 63
+                    keyLbl.Parent = rowFrame
+
+                    row.Frame = rowFrame
+                    row.NameLabel = nameLbl
+                    row.KeyLabel = keyLbl
+                    row.WasActive = nil
+                    renderedRows[entry.Id] = row
+                end
+
+                row.Frame.Visible = true
+                local keyText = "[" .. entry.GetKey() .. "]"
+                if row.KeyLabel.Text ~= keyText then
+                    row.KeyLabel.Text = keyText
+                end
+
+                local active = entry.IsActive()
+                if row.WasActive ~= active then
+                    row.WasActive = active
+                    local targetColor = active and Color3.fromRGB(245, 245, 255) or Color3.fromRGB(115, 115, 125)
+                    local targetKeyColor = active and (Window.Theme.Accent or Color3.fromRGB(245, 245, 255)) or Color3.fromRGB(100, 100, 110)
+                    TweenService:Create(row.NameLabel, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        TextColor3 = targetColor
+                    }):Play()
+                    TweenService:Create(row.KeyLabel, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                        TextColor3 = targetKeyColor
+                    }):Play()
+                end
+            elseif row then
+                row.Frame.Visible = false
+            end
+        end
+    end
+
+    KeybindsHUD.Frame = hudFrame
+    KeybindsHUD.Scale = uiScale
+    KeybindsHUD.Update = updateRows
+
+    local isVisible = (Config.ShowKeybindsList ~= false)
+    local currentFadeTween = nil
+    local currentScaleTween = nil
+    local animToken = 0
+
+    local function playFadeIn()
+        animToken = animToken + 1
+        if currentFadeTween then currentFadeTween:Cancel() end
+        if currentScaleTween then currentScaleTween:Cancel() end
+
+        hudFrame.Visible = true
+        updateRows()
+
+        currentFadeTween = TweenService:Create(hudFrame, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+            GroupTransparency = 0
+        })
+        currentScaleTween = TweenService:Create(uiScale, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+            Scale = 1.0
+        })
+
+        currentFadeTween:Play()
+        currentScaleTween:Play()
+    end
+
+    local function playFadeOut()
+        animToken = animToken + 1
+        local myToken = animToken
+        if currentFadeTween then currentFadeTween:Cancel() end
+        if currentScaleTween then currentScaleTween:Cancel() end
+
+        currentFadeTween = TweenService:Create(hudFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            GroupTransparency = 1
+        })
+        currentScaleTween = TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Scale = 0.90
+        })
+
+        currentFadeTween.Completed:Connect(function()
+            if animToken == myToken and hudFrame.GroupTransparency >= 0.95 then
+                hudFrame.Visible = false
+            end
+        end)
+
+        currentFadeTween:Play()
+        currentScaleTween:Play()
+    end
+
+    if isVisible then
+        hudFrame.Visible = true
+        hudFrame.GroupTransparency = 1
+        uiScale.Scale = 0.90
+        task.defer(playFadeIn)
+    else
+        hudFrame.Visible = false
+        hudFrame.GroupTransparency = 1
+        uiScale.Scale = 0.90
+    end
+
+    KeybindsHUD.SetVisible = function(vis)
+        if vis then
+            playFadeIn()
+        else
+            playFadeOut()
+        end
+    end
+
+    local lastUpdateClock = 0
+    table.insert(ScriptConnections, RunService.Heartbeat:Connect(function()
+        local now = os.clock()
+        if (now - lastUpdateClock) > 0.08 and hudFrame and hudFrame.Visible and hudFrame.GroupTransparency < 0.9 then
+            lastUpdateClock = now
+            updateRows()
+        end
+    end))
+end
+
+pcall(function()
+    local contentArea = Window.ContentArea or (Window.MainFrame and Window.MainFrame:FindFirstChild("ContentArea"))
+    local secMenu = contentArea and contentArea:FindFirstChild("Section_Menu", true)
+    local elems = secMenu and secMenu:FindFirstChild("Elements")
+    if elems and not elems:FindFirstChild("ToggleRow_Show Keybinds List") then
+        local toggleRow = Instance.new("Frame")
+        toggleRow.Name = "ToggleRow_Show Keybinds List"
+        toggleRow.Size = UDim2.new(1, 0, 0, 20)
+        toggleRow.BackgroundTransparency = 1
+        toggleRow.LayoutOrder = 3
+
+        local trigger = Instance.new("TextButton")
+        trigger.Name = "Trigger"
+        trigger.Size = UDim2.new(1, 0, 1, 0)
+        trigger.BackgroundTransparency = 1
+        trigger.Text = ""
+        trigger.Parent = toggleRow
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Name = "Label"
+        lbl.Size = UDim2.new(1, -44, 1, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = "Show Keybinds List"
+        lbl.TextColor3 = Window.Theme.SubText
+        lbl.TextSize = 11
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.FontFace = GetPreferredFont()
+        lbl.Parent = trigger
+
+        local pill = Instance.new("Frame")
+        pill.Name = "Pill"
+        pill.Size = UDim2.fromOffset(34, 18)
+        pill.Position = UDim2.new(1, -34, 0.5, -9)
+        local initialOn = (Config.ShowKeybindsList ~= false)
+        pill.BackgroundColor3 = initialOn and Window.Theme.Accent or Window.Theme.Inline
+        pill.BorderSizePixel = 0
+        pill.Parent = trigger
+        Instance.new("UICorner", pill).CornerRadius = UDim.new(0, 9)
+
+        local pillStroke = Instance.new("UIStroke")
+        pillStroke.Color = Window.Theme.ElementBorder
+        pillStroke.Thickness = 1
+        pillStroke.Parent = pill
+
+        local knob = Instance.new("Frame")
+        knob.Name = "Knob"
+        knob.Size = UDim2.fromOffset(14, 14)
+        knob.Position = initialOn and UDim2.new(1, -16, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+        knob.AnchorPoint = Vector2.new(0, 0.5)
+        knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        knob.BorderSizePixel = 0
+        knob.Parent = pill
+        Instance.new("UICorner", knob).CornerRadius = UDim.new(0, 7)
+
+        local function updateToggleVisual(on)
+            local targetPos = on and UDim2.new(1, -16, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+            local targetCol = on and Window.Theme.Accent or Window.Theme.Inline
+            TweenService:Create(knob, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Position = targetPos }):Play()
+            TweenService:Create(pill, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = targetCol }):Play()
+        end
+
+        KeybindsHUD.UpdateSettingToggle = updateToggleVisual
+
+        trigger.MouseButton1Click:Connect(function()
+            Config.ShowKeybindsList = not Config.ShowKeybindsList
+            updateToggleVisual(Config.ShowKeybindsList)
+            if KeybindsHUD and KeybindsHUD.SetVisible then
+                KeybindsHUD.SetVisible(Config.ShowKeybindsList)
+            end
+            Window.ConfigValues["Show Keybinds List"] = Config.ShowKeybindsList
+            if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
+        end)
+
+        toggleRow.Parent = elems
+    end
+end)
+
+local AntiAfkActive = true
+local AntiAfkIdledConn = nil
+
+local function ApplyAntiAfkState(enabled)
+    AntiAfkActive = (enabled ~= false)
+    if AntiAfkIdledConn then
+        pcall(function() AntiAfkIdledConn:Disconnect() end)
+        AntiAfkIdledConn = nil
+    end
+
+    pcall(function()
+        local getconns = getconnections or get_signal_connections
+        if getconns and LocalPlayer then
+            for _, conn in ipairs(getconns(LocalPlayer.Idled)) do
+                if not conn.Function then
+                    if AntiAfkActive then
+                        if conn.Disable then conn:Disable() elseif conn.Disconnect then conn:Disconnect() end
+                    else
+                        if conn.Enable then conn:Enable() end
+                    end
+                end
+            end
+        end
+    end)
+
+    if AntiAfkActive and LocalPlayer then
+        AntiAfkIdledConn = LocalPlayer.Idled:Connect(function()
+            if not AntiAfkActive then return end
+            pcall(function()
+                local vu = game:GetService("VirtualUser")
+                vu:CaptureController()
+                vu:ClickButton2(Vector2.new())
+            end)
+            pcall(function()
+                VirtualInputManager:SendMouseMoveEvent(1, 1, workspace.CurrentCamera or game)
+            end)
+        end)
+        table.insert(ScriptConnections, AntiAfkIdledConn)
+    end
+end
+
+pcall(function()
+    local afkItem = Window.ConfigFlags and Window.ConfigFlags["AntiAFK"]
+    if afkItem and type(afkItem.Set) == "function" and not afkItem._nexaraAfkHooked then
+        afkItem._nexaraAfkHooked = true
+        local origAfkSet = afkItem.Set
+        afkItem.Set = function(selfItem, val, silent)
+            origAfkSet(selfItem, val, silent)
+            ApplyAntiAfkState(val == true)
+        end
+    end
+    local initAfk = true
+    if Window.ConfigValues and Window.ConfigValues["AntiAFK"] ~= nil then
+        initAfk = (Window.ConfigValues["AntiAFK"] == true)
+    end
+    ApplyAntiAfkState(initAfk)
+end)
+
+local function ForceSaveCurrentConfig()
+    if IsRestoringConfig then return end
+    pcall(function()
+        if not writefile or not Window or not Window.ConfigValues then return end
+        local hs = game:GetService("HttpService")
+        local prof = Window.ConfigValues["SelectedConfigName"] or ActiveConfigProfile or "Default"
+        if prof == "" then prof = "Default" end
+        local data = {}
+        for k, v in pairs(Window.ConfigValues) do
+            data[k] = v
+        end
+        if Window.ToggleKey and Window.ToggleKey.Name then
+            data["_ToggleKey"] = Window.ToggleKey.Name
+        end
+        if Window.Theme and Window.Theme.Accent then
+            data["_AccentR"] = math.floor(Window.Theme.Accent.R * 255)
+            data["_AccentG"] = math.floor(Window.Theme.Accent.G * 255)
+            data["_AccentB"] = math.floor(Window.Theme.Accent.B * 255)
+        end
+        writefile(ConfigDirName .. "/" .. prof .. ".json", hs:JSONEncode(data))
+    end)
+end
+
+do
+
+local ThemePalettes = {
+    NexaraTheme = {
+        Accent = Color3.fromRGB(228, 238, 255),
+        Background = Color3.fromRGB(7, 8, 13),
+        Header = Color3.fromRGB(10, 12, 19),
+        TabBar = Color3.fromRGB(12, 14, 22),
+        Surface = Color3.fromRGB(14, 17, 26),
+        Element = Color3.fromRGB(18, 22, 33),
+        Border = Color3.fromRGB(36, 44, 64),
+        Text = Color3.fromRGB(244, 247, 255),
+        MutedText = Color3.fromRGB(142, 154, 178),
+        Nebula1 = Color3.fromRGB(38, 52, 88),
+        Nebula2 = Color3.fromRGB(52, 44, 86),
+    },
+    Halloween = {
+        Accent = Color3.fromRGB(255, 115, 25),
+        Background = Color3.fromRGB(11, 8, 12),
+        Header = Color3.fromRGB(15, 11, 16),
+        TabBar = Color3.fromRGB(18, 13, 20),
+        Surface = Color3.fromRGB(20, 15, 22),
+        Element = Color3.fromRGB(26, 19, 28),
+        Border = Color3.fromRGB(58, 36, 30),
+        Text = Color3.fromRGB(248, 240, 235),
+        MutedText = Color3.fromRGB(162, 142, 134),
+        Nebula1 = Color3.fromRGB(75, 35, 20),
+        Nebula2 = Color3.fromRGB(55, 25, 45),
+    },
+    Christmas = {
+        Accent = Color3.fromRGB(255, 78, 88),
+        Background = Color3.fromRGB(8, 11, 14),
+        Header = Color3.fromRGB(11, 15, 20),
+        TabBar = Color3.fromRGB(14, 18, 24),
+        Surface = Color3.fromRGB(16, 21, 28),
+        Element = Color3.fromRGB(21, 27, 36),
+        Border = Color3.fromRGB(56, 36, 44),
+        Text = Color3.fromRGB(245, 247, 252),
+        MutedText = Color3.fromRGB(148, 158, 172),
+        Nebula1 = Color3.fromRGB(70, 28, 38),
+        Nebula2 = Color3.fromRGB(28, 56, 48),
+    },
+    Teal = {
+        Accent = Color3.fromRGB(46, 213, 192),
+        Background = Color3.fromRGB(7, 11, 14),
+        Header = Color3.fromRGB(10, 15, 20),
+        TabBar = Color3.fromRGB(12, 18, 24),
+        Surface = Color3.fromRGB(14, 21, 27),
+        Element = Color3.fromRGB(18, 27, 35),
+        Border = Color3.fromRGB(30, 56, 62),
+        Text = Color3.fromRGB(240, 248, 248),
+        MutedText = Color3.fromRGB(134, 160, 164),
+        Nebula1 = Color3.fromRGB(22, 68, 72),
+        Nebula2 = Color3.fromRGB(24, 52, 68),
+    },
+    Crimson = {
+        Accent = Color3.fromRGB(255, 56, 104),
+        Background = Color3.fromRGB(11, 7, 11),
+        Header = Color3.fromRGB(16, 10, 16),
+        TabBar = Color3.fromRGB(19, 12, 19),
+        Surface = Color3.fromRGB(22, 14, 22),
+        Element = Color3.fromRGB(28, 18, 28),
+        Border = Color3.fromRGB(62, 30, 44),
+        Text = Color3.fromRGB(248, 240, 244),
+        MutedText = Color3.fromRGB(164, 138, 150),
+        Nebula1 = Color3.fromRGB(78, 24, 46),
+        Nebula2 = Color3.fromRGB(56, 20, 48),
+    },
+    Violet = {
+        Accent = Color3.fromRGB(168, 92, 246),
+        Background = Color3.fromRGB(9, 7, 14),
+        Header = Color3.fromRGB(13, 10, 21),
+        TabBar = Color3.fromRGB(16, 13, 25),
+        Surface = Color3.fromRGB(18, 15, 29),
+        Element = Color3.fromRGB(24, 20, 38),
+        Border = Color3.fromRGB(50, 38, 74),
+        Text = Color3.fromRGB(245, 242, 255),
+        MutedText = Color3.fromRGB(150, 140, 176),
+        Nebula1 = Color3.fromRGB(58, 32, 92),
+        Nebula2 = Color3.fromRGB(42, 28, 78),
+    },
+    Emerald = {
+        Accent = Color3.fromRGB(46, 214, 122),
+        Background = Color3.fromRGB(7, 11, 10),
+        Header = Color3.fromRGB(10, 16, 14),
+        TabBar = Color3.fromRGB(12, 19, 17),
+        Surface = Color3.fromRGB(14, 22, 20),
+        Element = Color3.fromRGB(18, 28, 26),
+        Border = Color3.fromRGB(30, 58, 46),
+        Text = Color3.fromRGB(240, 250, 245),
+        MutedText = Color3.fromRGB(136, 164, 150),
+        Nebula1 = Color3.fromRGB(22, 68, 46),
+        Nebula2 = Color3.fromRGB(20, 52, 48),
+    },
+    Amber = {
+        Accent = Color3.fromRGB(255, 176, 24),
+        Background = Color3.fromRGB(11, 9, 7),
+        Header = Color3.fromRGB(16, 13, 10),
+        TabBar = Color3.fromRGB(20, 16, 12),
+        Surface = Color3.fromRGB(23, 19, 14),
+        Element = Color3.fromRGB(30, 25, 18),
+        Border = Color3.fromRGB(64, 50, 30),
+        Text = Color3.fromRGB(250, 246, 238),
+        MutedText = Color3.fromRGB(168, 154, 134),
+        Nebula1 = Color3.fromRGB(76, 54, 20),
+        Nebula2 = Color3.fromRGB(58, 38, 22),
+    },
+    Azure = {
+        Accent = Color3.fromRGB(36, 176, 255),
+        Background = Color3.fromRGB(7, 9, 14),
+        Header = Color3.fromRGB(10, 13, 21),
+        TabBar = Color3.fromRGB(12, 16, 25),
+        Surface = Color3.fromRGB(14, 19, 30),
+        Element = Color3.fromRGB(18, 25, 38),
+        Border = Color3.fromRGB(32, 50, 76),
+        Text = Color3.fromRGB(242, 247, 255),
+        MutedText = Color3.fromRGB(138, 154, 178),
+        Nebula1 = Color3.fromRGB(24, 56, 94),
+        Nebula2 = Color3.fromRGB(30, 44, 82),
+    },
+    Rose = {
+        Accent = Color3.fromRGB(255, 105, 140),
+        Background = Color3.fromRGB(11, 8, 11),
+        Header = Color3.fromRGB(16, 11, 16),
+        TabBar = Color3.fromRGB(19, 14, 20),
+        Surface = Color3.fromRGB(22, 16, 23),
+        Element = Color3.fromRGB(28, 21, 30),
+        Border = Color3.fromRGB(62, 38, 52),
+        Text = Color3.fromRGB(250, 242, 246),
+        MutedText = Color3.fromRGB(166, 142, 154),
+        Nebula1 = Color3.fromRGB(78, 34, 56),
+        Nebula2 = Color3.fromRGB(56, 28, 52),
+    },
+    White = {
+        Accent = Color3.fromRGB(245, 247, 255),
+        Background = Color3.fromRGB(8, 9, 13),
+        Header = Color3.fromRGB(11, 13, 19),
+        TabBar = Color3.fromRGB(13, 15, 22),
+        Surface = Color3.fromRGB(16, 18, 26),
+        Element = Color3.fromRGB(20, 23, 33),
+        Border = Color3.fromRGB(40, 46, 64),
+        Text = Color3.fromRGB(246, 248, 255),
+        MutedText = Color3.fromRGB(145, 154, 174),
+        Nebula1 = Color3.fromRGB(42, 50, 76),
+        Nebula2 = Color3.fromRGB(48, 44, 72),
+    },
+}
+
+local rwWeatherConn = nil
+local rwWeatherParticles = {}
+local rwShootingStars = {}
+local rwConstellationContainer = nil
+local rwNebulaFrames = {}
+local rwConstellationLines = {}
+local rwBeaconStrokes = {}
+local rwCrossStars = {}
+local rwParallaxX, rwParallaxY = 0, 0
+local rwShootTimer = 0
+local rwNextShootDelay = 1.8
+
+local function SyncAllUIWithTheme(presetName, customAccent)
+    if not Window or not Window.MainFrame then return end
+    local mf = Window.MainFrame
+    local pName = presetName or (Window.ConfigValues and Window.ConfigValues["ThemePreset"]) or "NexaraTheme"
+    local pal = ThemePalettes[pName] or ThemePalettes.NexaraTheme
+    local acc = customAccent or (Window.Theme and Window.Theme.Accent) or pal.Accent
+
+    Window.Theme.Accent = acc
+    Window.Theme.Background = pal.Background
+    Window.Theme.Header = pal.Header
+    Window.Theme.TabBackground = pal.TabBar
+    Window.Theme.Section = pal.Surface
+    Window.Theme.SectionBorder = pal.Border
+    Window.Theme.ElementBackground = pal.Element
+    Window.Theme.ElementBorder = pal.Border:Lerp(acc, 0.14)
+    Window.Theme.Inline = pal.Element:Lerp(acc, 0.16)
+    Window.Theme.Text = pal.Text
+    Window.Theme.SubText = pal.MutedText
+
+    mf.BackgroundColor3 = pal.Background
+    mf.BackgroundTransparency = Window.TransparentEnabled and 0.14 or 0.02
+    local bgGrad = mf:FindFirstChild("CelestialSpaceGradient")
+    if bgGrad and bgGrad:IsA("UIGradient") then
+        bgGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0.0, pal.Background:Lerp(acc, 0.08)),
+            ColorSequenceKeypoint.new(0.5, pal.Background),
+            ColorSequenceKeypoint.new(1.0, pal.Surface:Lerp(acc, 0.05))
+        })
+    end
+
+    if Window.OuterStrokeGrad then
+        Window.OuterStrokeGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0.0, acc:Lerp(Color3.new(1, 1, 1), 0.35)),
+            ColorSequenceKeypoint.new(0.35, acc),
+            ColorSequenceKeypoint.new(0.70, pal.Border),
+            ColorSequenceKeypoint.new(1.0, acc:Lerp(Color3.new(1, 1, 1), 0.15))
+        })
+    end
+
+    local header = mf:FindFirstChild("Header")
+    if header then
+        header.BackgroundColor3 = pal.Header
+        header.BackgroundTransparency = Window.TransparentEnabled and 0.12 or 0
+        local hLine = header:FindFirstChild("AccentLine")
+        if hLine then
+            hLine.BackgroundColor3 = acc
+            local hg = hLine:FindFirstChildOfClass("UIGradient")
+            if hg then
+                hg.Color = ColorSequence.new({
+                    ColorSequenceKeypoint.new(0.0, pal.Border),
+                    ColorSequenceKeypoint.new(0.5, acc:Lerp(Color3.new(1, 1, 1), 0.25)),
+                    ColorSequenceKeypoint.new(1.0, pal.Border)
+                })
+            end
+        end
+        local logo = header:FindFirstChild("Logo")
+        if logo and logo:IsA("ImageLabel") then logo.ImageColor3 = acc end
+        local titleLbl = header:FindFirstChild("TitleLabel")
+        if titleLbl and titleLbl:IsA("TextLabel") then titleLbl.TextColor3 = pal.Text end
+    end
+
+    local tabBar = Window.TabBar or mf:FindFirstChild("TabBar")
+    if tabBar then
+        tabBar.BackgroundColor3 = pal.TabBar
+        tabBar.BackgroundTransparency = Window.TransparentEnabled and 0.22 or 0.04
+        local tbStroke = tabBar:FindFirstChildOfClass("UIStroke")
+        if tbStroke then
+            tbStroke.Color = pal.Border:Lerp(acc, 0.18)
+            tbStroke.Transparency = 0.25
+        end
+    end
+
+    for _, tab in ipairs(Window.Tabs or {}) do
+        local isAct = (Window.ActiveTab == tab)
+        if tab.Button then
+            tab.Button.BackgroundColor3 = isAct and pal.Surface:Lerp(acc, 0.10) or pal.TabBar
+            tab.Button.BackgroundTransparency = isAct and 0.12 or 0.45
+        end
+        if tab.TextLabel then
+            tab.TextLabel.TextColor3 = isAct and pal.Text or pal.MutedText
+        end
+        if tab.IconImage then
+            tab.IconImage.ImageColor3 = isAct and acc or pal.MutedText
+        end
+        if tab.ActiveLine then
+            tab.ActiveLine.BackgroundColor3 = acc
+        end
+    end
+
+    local contentArea = Window.ContentArea or mf:FindFirstChild("ContentArea")
+    if contentArea then
+        for _, desc in ipairs(contentArea:GetDescendants()) do
+            if desc:IsA("Frame") then
+                local nm = desc.Name
+                if nm:find("^Section_") or nm == "CustomCard" or nm == "TopCategoryNav" or nm == "TopAutoNav" or nm == "RosterHeaderCard" or nm:find("^PlayerCard_") then
+                    desc.BackgroundColor3 = pal.Surface
+                    desc.BackgroundTransparency = Window.TransparentEnabled and 0.20 or 0.03
+                    local st = desc:FindFirstChildOfClass("UIStroke")
+                    if st then
+                        st.Color = pal.Border:Lerp(acc, 0.16)
+                        st.Transparency = 0.22
+                    end
+                elseif nm == "SecAccent" or nm == "CardAccent" then
+                    desc.BackgroundColor3 = acc
+                    desc.Size = UDim2.new(1, 0, 0, 2)
+                    desc.Position = UDim2.fromOffset(0, 0)
+                    local ag = desc:FindFirstChild("NexaraAccentGrad")
+                    if not ag then
+                        ag = Instance.new("UIGradient")
+                        ag.Name = "NexaraAccentGrad"
+                        ag.Parent = desc
+                    end
+                    ag.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0.0, acc:Lerp(Color3.new(1, 1, 1), 0.2)),
+                        ColorSequenceKeypoint.new(0.45, acc),
+                        ColorSequenceKeypoint.new(1.0, pal.Surface)
+                    })
+                    ag.Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0.0, 0.0),
+                        NumberSequenceKeypoint.new(0.55, 0.25),
+                        NumberSequenceKeypoint.new(1.0, 0.88)
+                    })
+                elseif nm == "ValBadge" then
+                    desc.BackgroundColor3 = pal.Element
+                    local st = desc:FindFirstChildOfClass("UIStroke")
+                    if st then st.Color = pal.Border:Lerp(acc, 0.22) end
+                elseif nm == "Pill" and desc.Parent and desc.Parent.Name == "Trigger" then
+                    local knob = desc:FindFirstChild("Knob")
+                    local isOn = knob and (knob.Position.X.Scale > 0.5 or knob.Position.X.Offset < 0)
+                    local offCol = pal.Surface:Lerp(Color3.fromRGB(28, 32, 46), 0.45)
+                    desc.BackgroundColor3 = isOn and acc or offCol
+                    local pst = desc:FindFirstChildOfClass("UIStroke")
+                    if pst then
+                        pst.Color = isOn and acc:Lerp(Color3.new(1, 1, 1), 0.25) or offCol:Lerp(acc, 0.22)
+                        pst.Transparency = isOn and 0.35 or 0.15
+                    end
+                    if knob then
+                        knob.BackgroundColor3 = isOn and Color3.fromRGB(10, 12, 18) or Color3.fromRGB(132, 142, 162)
+                    end
+                elseif desc.BackgroundTransparency < 0.95 and desc.Parent and (desc.Parent.Name == "QuickCard" or desc.Parent.Name == "CustomCard" or desc.Parent.Name == "Frame") then
+                    desc.BackgroundColor3 = pal.Element
+                end
+            elseif desc:IsA("TextButton") or desc:IsA("TextBox") then
+                local nm = desc.Name
+                if nm == "Button" or nm == "Track" or nm == "Field" or nm == "BindButton" or nm == "Btn" or nm:find("^Button_") or nm:find("^Btn_") then
+                    if desc.Text ~= "Unload" then
+                        desc.BackgroundColor3 = pal.Element
+                    end
+                    local st = desc:FindFirstChildOfClass("UIStroke")
+                    if st then
+                        st.Color = pal.Border:Lerp(acc, 0.18)
+                        st.Transparency = 0.2
+                    end
+                elseif desc.Text == "Run" or desc.Text == "Copy" then
+                    desc.BackgroundColor3 = acc
+                    desc.TextColor3 = Color3.fromRGB(10, 12, 18)
+                end
+            end
+        end
+    end
+
+    if Window.Gui then
+        for _, ch in ipairs(Window.Gui:GetChildren()) do
+            if ch.Name == "DropdownPopup" and ch:IsA("ScrollingFrame") then
+                ch.BackgroundColor3 = pal.Surface
+                ch.ScrollBarImageColor3 = acc
+                local st = ch:FindFirstChildOfClass("UIStroke")
+                if st then st.Color = pal.Border:Lerp(acc, 0.22) end
+            end
+        end
+    end
+
+    if #rwNebulaFrames >= 3 then
+        pcall(function()
+            rwNebulaFrames[1].BackgroundColor3 = pal.Nebula1:Lerp(acc, 0.18)
+            rwNebulaFrames[2].BackgroundColor3 = pal.Nebula2:Lerp(acc, 0.16)
+            rwNebulaFrames[3].BackgroundColor3 = pal.Nebula1:Lerp(pal.Nebula2, 0.5):Lerp(acc, 0.12)
+        end)
+    end
+    local lineCol = acc:Lerp(Color3.fromRGB(220, 235, 255), 0.55)
+    for _, lf in ipairs(rwConstellationLines) do
+        if lf and lf.Parent then lf.BackgroundColor3 = lineCol end
+    end
+    for _, bs in ipairs(rwBeaconStrokes) do
+        if bs and bs.Parent then bs.Color = lineCol end
+    end
+end
+
+local function ClearReworkedWeather()
+    if rwWeatherConn then
+        pcall(function() rwWeatherConn:Disconnect() end)
+        rwWeatherConn = nil
+    end
+    for _, p in ipairs(rwWeatherParticles) do
+        if p.Frame and p.Frame.Parent then pcall(function() p.Frame:Destroy() end) end
+    end
+    table.clear(rwWeatherParticles)
+    for _, ss in ipairs(rwShootingStars) do
+        if ss.Frame and ss.Frame.Parent then pcall(function() ss.Frame:Destroy() end) end
+    end
+    table.clear(rwShootingStars)
+    table.clear(rwNebulaFrames)
+    table.clear(rwConstellationLines)
+    table.clear(rwBeaconStrokes)
+    table.clear(rwCrossStars)
+    if rwConstellationContainer and rwConstellationContainer.Parent then
+        pcall(function() rwConstellationContainer:Destroy() end)
+    end
+    rwConstellationContainer = nil
+    if Window and Window.WindowWeatherLayer then
+        for _, ch in ipairs(Window.WindowWeatherLayer:GetChildren()) do
+            if ch:IsA("GuiObject") then pcall(function() ch:Destroy() end) end
+        end
+    end
+    if Window and Window.WeatherLayer then
+        for _, ch in ipairs(Window.WeatherLayer:GetChildren()) do
+            if ch:IsA("GuiObject") then pcall(function() ch:Destroy() end) end
+        end
+    end
+    if Window and Window.MainFrame then
+        local topL = Window.MainFrame:FindFirstChild("TopWeatherLayer")
+        if topL then pcall(function() topL:ClearAllChildren() end) end
+    end
+end
+
+local origSetWeather = Window.SetWeather
+if origSetWeather then
+    pcall(function() origSetWeather(Window, "None") end)
+end
+
+function Window:SetWeather(wType)
+    wType = wType or "None"
+    if origSetWeather then
+        pcall(function() origSetWeather(self, "None") end)
+    end
+    ClearReworkedWeather()
+    self.ConfigValues["ThemeWeather"] = wType
+
+    local mf = self.MainFrame
+    local gui = self.Gui
+    local winLayer = self.WindowWeatherLayer
+    local scrLayer = self.WeatherLayer
+    if not mf or not gui or not winLayer then return end
+
+    local pName = (self.ConfigValues and self.ConfigValues["ThemePreset"]) or "NexaraTheme"
+    local pal = ThemePalettes[pName] or ThemePalettes.NexaraTheme
+    local acc = (self.Theme and self.Theme.Accent) or pal.Accent
+
+    local hasCustomBg = (self.CustomBg and self.CustomBg.Visible and self.CustomBg.Image and self.CustomBg.Image ~= "")
+    local showStarBackdrop = not hasCustomBg and (wType ~= "None" or pName == "NexaraTheme" or pName == "Nexara")
+
+    if scrLayer then scrLayer.Visible = self.Visible end
+    local screenW = gui.AbsoluteSize.X > 0 and gui.AbsoluteSize.X or 1920
+    local screenH = gui.AbsoluteSize.Y > 0 and gui.AbsoluteSize.Y or 1080
+    local winW = mf.AbsoluteSize.X > 0 and mf.AbsoluteSize.X or 720
+    local winH = mf.AbsoluteSize.Y > 0 and mf.AbsoluteSize.Y or 530
+
+    if showStarBackdrop then
+        local spaceContainer = Instance.new("Frame")
+        spaceContainer.Name = "CelestialSpaceContainer"
+        spaceContainer.Size = UDim2.fromScale(1, 1)
+        spaceContainer.Position = UDim2.fromOffset(0, 0)
+        spaceContainer.BackgroundTransparency = 1
+        spaceContainer.ZIndex = 2
+        spaceContainer.Active = false
+        spaceContainer.Parent = winLayer
+        rwConstellationContainer = spaceContainer
+
+        local function makeNebula(name, sz, pos, col, rot, kps)
+            local f = Instance.new("Frame")
+            f.Name = name
+            f.Size = sz
+            f.Position = pos
+            f.BackgroundColor3 = col
+            f.BackgroundTransparency = 0.88
+            f.BorderSizePixel = 0
+            f.ZIndex = 2
+            f.Rotation = rot
+            f.Active = false
+            f.Parent = spaceContainer
+            Instance.new("UICorner", f).CornerRadius = UDim.new(1, 0)
+            local g = Instance.new("UIGradient")
+            g.Transparency = NumberSequence.new(kps)
+            g.Parent = f
+            table.insert(rwNebulaFrames, f)
+        end
+
+        makeNebula("Nebula_TL", UDim2.fromOffset(340, 210), UDim2.fromOffset(-35, -35), pal.Nebula1:Lerp(acc, 0.18), -20, {
+            NumberSequenceKeypoint.new(0.0, 0.84),
+            NumberSequenceKeypoint.new(0.5, 0.92),
+            NumberSequenceKeypoint.new(1.0, 1.0)
+        })
+        makeNebula("Nebula_BR", UDim2.fromOffset(320, 220), UDim2.new(1, -240, 1, -170), pal.Nebula2:Lerp(acc, 0.16), 28, {
+            NumberSequenceKeypoint.new(0.0, 1.0),
+            NumberSequenceKeypoint.new(0.5, 0.91),
+            NumberSequenceKeypoint.new(1.0, 0.85)
+        })
+        makeNebula("Nebula_Core", UDim2.fromOffset(380, 110), UDim2.new(0.5, -190, 0.44, -55), pal.Nebula1:Lerp(pal.Nebula2, 0.5):Lerp(acc, 0.12), -26, {
+            NumberSequenceKeypoint.new(0.0, 1.0),
+            NumberSequenceKeypoint.new(0.5, 0.90),
+            NumberSequenceKeypoint.new(1.0, 1.0)
+        })
+
+        local lineCol = acc:Lerp(Color3.fromRGB(220, 235, 255), 0.55)
+        local beacon = Instance.new("Frame")
+        beacon.Name = "CoordinateBeacon"
+        beacon.Size = UDim2.fromOffset(170, 170)
+        beacon.Position = UDim2.new(1, 20, 1, 20)
+        beacon.AnchorPoint = Vector2.new(0.5, 0.5)
+        beacon.BackgroundTransparency = 1
+        beacon.ZIndex = 3
+        beacon.Active = false
+        beacon.Parent = spaceContainer
+
+        for _, rCfg in ipairs({ {150, 0.88}, {96, 0.84}, {52, 0.78} }) do
+            local ring = Instance.new("Frame")
+            ring.Size = UDim2.fromOffset(rCfg[1], rCfg[1])
+            ring.Position = UDim2.fromScale(0.5, 0.5)
+            ring.AnchorPoint = Vector2.new(0.5, 0.5)
+            ring.BackgroundTransparency = 1
+            ring.ZIndex = 3
+            ring.Parent = beacon
+            Instance.new("UICorner", ring).CornerRadius = UDim.new(1, 0)
+            local st = Instance.new("UIStroke", ring)
+            st.Color = lineCol
+            st.Transparency = rCfg[2]
+            st.Thickness = 1
+            table.insert(rwBeaconStrokes, st)
+        end
+
+        local constDefs = {
+            {
+                Origin = Vector2.new(winW * 0.18, winH * 0.20),
+                Nodes = {
+                    { rel = Vector2.new(-44, 14), isMajor = true },
+                    { rel = Vector2.new(-20, -8) },
+                    { rel = Vector2.new(0, 6), isMajor = true },
+                    { rel = Vector2.new(24, -14) },
+                    { rel = Vector2.new(46, 4), isMajor = true },
+                },
+                Pairs = { {1, 2}, {2, 3}, {3, 4}, {4, 5} }
+            },
+            {
+                Origin = Vector2.new(winW * 0.78, winH * 0.24),
+                Nodes = {
+                    { rel = Vector2.new(-38, -22), isMajor = true },
+                    { rel = Vector2.new(-8, -4) },
+                    { rel = Vector2.new(26, 16), isMajor = true },
+                    { rel = Vector2.new(-24, 18) },
+                    { rel = Vector2.new(10, -24) },
+                },
+                Pairs = { {1, 2}, {2, 3}, {4, 2}, {2, 5} }
+            },
+            {
+                Origin = Vector2.new(winW * 0.68, winH * 0.74),
+                Nodes = {
+                    { rel = Vector2.new(-46, 18), isMajor = true },
+                    { rel = Vector2.new(-16, 4) },
+                    { rel = Vector2.new(0, -4), isMajor = true },
+                    { rel = Vector2.new(16, -12) },
+                    { rel = Vector2.new(44, -26), isMajor = true },
+                    { rel = Vector2.new(28, 18) },
+                },
+                Pairs = { {1, 2}, {2, 3}, {3, 4}, {4, 5}, {3, 6} }
+            },
+            {
+                Origin = Vector2.new(winW * 0.16, winH * 0.72),
+                Nodes = {
+                    { rel = Vector2.new(-36, 16) },
+                    { rel = Vector2.new(-18, 2) },
+                    { rel = Vector2.new(4, -6), isMajor = true },
+                    { rel = Vector2.new(26, 4) },
+                    { rel = Vector2.new(38, 18) },
+                },
+                Pairs = { {1, 2}, {2, 3}, {3, 4}, {4, 5} }
+            }
+        }
+
+        local function makeCrossStar(pos, sz)
+            local flare = Instance.new("Frame")
+            flare.Size = UDim2.fromOffset(sz, sz)
+            flare.Position = UDim2.fromOffset(pos.X, pos.Y)
+            flare.AnchorPoint = Vector2.new(0.5, 0.5)
+            flare.BackgroundTransparency = 1
+            flare.ZIndex = 5
+            flare.Active = false
+            flare.Parent = spaceContainer
+
+            local rV = Instance.new("Frame")
+            rV.Size = UDim2.fromOffset(1, sz)
+            rV.Position = UDim2.fromScale(0.5, 0.5)
+            rV.AnchorPoint = Vector2.new(0.5, 0.5)
+            rV.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            rV.BackgroundTransparency = 0.35
+            rV.BorderSizePixel = 0
+            rV.ZIndex = 5
+            rV.Parent = flare
+            Instance.new("UICorner", rV).CornerRadius = UDim.new(1, 0)
+
+            local rH = Instance.new("Frame")
+            rH.Size = UDim2.fromOffset(sz, 1)
+            rH.Position = UDim2.fromScale(0.5, 0.5)
+            rH.AnchorPoint = Vector2.new(0.5, 0.5)
+            rH.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            rH.BackgroundTransparency = 0.35
+            rH.BorderSizePixel = 0
+            rH.ZIndex = 5
+            rH.Parent = flare
+            Instance.new("UICorner", rH).CornerRadius = UDim.new(1, 0)
+
+            table.insert(rwCrossStars, { Frame = flare, RayV = rV, RayH = rH, BasePulse = sz, Speed = math.random(6, 12) })
+        end
+
+        for _, cDef in ipairs(constDefs) do
+            local pts = {}
+            for idx, nd in ipairs(cDef.Nodes) do
+                local nPos = cDef.Origin + nd.rel
+                pts[idx] = nPos
+                local dSz = nd.isMajor and 2.5 or 2
+                local dot = Instance.new("Frame")
+                dot.Size = UDim2.fromOffset(dSz, dSz)
+                dot.Position = UDim2.fromOffset(nPos.X, nPos.Y)
+                dot.AnchorPoint = Vector2.new(0.5, 0.5)
+                dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                dot.BackgroundTransparency = nd.isMajor and 0.05 or 0.25
+                dot.BorderSizePixel = 0
+                dot.ZIndex = 4
+                dot.Active = false
+                dot.Parent = spaceContainer
+                Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+                if nd.isMajor then
+                    makeCrossStar(nPos, 11)
+                end
+            end
+            for _, pr in ipairs(cDef.Pairs) do
+                local p1, p2 = pts[pr[1]], pts[pr[2]]
+                if p1 and p2 then
+                    local dist = (p2 - p1).Magnitude
+                    local angle = math.deg(math.atan2(p2.Y - p1.Y, p2.X - p1.X))
+                    local lf = Instance.new("Frame")
+                    lf.BorderSizePixel = 0
+                    lf.AnchorPoint = Vector2.new(0.5, 0.5)
+                    lf.BackgroundColor3 = lineCol
+                    lf.BackgroundTransparency = 0.78
+                    lf.Size = UDim2.fromOffset(dist, 1)
+                    lf.Position = UDim2.fromOffset((p1.X + p2.X) * 0.5, (p1.Y + p2.Y) * 0.5)
+                    lf.Rotation = angle
+                    lf.ZIndex = 2
+                    lf.Active = false
+                    lf.Parent = spaceContainer
+                    table.insert(rwConstellationLines, lf)
+                end
+            end
+        end
+
+        local starCount = (wType == "Stars" or wType == "Shooting Stars") and 62 or 45
+        for _ = 1, starCount do
+            local p = Instance.new("Frame")
+            p.BorderSizePixel = 0
+            p.AnchorPoint = Vector2.new(0.5, 0.5)
+            local sx = math.random(6, math.max(10, winW - 6))
+            local sy = math.random(6, math.max(10, winH - 6))
+            local roll = math.random(1, 100)
+            local sz = (roll <= 65) and 1 or ((roll <= 92) and 1.5 or 2)
+            p.Size = UDim2.fromOffset(sz, sz)
+            p.BackgroundColor3 = (roll >= 85) and acc:Lerp(Color3.new(1, 1, 1), 0.7) or Color3.fromRGB(255, 255, 255)
+            local baseTr = math.random(25, 65) / 100
+            p.BackgroundTransparency = baseTr
+            p.Position = UDim2.fromOffset(sx, sy)
+            p.ZIndex = 2
+            p.Active = false
+            p.Parent = winLayer
+            Instance.new("UICorner", p).CornerRadius = UDim.new(1, 0)
+
+            table.insert(rwWeatherParticles, {
+                Frame = p,
+                X = sx,
+                Y = sy,
+                SpdX = math.random(-2, 2) / 10,
+                SpdY = math.random(-2, 2) / 10,
+                RotSpd = 0,
+                Twinkle = true,
+                TwinkleSpeed = math.random(12, 24) / 10,
+                TwinklePhase = math.random() * 6.28,
+                BaseTrans = baseTr,
+                TwinkleAmp = math.random(15, 25) / 100,
+                IsWindow = true
+            })
+        end
+    end
+
+    local isOverlayWeather = (wType == "Snow" or wType == "Rain" or wType == "Sakura" or wType == "Leaves")
+    if isOverlayWeather then
+        local function spawnOverlayParticle(inWindow)
+            local p = Instance.new("Frame")
+            p.BorderSizePixel = 0
+            p.AnchorPoint = Vector2.new(0.5, 0.5)
+            local maxW = inWindow and winW or screenW
+            local maxH = inWindow and winH or screenH
+            local sx = math.random(0, maxW)
+            local sy = math.random(0, maxH)
+            local spdX, spdY, rotSpd = 0, 0, 0
+
+            if wType == "Snow" then
+                local sz = math.random(3, 5)
+                p.Size = UDim2.fromOffset(sz, sz)
+                p.BackgroundColor3 = Color3.fromRGB(240, 246, 255)
+                p.BackgroundTransparency = math.random(20, 48) / 100
+                Instance.new("UICorner", p).CornerRadius = UDim.new(1, 0)
+                spdY = math.random(42, 92)
+                spdX = math.random(-14, 14)
+            elseif wType == "Rain" then
+                p.Size = UDim2.fromOffset(1, math.random(10, 17))
+                p.BackgroundColor3 = acc:Lerp(Color3.fromRGB(185, 220, 255), 0.7)
+                p.BackgroundTransparency = math.random(32, 58) / 100
+                spdY = math.random(360, 540)
+                spdX = -22
+            elseif wType == "Sakura" then
+                local sz = math.random(5, 8)
+                p.Size = UDim2.fromOffset(sz, math.floor(sz * 0.75))
+                p.BackgroundColor3 = Color3.fromRGB(255, 185, 202)
+                p.BackgroundTransparency = math.random(16, 40) / 100
+                Instance.new("UICorner", p).CornerRadius = UDim.new(0, 3)
+                p.Rotation = math.random(0, 360)
+                spdY = math.random(48, 86)
+                spdX = math.random(14, 38)
+                rotSpd = math.random(-50, 50)
+            elseif wType == "Leaves" then
+                local sz = math.random(5, 8)
+                p.Size = UDim2.fromOffset(sz, math.floor(sz * 0.8))
+                local cols = { Color3.fromRGB(235, 132, 38), Color3.fromRGB(245, 162, 24), Color3.fromRGB(205, 68, 48) }
+                p.BackgroundColor3 = cols[math.random(1, #cols)]
+                p.BackgroundTransparency = math.random(14, 36) / 100
+                Instance.new("UICorner", p).CornerRadius = UDim.new(0, 2)
+                p.Rotation = math.random(0, 360)
+                spdY = math.random(45, 88)
+                spdX = math.random(-24, 24)
+                rotSpd = math.random(-60, 60)
+            end
+
+            p.Active = false
+            p.Position = UDim2.fromOffset(sx, sy)
+            p.ZIndex = 3
+            p.Parent = inWindow and winLayer or scrLayer
+            table.insert(rwWeatherParticles, {
+                Frame = p,
+                X = sx,
+                Y = sy,
+                SpdX = spdX,
+                SpdY = spdY,
+                RotSpd = rotSpd,
+                Twinkle = false,
+                IsWindow = inWindow
+            })
+        end
+
+        for _ = 1, 22 do spawnOverlayParticle(false) end
+        for _ = 1, 18 do spawnOverlayParticle(true) end
+    end
+
+    local function FireShootingStar()
+        if not self.Visible or not mf.Visible then return end
+        local topLayer = mf:FindFirstChild("TopWeatherLayer")
+        if not topLayer then
+            topLayer = Instance.new("Frame")
+            topLayer.Name = "TopWeatherLayer"
+            topLayer.Size = UDim2.fromScale(1, 1)
+            topLayer.Position = UDim2.fromOffset(0, 0)
+            topLayer.BackgroundTransparency = 1
+            topLayer.BorderSizePixel = 0
+            topLayer.ClipsDescendants = true
+            topLayer.Active = false
+            topLayer.ZIndex = 25
+            topLayer.Parent = mf
+        end
+        topLayer.Visible = true
+
+        local streak = Instance.new("Frame")
+        streak.Name = "ShootingStar"
+        local sLen = math.random(55, 82)
+        streak.Size = UDim2.fromOffset(sLen, 1.5)
+        streak.BorderSizePixel = 0
+        streak.AnchorPoint = Vector2.new(1, 0.5)
+        streak.BackgroundColor3 = (self.Theme and self.Theme.Accent or Color3.new(1, 1, 1)):Lerp(Color3.new(1, 1, 1), 0.65)
+        streak.ZIndex = 26
+
+        local grad = Instance.new("UIGradient")
+        grad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.65, 0.25),
+            NumberSequenceKeypoint.new(1, 0)
+        })
+        grad.Parent = streak
+
+        local spark = Instance.new("Frame")
+        spark.Size = UDim2.fromOffset(3, 3)
+        spark.Position = UDim2.new(1, 0, 0.5, 0)
+        spark.AnchorPoint = Vector2.new(0.5, 0.5)
+        spark.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        spark.BorderSizePixel = 0
+        spark.ZIndex = 27
+        spark.Parent = streak
+        Instance.new("UICorner", spark).CornerRadius = UDim.new(1, 0)
+
+        local angle = math.random(142, 152)
+        streak.Rotation = angle
+        local curW = mf.AbsoluteSize.X > 0 and mf.AbsoluteSize.X or 720
+        local curH = mf.AbsoluteSize.Y > 0 and mf.AbsoluteSize.Y or 530
+        local startX = math.random(math.floor(curW * 0.25), math.floor(curW * 0.95))
+        local startY = math.random(8, math.floor(curH * 0.45))
+        streak.Position = UDim2.fromOffset(startX, startY)
+        streak.Parent = topLayer
+
+        local rad = math.rad(angle)
+        table.insert(rwShootingStars, {
+            Frame = streak,
+            Spark = spark,
+            X = startX,
+            Y = startY,
+            DirX = math.cos(rad),
+            DirY = math.sin(rad),
+            Speed = math.random(620, 840),
+            Dur = math.random(45, 65) / 100,
+            Elapsed = 0
+        })
+    end
+
+    if showStarBackdrop or wType == "Stars" or wType == "Shooting Stars" then
+        FireShootingStar()
+    end
+
+    local rwWeatherAcc = 0
+    rwWeatherConn = RunService.RenderStepped:Connect(function(dt)
+        if not self.Visible or not mf.Visible then return end
+        rwWeatherAcc = rwWeatherAcc + dt
+        if rwWeatherAcc < 0.033 then return end
+        dt = math.min(rwWeatherAcc, 0.1)
+        rwWeatherAcc = 0
+        screenW = gui.AbsoluteSize.X > 0 and gui.AbsoluteSize.X or 1920
+        screenH = gui.AbsoluteSize.Y > 0 and gui.AbsoluteSize.Y or 1080
+        winW = mf.AbsoluteSize.X > 0 and mf.AbsoluteSize.X or 720
+        winH = mf.AbsoluteSize.Y > 0 and mf.AbsoluteSize.Y or 530
+        local t = os.clock()
+
+        if self.OuterStrokeGrad then
+            self.OuterStrokeGrad.Rotation = (self.OuterStrokeGrad.Rotation + dt * 10) % 360
+        end
+
+        for _, cs in ipairs(rwCrossStars) do
+            if cs.Frame and cs.Frame.Parent then
+                cs.Frame.Rotation = (cs.Frame.Rotation + dt * cs.Speed) % 360
+                local pulse = cs.BasePulse + math.sin(t * 2.2) * 1.8
+                cs.RayV.Size = UDim2.fromOffset(1, pulse)
+                cs.RayH.Size = UDim2.fromOffset(pulse, 1)
+            end
+        end
+
+        for idx, lf in ipairs(rwConstellationLines) do
+            if lf and lf.Parent then
+                lf.BackgroundTransparency = math.clamp(0.76 + math.sin(t * 1.5 + idx * 0.7) * 0.08, 0.66, 0.86)
+            end
+        end
+
+        if showStarBackdrop or wType == "Stars" or wType == "Shooting Stars" then
+            rwShootTimer = rwShootTimer + dt
+            local delayTarget = (wType == "Shooting Stars") and 0.9 or rwNextShootDelay
+            if rwShootTimer >= delayTarget then
+                rwShootTimer = 0
+                rwNextShootDelay = math.random(16, 28) / 10
+                FireShootingStar()
+            end
+        end
+
+        for i = #rwShootingStars, 1, -1 do
+            local ss = rwShootingStars[i]
+            ss.Elapsed = ss.Elapsed + dt
+            if ss.Elapsed >= ss.Dur or not ss.Frame.Parent then
+                pcall(function() ss.Frame:Destroy() end)
+                table.remove(rwShootingStars, i)
+            else
+                ss.X = ss.X + ss.DirX * ss.Speed * dt
+                ss.Y = ss.Y + ss.DirY * ss.Speed * dt
+                ss.Frame.Position = UDim2.fromOffset(ss.X, ss.Y)
+                if ss.Elapsed > ss.Dur * 0.55 then
+                    local fade = (ss.Elapsed - ss.Dur * 0.55) / (ss.Dur * 0.45)
+                    ss.Frame.BackgroundTransparency = fade
+                    if ss.Spark then ss.Spark.BackgroundTransparency = fade end
+                end
+            end
+        end
+
+        if self.ParallaxEnabled ~= false then
+            local mPos = UserInputService:GetMouseLocation()
+            local winPos = mf.AbsolutePosition
+            local centerX = winPos.X + winW * 0.5
+            local centerY = winPos.Y + winH * 0.5
+            local inWin = (mPos.X >= winPos.X - 60 and mPos.X <= winPos.X + winW + 60 and mPos.Y >= winPos.Y - 60 and mPos.Y <= winPos.Y + winH + 60)
+            local targetX, targetY = 0, 0
+            if inWin and winW > 0 and winH > 0 then
+                targetX = math.clamp((mPos.X - centerX) / (winW * 0.5), -1.2, 1.2)
+                targetY = math.clamp((mPos.Y - centerY) / (winH * 0.5), -1.2, 1.2)
+            end
+            rwParallaxX = rwParallaxX + (targetX - rwParallaxX) * math.clamp(dt * 7, 0, 1)
+            rwParallaxY = rwParallaxY + (targetY - rwParallaxY) * math.clamp(dt * 7, 0, 1)
+            winLayer.Position = UDim2.fromOffset(-30 + rwParallaxX * -16, -30 + rwParallaxY * -16)
+            if self.CustomBg and self.CustomBg.Visible then
+                self.CustomBg.Position = UDim2.fromOffset(-30 + rwParallaxX * -12, -30 + rwParallaxY * -12)
+            end
+        end
+
+        for i = #rwWeatherParticles, 1, -1 do
+            local pt = rwWeatherParticles[i]
+            local bW = pt.IsWindow and winW or screenW
+            local bH = pt.IsWindow and winH or screenH
+            pt.Y = pt.Y + pt.SpdY * dt
+            pt.X = pt.X + pt.SpdX * dt
+            if pt.RotSpd and pt.RotSpd ~= 0 then
+                pt.Frame.Rotation = (pt.Frame.Rotation + pt.RotSpd * dt) % 360
+            end
+            if pt.Twinkle then
+                pt.TwinklePhase = pt.TwinklePhase + dt * pt.TwinkleSpeed
+                pt.Frame.BackgroundTransparency = math.clamp(pt.BaseTrans + math.sin(pt.TwinklePhase) * pt.TwinkleAmp, 0.08, 0.92)
+            end
+            if pt.SpdY < 0 and pt.Y < -15 then
+                pt.Y = bH + 10; pt.X = math.random(0, bW)
+            elseif pt.SpdY > 0 and pt.Y > bH + 15 then
+                pt.Y = -10; pt.X = math.random(0, bW)
+            end
+            if pt.X < -15 then
+                pt.X = bW + 10
+            elseif pt.X > bW + 15 then
+                pt.X = -10
+            end
+            pt.Frame.Position = UDim2.fromOffset(pt.X, pt.Y)
+        end
+    end)
+    table.insert(ScriptConnections, rwWeatherConn)
+end
+
+local origSetAccent = Window.SetAccent
+function Window:SetAccent(newColor)
+    if origSetAccent then pcall(origSetAccent, self, newColor) end
+    SyncAllUIWithTheme(nil, newColor)
+end
+
+local origSetThemeColor = Window.SetThemeColor
+function Window:SetThemeColor(category, newColor)
+    if origSetThemeColor then pcall(origSetThemeColor, self, category, newColor) end
+    if category == "Surface" or category == "Background" then
+        SyncAllUIWithTheme(nil, self.Theme and self.Theme.Accent)
+    end
+end
+
+local presetDrop = Window.ConfigFlags and Window.ConfigFlags["ThemePreset"]
+if presetDrop and presetDrop.Refresh then
+    presetDrop:Refresh({"NexaraTheme", "Halloween", "Christmas", "Teal", "Crimson", "Violet", "Emerald", "Amber", "Azure", "Rose", "White"})
+end
+
+local weatherDrop = Window.ConfigFlags and Window.ConfigFlags["ThemeWeather"]
+if weatherDrop and weatherDrop.Refresh then
+    weatherDrop:Refresh({"None", "Snow", "Rain", "Leaves", "Sakura", "Stars", "Shooting Stars"})
+end
+
+if presetDrop and type(presetDrop.Set) == "function" and not presetDrop._nexaraReworked then
+    presetDrop._nexaraReworked = true
+    local rawPresetSet = presetDrop.Set
+    presetDrop.Set = function(selfDrop, choice, silent)
+        local prevWeather = (Window.ConfigValues and Window.ConfigValues["ThemeWeather"]) or "Stars"
+        if prevWeather == "None" and (choice == "NexaraTheme" or choice == "Nexara") then
+            prevWeather = "Stars"
+        end
+        rawPresetSet(selfDrop, choice, silent)
+        local pal = ThemePalettes[choice] or ThemePalettes.NexaraTheme
+        SyncAllUIWithTheme(choice, pal.Accent)
+
+        if choice ~= "Halloween" then
+            local targetW = (prevWeather and prevWeather ~= "None") and prevWeather or "Stars"
+            Window.ConfigValues["ThemeWeather"] = targetW
+            if weatherDrop and weatherDrop.Set then
+                pcall(function() weatherDrop:Set(targetW, true) end)
+            else
+                Window:SetWeather(targetW)
+            end
+        else
+            local curW = (Window.ConfigValues and Window.ConfigValues["ThemeWeather"]) or "None"
+            Window:SetWeather(curW)
+        end
+    end
+end
+
+local initPreset = (Window.ConfigValues and Window.ConfigValues["ThemePreset"]) or "NexaraTheme"
+local initPal = ThemePalettes[initPreset] or ThemePalettes.NexaraTheme
+SyncAllUIWithTheme(initPreset, initPal.Accent)
+Window:SetWeather((Window.ConfigValues and Window.ConfigValues["ThemeWeather"]) or "Stars")
+end
+
+WrapConfigFlagsForAutoLoad()
+
+do
+    for _, tFlag in ipairs({"ThemePreset", "ThemeWeather", "ThemeBackgroundType", "ThemeBgCustomImage", "ThemeBgOpacity", "ThemeColor_Accent", "ThemeColor_Background", "ThemeColor_Surface", "ThemeColor_Text", "ThemeColor_MutedText"}) do
+        local item = Window.ConfigFlags and Window.ConfigFlags[tFlag]
+        if item and type(item.Set) == "function" and not item._wrappedForThemeSave then
+            item._wrappedForThemeSave = true
+            local prevSet = item.Set
+            item.Set = function(selfItem, val, silent)
+                prevSet(selfItem, val, silent)
+                if not silent and not IsRestoringConfig then
+                    task.delay(0.15, ForceSaveCurrentConfig)
+                end
+            end
+        end
+    end
+end
+
+local function SynchronizeConfigState()
+    local cv = Window and Window.ConfigValues
+    if not cv then return end
+
+    if cv["Skeleton Line Width"] ~= nil then
+        Config.KillerSkeletonThickness = tonumber(cv["Skeleton Line Width"]) or Config.KillerSkeletonThickness
+        for _, esp in pairs(ESP_Objects) do
+            for _, l in pairs(esp.Skeleton) do l.Thickness = Config.KillerSkeletonThickness end
+        end
+    end
+    if cv["Top Killer Skill Size"] ~= nil then
+        Config.TopKillerSkillSize = tonumber(cv["Top Killer Skill Size"]) or Config.TopKillerSkillSize
+        TopKillerSkillText.Size = Config.TopKillerSkillSize
+    end
+
+    if cv["Pallet Max Distance"] ~= nil then
+        Config.PalletMaxDist = tonumber(cv["Pallet Max Distance"]) or Config.PalletMaxDist
+    end
+    if cv["Window Max Distance"] ~= nil then
+        Config.WindowMaxDist = tonumber(cv["Window Max Distance"]) or Config.WindowMaxDist
+    end
+    if cv["Bear Trap Max Distance"] ~= nil then
+        Config.BearTrapMaxDist = tonumber(cv["Bear Trap Max Distance"]) or Config.BearTrapMaxDist
+    end
+    if cv["Pumpkin Max Distance"] ~= nil then
+        Config.PumpkinMaxDist = tonumber(cv["Pumpkin Max Distance"]) or Config.PumpkinMaxDist
+    end
+    if cv["Pumpkin 3D Aura"] ~= nil then Config.ESP_PumpkinAura = (cv["Pumpkin 3D Aura"] == true) end
+    if cv["Pumpkin Name & Distance"] ~= nil then Config.ESP_Pumpkins = (cv["Pumpkin Name & Distance"] == true) end
+    if cv["Pumpkin Tracer Line"] ~= nil then Config.ESP_PumpkinTracer = (cv["Pumpkin Tracer Line"] == true) end
+    if cv["Auto Crush Nearby Pumpkins"] ~= nil then Config.AutoCrushPumpkin = (cv["Auto Crush Nearby Pumpkins"] == true) end
+    if cv["Auto Farm Pumpkins (TP & Crush)"] ~= nil then Config.AutoFarmPumpkins = (cv["Auto Farm Pumpkins (TP & Crush)"] == true) end
+    if cv["Field of View (FOV)"] ~= nil then
+        Config.FOV = tonumber(cv["Field of View (FOV)"]) or Config.FOV
+        if Config.CustomFOVEnabled then
+            Camera.FieldOfView = Config.FOV
+        end
+    end
+
+    if cv["Enable Custom FOV"] ~= nil then
+        Config.CustomFOVEnabled = (cv["Enable Custom FOV"] == true)
+        if Config.CustomFOVEnabled then
+            Camera.FieldOfView = Config.FOV
+        end
+    end
+    if cv["Fullbright (Clear Vision)"] ~= nil then
+        Config.Fullbright = (cv["Fullbright (Clear Vision)"] == true)
+        if Config.Fullbright then
+            ApplyFullbrightNow()
+        else
+            RestoreOriginalLighting()
+        end
+    end
+
+    local function syncCol(flag, def)
+        local val = cv[flag .. "_Color"]
+        local resolved = def
+        if type(val) == "table" and #val >= 3 then
+            local r = tonumber(val[1]) or 0
+            local g = tonumber(val[2]) or 0
+            local b = tonumber(val[3]) or 0
+            if r > 1 or g > 1 or b > 1 then
+                resolved = Color3.fromRGB(math.clamp(math.floor(r), 0, 255), math.clamp(math.floor(g), 0, 255), math.clamp(math.floor(b), 0, 255))
+            else
+                resolved = Color3.new(math.clamp(r, 0, 1), math.clamp(g, 0, 1), math.clamp(b, 0, 1))
+            end
+        elseif typeof(val) == "Color3" then
+            resolved = val
+        elseif type(val) == "string" and val:sub(1, 1) == "#" then
+            resolved = Color3.fromHex(val)
+        end
+        cv[flag .. "_Color"] = { math.floor(resolved.R * 255), math.floor(resolved.G * 255), math.floor(resolved.B * 255) }
+        if Window and Window.ConfigFlags and Window.ConfigFlags[flag] and Window.ConfigFlags[flag].SetColor then
+            pcall(function() Window.ConfigFlags[flag]:SetColor(resolved, true) end)
+        end
+        return resolved
+    end
+
+    Config.Color_Tof_FOV = syncCol("Show FOV Circle", Config.Color_Tof_FOV)
+    Config.Color_Tof_Laser = syncCol("Laser Tracer", Config.Color_Tof_Laser)
+    Config.Color_Hitmarker = syncCol("Hitmarker", Config.Color_Hitmarker)
+
+    if cv["Hitmarker"] ~= nil then Config.Hitmarker = (cv["Hitmarker"] == true) end
+    if cv["Hitmarker Position"] ~= nil then Config.HitmarkerMode = tostring(cv["Hitmarker Position"]) end
+    if cv["Hitmarker Sound"] ~= nil then Config.HitmarkerSound = tostring(cv["Hitmarker Sound"]) end
+    if cv["Hit Sound Volume"] ~= nil then Config.HitmarkerVolume = tonumber(cv["Hit Sound Volume"]) or Config.HitmarkerVolume end
+    if cv["Hit Log"] ~= nil then Config.HitLog = (cv["Hit Log"] == true) end
+    if cv["Hit Log Mode"] ~= nil then Config.HitLogType = tostring(cv["Hit Log Mode"]) end
+
+    if cv["Silent Aim"] ~= nil then Config.Tof_SilentAim = (cv["Silent Aim"] == true) end
+    if cv["Aimbot"] ~= nil then
+        Config.Tof_Aimbot = (cv["Aimbot"] == true)
+    end
+    if cv["Aimbot Toggle Key"] ~= nil then
+        local kn = tostring(cv["Aimbot Toggle Key"])
+        Config.Tof_AimKeyName = kn
+        if kn == "None" or kn == "" then
+            Config.Tof_AimKeyType = "None"
+            Config.Tof_AimKeyCode = nil
+        elseif kn == "MB3" or kn == "Middle Click" then
+            Config.Tof_AimKeyType = "Mouse"
+            Config.Tof_AimKeyCode = Enum.UserInputType.MouseButton3
+        elseif Enum.KeyCode[kn] then
+            Config.Tof_AimKeyType = "Keyboard"
+            Config.Tof_AimKeyCode = Enum.KeyCode[kn]
+        end
+        if TofCombat.AimKeyBtn then TofCombat.AimKeyBtn.Text = "[" .. kn .. "]" end
+    end
+    if cv["Laser Tracer"] ~= nil then Config.Tof_Laser = (cv["Laser Tracer"] == true) end
+    Config.Tof_TargetMode = "Auto (Killer)" 
+    if cv["Show FOV Circle"] ~= nil then Config.Tof_ShowFOV = (cv["Show FOV Circle"] == true) end
+    if cv["FOV Radius"] ~= nil then Config.Tof_FOV = tonumber(cv["FOV Radius"]) or Config.Tof_FOV end
+    if cv["Aimbot Smoothness"] ~= nil then Config.Tof_AimbotSmooth = tonumber(cv["Aimbot Smoothness"]) or Config.Tof_AimbotSmooth end
+    if cv["Laser Beam Duration"] ~= nil then Config.Tof_LaserDuration = tonumber(cv["Laser Beam Duration"]) or Config.Tof_LaserDuration end
+    if cv["Show Keybinds List"] ~= nil then
+        Config.ShowKeybindsList = (cv["Show Keybinds List"] == true)
+        if KeybindsHUD and KeybindsHUD.SetVisible then
+            KeybindsHUD.SetVisible(Config.ShowKeybindsList)
+        end
+        if KeybindsHUD and KeybindsHUD.UpdateSettingToggle then
+            KeybindsHUD.UpdateSettingToggle(Config.ShowKeybindsList)
+        end
+    end
+    if TofCombat.RefreshTargetDropdown then TofCombat.RefreshTargetDropdown() end
+
+    Config.Color_SurvivorBox = syncCol("Survivor 2D Boxes", Config.Color_SurvivorBox)
+    Config.Color_SurvivorSkeleton = syncCol("Survivor Skeleton", Config.Color_SurvivorSkeleton)
+    Config.Color_SurvivorChams = syncCol("Survivor Chams", Config.Color_SurvivorChams)
+    Config.Color_SurvivorNames = syncCol("Survivor Names & Distance", Config.Color_SurvivorNames)
+    Config.Color_KillerSkeleton = syncCol("Stick Skeleton", Config.Color_KillerSkeleton)
+    Config.Color_KillerChams = syncCol("Killer Chams", Config.Color_KillerChams)
+    Config.Color_KillerNames = syncCol("Killer Name & Distance", Config.Color_KillerNames)
+    Config.Color_KillerSkills = syncCol("Killer Skills, Charges & CD", Config.Color_KillerSkills)
+    Config.Color_Generators = syncCol("Generator ESP", Config.Color_Generators)
+    Config.Color_GenChams = syncCol("Generator Chams", Config.Color_GenChams)
+    Config.Color_ExitGates = syncCol("Exit Gates ESP", Config.Color_ExitGates)
+    Config.Color_PalletAura = syncCol("Pallet 3D Aura", Config.Color_PalletAura)
+    Config.Color_PalletNames = syncCol("Pallet Name & Distance", Config.Color_PalletNames)
+    Config.Color_WindowAura = syncCol("Window 3D Aura", Config.Color_WindowAura)
+    Config.Color_WindowNames = syncCol("Window Name & Distance", Config.Color_WindowNames)
+
+    if TopKillerSkillText then
+        TopKillerSkillText.Color = Config.Color_KillerSkills or Color3.fromRGB(80, 220, 255)
+    end
+
+    if cv["Enable Killer ESP"] ~= nil then Config.ESP_KillerEnabled = (cv["Enable Killer ESP"] == true) end
+    if cv["Stick Skeleton"] ~= nil then Config.ESP_KillerSkeleton = (cv["Stick Skeleton"] == true) end
+    if cv["Killer Chams"] ~= nil then Config.ESP_KillerChams = (cv["Killer Chams"] == true) end
+    if cv["Killer Name & Distance"] ~= nil then Config.ESP_KillerNames = (cv["Killer Name & Distance"] == true) end
+    if cv["Killer Skills, Charges & CD"] ~= nil then Config.ESP_KillerSkills = (cv["Killer Skills, Charges & CD"] == true) end
+    if cv["The Masked: Mask Alert"] ~= nil then Config.Alert_MaskChange = (cv["The Masked: Mask Alert"] == true) end
+    if cv["Enable Survivor ESP"] ~= nil then Config.ESP_SurvivorEnabled = (cv["Enable Survivor ESP"] == true) end
+    if cv["Survivor 2D Boxes"] ~= nil then Config.ESP_SurvivorBoxes = (cv["Survivor 2D Boxes"] == true) end
+    if cv["Survivor Skeleton"] ~= nil then Config.ESP_SurvivorSkeleton = (cv["Survivor Skeleton"] == true) end
+    if cv["Survivor Chams"] ~= nil then Config.ESP_SurvivorChams = (cv["Survivor Chams"] == true) end
+    if cv["Survivor Names & Distance"] ~= nil then Config.ESP_SurvivorNames = (cv["Survivor Names & Distance"] == true) end
+    if cv["Survivor Status (Knock/Hook)"] ~= nil then Config.ESP_SurvivorStatus = (cv["Survivor Status (Knock/Hook)"] == true) end
+    if cv["Survivor Items & Cooldowns"] ~= nil then Config.ESP_SurvivorSkills = (cv["Survivor Items & Cooldowns"] == true) end
+    if cv["Generator ESP"] ~= nil then Config.ESP_Generators = (cv["Generator ESP"] == true) end
+    if cv["Generator Chams"] ~= nil then Config.ESP_GenChams = (cv["Generator Chams"] == true) end
+    if cv["Generator Progress %"] ~= nil then Config.ESP_GenProgress = (cv["Generator Progress %"] == true) end
+    if cv["Pallet 3D Aura"] ~= nil then Config.ESP_PalletAura = (cv["Pallet 3D Aura"] == true) end
+    if cv["Pallet Name & Distance"] ~= nil then Config.ESP_Pallets = (cv["Pallet Name & Distance"] == true) end
+    if cv["Window 3D Aura"] ~= nil then Config.ESP_WindowAura = (cv["Window 3D Aura"] == true) end
+    if cv["Window Name & Distance"] ~= nil then Config.ESP_Windows = (cv["Window Name & Distance"] == true) end
+    if cv["Exit Gates ESP"] ~= nil then Config.ESP_ExitGates = (cv["Exit Gates ESP"] == true) end
+    if cv["Bear Traps ESP"] ~= nil then Config.ESP_BearTraps = (cv["Bear Traps ESP"] == true) end
+    if cv["Skill Check Perfect"] ~= nil then
+        Config.AutoSkillCheck = (cv["Skill Check Perfect"] == true)
+    elseif cv["100% Great Skill Check"] ~= nil then
+        Config.AutoSkillCheck = (cv["100% Great Skill Check"] == true)
+    end
+
+    IsRestoringConfig = true
+    pcall(function()
+        if InitialSavedConfig then
+            for _, k in ipairs({"ThemePreset", "ThemeWeather", "ThemeBackgroundType", "ThemeBgCustomImage", "ThemeBgOpacity", "_AccentR", "_AccentG", "_AccentB"}) do
+                if InitialSavedConfig[k] ~= nil then
+                    cv[k] = InitialSavedConfig[k]
+                end
+            end
+            InitialSavedConfig = nil
+        end
+
+        local savedPreset = cv["ThemePreset"]
+        if savedPreset and savedPreset ~= "" then
+            local presetItem = Window.ConfigFlags and Window.ConfigFlags["ThemePreset"]
+            if presetItem and presetItem.Set then
+                presetItem:Set(savedPreset, true)
+            end
+        end
+        if cv["ThemeWeather"] ~= nil and Window.SetWeather then
+            if savedPreset == "Halloween" and cv["ThemeWeather"] == "Stars" then
+                cv["ThemeWeather"] = "None"
+            end
+            Window:SetWeather(cv["ThemeWeather"])
+            local wItem = Window.ConfigFlags and Window.ConfigFlags["ThemeWeather"]
+            if wItem and wItem.Set then wItem:Set(cv["ThemeWeather"], true) end
+        end
+        local bgType = cv["ThemeBackgroundType"]
+        local bgImg = cv["ThemeBgCustomImage"]
+        local bgOp = tonumber(cv["ThemeBgOpacity"]) or 65
+        if savedPreset == "Halloween" and (not bgType or bgType == "None") then
+            bgType = "Custom Image"
+            cv["ThemeBackgroundType"] = "Custom Image"
+            if not bgImg or bgImg == "" then
+                bgImg = "91856257706497"
+                cv["ThemeBgCustomImage"] = bgImg
+            end
+        end
+        local bgItem = Window.ConfigFlags and Window.ConfigFlags["ThemeBackgroundType"]
+        if bgItem and bgItem.Set and bgType then bgItem:Set(bgType, true) end
+        if bgType == "Custom Image" and Window.ApplyCustomBackground then
+            Window:ApplyCustomBackground((bgImg and bgImg ~= "") and bgImg or "91856257706497", bgOp)
+            if Window.CustomBg then Window.CustomBg.Visible = true end
+        elseif bgType == "None" and savedPreset ~= "Halloween" then
+            if Window.CustomBg then Window.CustomBg.Visible = false end
+        end
+        if cv["_AccentR"] and cv["_AccentG"] and cv["_AccentB"] and Window.SetAccent then
+            local ar, ag, ab = tonumber(cv["_AccentR"]) or 255, tonumber(cv["_AccentG"]) or 255, tonumber(cv["_AccentB"]) or 255
+            if (savedPreset == "NexaraTheme" or savedPreset == "Nexara" or not savedPreset) and ar >= 245 and ag >= 245 and ab >= 245 then
+                Window:SetAccent(Color3.fromRGB(228, 238, 255))
+            else
+                Window:SetAccent(Color3.fromRGB(ar, ag, ab))
+            end
+        end
+    end)
+    IsRestoringConfig = false
+    ForceSaveCurrentConfig()
+end
+
+task.defer(function()
+    task.wait(0.05)
+    SynchronizeConfigState()
+end)
+task.delay(0.35, SynchronizeConfigState)
+
+MainTab:Select()
+if Window and Window.SetVisible and not Window.Visible then
+    pcall(function() Window:SetVisible(true, true) end)
+end
+
+end
