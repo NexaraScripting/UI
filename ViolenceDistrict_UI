@@ -2001,6 +2001,200 @@ local function _GetKillerPowerIcon(kName)
     return nil
 end
 
+local TabEvent = Window:CreateTab("Event", "rbxassetid://7734068321")
+do
+    local colE1 = TabEvent:CreateColumn()
+    local colE2 = TabEvent:CreateColumn()
+
+    local secPumpkinESP = colE2:CreateSection("Halloween Pumpkin ESP")
+    secPumpkinESP:AddToggle({
+        Name = "Pumpkin 3D Aura",
+        Default = false,
+        Color = Config.Color_PumpkinAura,
+        Callback = function(v, col)
+            Config.ESP_PumpkinAura = v
+            if col then
+                Config.Color_PumpkinAura = col
+                for _, hl in pairs(PumpkinAuras) do
+                    pcall(function()
+                        hl.FillColor = col
+                        hl.OutlineColor = col
+                    end)
+                end
+            end
+        end
+    })
+    secPumpkinESP:AddToggle({
+        Name = "Pumpkin Name & Distance",
+        Default = false,
+        Color = Config.Color_PumpkinNames,
+        Callback = function(v, col)
+            Config.ESP_Pumpkins = v
+            if col then Config.Color_PumpkinNames = col end
+        end
+    })
+    secPumpkinESP:AddToggle({
+        Name = "Pumpkin Tracer Line",
+        Default = false,
+        Color = Config.Color_PumpkinTracer,
+        Callback = function(v, col)
+            Config.ESP_PumpkinTracer = v
+            if col then Config.Color_PumpkinTracer = col end
+        end
+    })
+    secPumpkinESP:AddSlider({
+        Name = "Pumpkin Max Distance",
+        Flag = "Pumpkin Max Distance",
+        Min = 50,
+        Max = 3000,
+        Default = 3000,
+        Suffix = " studs",
+        Callback = function(v)
+            Config.PumpkinMaxDist = v
+        end
+    })
+
+    local EventStatusCard, EventStatusAccent = colE1:CreateCustomCard(66)
+    Window:RegisterAccent(EventStatusAccent, "BackgroundColor3")
+
+    local evTitle = Instance.new("TextLabel")
+    evTitle.Size = UDim2.new(1, -16, 0, 16)
+    evTitle.Position = UDim2.fromOffset(10, 5)
+    evTitle.BackgroundTransparency = 1
+    evTitle.Text = "Halloween Pumpkin Radar"
+    evTitle.TextColor3 = Window.Theme.Text
+    evTitle.TextSize = 11
+    evTitle.TextXAlignment = Enum.TextXAlignment.Left
+    evTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+    evTitle.Parent = EventStatusCard
+
+    local evCountLbl = Instance.new("TextLabel")
+    evCountLbl.Size = UDim2.new(1, -16, 0, 16)
+    evCountLbl.Position = UDim2.fromOffset(10, 24)
+    evCountLbl.BackgroundTransparency = 1
+    evCountLbl.Text = "Active Pumpkins in Map: 0"
+    evCountLbl.TextColor3 = Color3.fromRGB(255, 165, 45)
+    evCountLbl.TextSize = 10
+    evCountLbl.TextXAlignment = Enum.TextXAlignment.Left
+    evCountLbl.FontFace = GetPreferredFont()
+    evCountLbl.Parent = EventStatusCard
+
+    local evNearLbl = Instance.new("TextLabel")
+    evNearLbl.Size = UDim2.new(1, -16, 0, 16)
+    evNearLbl.Position = UDim2.fromOffset(10, 42)
+    evNearLbl.BackgroundTransparency = 1
+    evNearLbl.Text = "Nearest Pumpkin: None"
+    evNearLbl.TextColor3 = Window.Theme.SubText
+    evNearLbl.TextSize = 10
+    evNearLbl.TextXAlignment = Enum.TextXAlignment.Left
+    evNearLbl.FontFace = GetPreferredFont()
+    evNearLbl.Parent = EventStatusCard
+
+    local function GetNearestPumpkinEntry()
+        local list = ScanActivePumpkins(true)
+        local myRoot = GetRoot(LocalPlayer)
+        local myPos = myRoot and myRoot.Position or Camera.CFrame.Position
+        local best, bestDist = nil, math.huge
+        for _, entry in ipairs(list) do
+            if entry.Part and entry.Part.Parent then
+                local d = (entry.Part.Position - myPos).Magnitude
+                if d < bestDist then
+                    bestDist = d
+                    best = entry
+                end
+            end
+        end
+        return best, bestDist
+    end
+
+    task.spawn(function()
+        while ScriptRunning do
+            task.wait(0.5)
+            pcall(function()
+                if IsInLobby() then
+                    if evCountLbl then evCountLbl.Text = "Active Pumpkins in Map: 0 (In Lobby)" end
+                    if evNearLbl then evNearLbl.Text = "Nearest Pumpkin: Waiting for Match" end
+                    return
+                end
+
+                local list = ScanActivePumpkins(false)
+                local best, bestDist = GetNearestPumpkinEntry()
+                if evCountLbl then
+                    evCountLbl.Text = string.format("Active Pumpkins in Map: %d", #list)
+                end
+                if evNearLbl then
+                    if best and bestDist < math.huge then
+                        evNearLbl.Text = string.format("Nearest Pumpkin: %dm away", math.floor(bestDist))
+                    else
+                        evNearLbl.Text = "Nearest Pumpkin: None"
+                    end
+                end
+            end)
+        end
+    end)
+end
+
+local IsRestoringConfig = false
+local function WrapConfigFlagsForAutoLoad()
+    if not Window or not Window.ConfigFlags then return end
+    for flag, item in pairs(Window.ConfigFlags) do
+        if item and type(item.Set) == "function" and not item._wrappedForCallbacks then
+            local rawSet = item.Set
+            item._wrappedForCallbacks = true
+            item.Set = function(selfItem, val, silent)
+                if silent or IsRestoringConfig then
+                    local origAutoSave = Window.OnSilentAutoSave
+                    Window.OnSilentAutoSave = nil
+                    pcall(function()
+                        rawSet(selfItem, val, false)
+                    end)
+                    Window.OnSilentAutoSave = origAutoSave
+                else
+                    pcall(function()
+                        rawSet(selfItem, val, false)
+                    end)
+                    if Window.OnSilentAutoSave then
+                        pcall(Window.OnSilentAutoSave)
+                    end
+                end
+            end
+        end
+        if item and type(item.Open) == "function" and not item._wrappedForPopupPos then
+            item._wrappedForPopupPos = true
+            local rawOpen = item.Open
+            item.Open = function(selfItem)
+                rawOpen(selfItem)
+                task.defer(function()
+                    local gs = game:GetService("GuiService")
+                    local insetY = (Window.Gui and Window.Gui.IgnoreGuiInset and gs:GetGuiInset().Y) or 0
+                    if insetY > 0 then
+                        pcall(function()
+                            local btn, popup
+                            for i = 1, 15 do
+                                local ok, val = pcall(function() return debug.getupvalue(rawOpen, i) end)
+                                if not ok then break end
+                                if typeof(val) == "Instance" then
+                                    local valName = tostring(val.Name)
+                                    if valName == "Button" and val:IsA("TextButton") then
+                                        btn = val
+                                    elseif valName == "DropdownPopup" and val:IsA("ScrollingFrame") then
+                                        popup = val
+                                    end
+                                end
+                            end
+                            if btn and popup and popup.Visible then
+                                local targetY = btn.AbsolutePosition.Y + btn.AbsoluteSize.Y + 2 + insetY
+                                popup.Position = UDim2.fromOffset(btn.AbsolutePosition.X, targetY)
+                            end
+                        end)
+                    end
+                end)
+            end
+        end
+    end
+end
+
+
 local TabPlayerlist = Window:CreateTab("Playerlist", "rbxassetid://10723415766")
 local colRoster = TabPlayerlist:CreateColumn()
 colRoster.Frame.Size = UDim2.new(1, 0, 1, 0)
@@ -2786,199 +2980,6 @@ task.spawn(function()
         end
     end
 end)
-end
-
-local TabEvent = Window:CreateTab("Event", "rbxassetid://10723407389")
-do
-    local colE1 = TabEvent:CreateColumn()
-    local colE2 = TabEvent:CreateColumn()
-
-    local secPumpkinESP = colE2:CreateSection("Halloween Pumpkin ESP")
-    secPumpkinESP:AddToggle({
-        Name = "Pumpkin 3D Aura",
-        Default = false,
-        Color = Config.Color_PumpkinAura,
-        Callback = function(v, col)
-            Config.ESP_PumpkinAura = v
-            if col then
-                Config.Color_PumpkinAura = col
-                for _, hl in pairs(PumpkinAuras) do
-                    pcall(function()
-                        hl.FillColor = col
-                        hl.OutlineColor = col
-                    end)
-                end
-            end
-        end
-    })
-    secPumpkinESP:AddToggle({
-        Name = "Pumpkin Name & Distance",
-        Default = false,
-        Color = Config.Color_PumpkinNames,
-        Callback = function(v, col)
-            Config.ESP_Pumpkins = v
-            if col then Config.Color_PumpkinNames = col end
-        end
-    })
-    secPumpkinESP:AddToggle({
-        Name = "Pumpkin Tracer Line",
-        Default = false,
-        Color = Config.Color_PumpkinTracer,
-        Callback = function(v, col)
-            Config.ESP_PumpkinTracer = v
-            if col then Config.Color_PumpkinTracer = col end
-        end
-    })
-    secPumpkinESP:AddSlider({
-        Name = "Pumpkin Max Distance",
-        Flag = "Pumpkin Max Distance",
-        Min = 50,
-        Max = 3000,
-        Default = 3000,
-        Suffix = " studs",
-        Callback = function(v)
-            Config.PumpkinMaxDist = v
-        end
-    })
-
-    local EventStatusCard, EventStatusAccent = colE1:CreateCustomCard(66)
-    Window:RegisterAccent(EventStatusAccent, "BackgroundColor3")
-
-    local evTitle = Instance.new("TextLabel")
-    evTitle.Size = UDim2.new(1, -16, 0, 16)
-    evTitle.Position = UDim2.fromOffset(10, 5)
-    evTitle.BackgroundTransparency = 1
-    evTitle.Text = "Halloween Pumpkin Radar"
-    evTitle.TextColor3 = Window.Theme.Text
-    evTitle.TextSize = 11
-    evTitle.TextXAlignment = Enum.TextXAlignment.Left
-    evTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
-    evTitle.Parent = EventStatusCard
-
-    local evCountLbl = Instance.new("TextLabel")
-    evCountLbl.Size = UDim2.new(1, -16, 0, 16)
-    evCountLbl.Position = UDim2.fromOffset(10, 24)
-    evCountLbl.BackgroundTransparency = 1
-    evCountLbl.Text = "Active Pumpkins in Map: 0"
-    evCountLbl.TextColor3 = Color3.fromRGB(255, 165, 45)
-    evCountLbl.TextSize = 10
-    evCountLbl.TextXAlignment = Enum.TextXAlignment.Left
-    evCountLbl.FontFace = GetPreferredFont()
-    evCountLbl.Parent = EventStatusCard
-
-    local evNearLbl = Instance.new("TextLabel")
-    evNearLbl.Size = UDim2.new(1, -16, 0, 16)
-    evNearLbl.Position = UDim2.fromOffset(10, 42)
-    evNearLbl.BackgroundTransparency = 1
-    evNearLbl.Text = "Nearest Pumpkin: None"
-    evNearLbl.TextColor3 = Window.Theme.SubText
-    evNearLbl.TextSize = 10
-    evNearLbl.TextXAlignment = Enum.TextXAlignment.Left
-    evNearLbl.FontFace = GetPreferredFont()
-    evNearLbl.Parent = EventStatusCard
-
-    local function GetNearestPumpkinEntry()
-        local list = ScanActivePumpkins(true)
-        local myRoot = GetRoot(LocalPlayer)
-        local myPos = myRoot and myRoot.Position or Camera.CFrame.Position
-        local best, bestDist = nil, math.huge
-        for _, entry in ipairs(list) do
-            if entry.Part and entry.Part.Parent then
-                local d = (entry.Part.Position - myPos).Magnitude
-                if d < bestDist then
-                    bestDist = d
-                    best = entry
-                end
-            end
-        end
-        return best, bestDist
-    end
-
-    task.spawn(function()
-        while ScriptRunning do
-            task.wait(0.5)
-            pcall(function()
-                if IsInLobby() then
-                    if evCountLbl then evCountLbl.Text = "Active Pumpkins in Map: 0 (In Lobby)" end
-                    if evNearLbl then evNearLbl.Text = "Nearest Pumpkin: Waiting for Match" end
-                    return
-                end
-
-                local list = ScanActivePumpkins(false)
-                local best, bestDist = GetNearestPumpkinEntry()
-                if evCountLbl then
-                    evCountLbl.Text = string.format("Active Pumpkins in Map: %d", #list)
-                end
-                if evNearLbl then
-                    if best and bestDist < math.huge then
-                        evNearLbl.Text = string.format("Nearest Pumpkin: %dm away", math.floor(bestDist))
-                    else
-                        evNearLbl.Text = "Nearest Pumpkin: None"
-                    end
-                end
-            end)
-        end
-    end)
-end
-
-local IsRestoringConfig = false
-local function WrapConfigFlagsForAutoLoad()
-    if not Window or not Window.ConfigFlags then return end
-    for flag, item in pairs(Window.ConfigFlags) do
-        if item and type(item.Set) == "function" and not item._wrappedForCallbacks then
-            local rawSet = item.Set
-            item._wrappedForCallbacks = true
-            item.Set = function(selfItem, val, silent)
-                if silent or IsRestoringConfig then
-                    local origAutoSave = Window.OnSilentAutoSave
-                    Window.OnSilentAutoSave = nil
-                    pcall(function()
-                        rawSet(selfItem, val, false)
-                    end)
-                    Window.OnSilentAutoSave = origAutoSave
-                else
-                    pcall(function()
-                        rawSet(selfItem, val, false)
-                    end)
-                    if Window.OnSilentAutoSave then
-                        pcall(Window.OnSilentAutoSave)
-                    end
-                end
-            end
-        end
-        if item and type(item.Open) == "function" and not item._wrappedForPopupPos then
-            item._wrappedForPopupPos = true
-            local rawOpen = item.Open
-            item.Open = function(selfItem)
-                rawOpen(selfItem)
-                task.defer(function()
-                    local gs = game:GetService("GuiService")
-                    local insetY = (Window.Gui and Window.Gui.IgnoreGuiInset and gs:GetGuiInset().Y) or 0
-                    if insetY > 0 then
-                        pcall(function()
-                            local btn, popup
-                            for i = 1, 15 do
-                                local ok, val = pcall(function() return debug.getupvalue(rawOpen, i) end)
-                                if not ok then break end
-                                if typeof(val) == "Instance" then
-                                    local valName = tostring(val.Name)
-                                    if valName == "Button" and val:IsA("TextButton") then
-                                        btn = val
-                                    elseif valName == "DropdownPopup" and val:IsA("ScrollingFrame") then
-                                        popup = val
-                                    end
-                                end
-                            end
-                            if btn and popup and popup.Visible then
-                                local targetY = btn.AbsolutePosition.Y + btn.AbsoluteSize.Y + 2 + insetY
-                                popup.Position = UDim2.fromOffset(btn.AbsolutePosition.X, targetY)
-                            end
-                        end)
-                    end
-                end)
-            end
-        end
-    end
 end
 
 WrapConfigFlagsForAutoLoad()
