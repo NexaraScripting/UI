@@ -3419,31 +3419,31 @@ pcall(function()
 
     -- Mobile / PC Platform Selector & Floating Circular Toggle Button
     if elems and not elems:FindFirstChild("Row_PlatformMode") then
-        local targetParent = (gethui and gethui()) or (Window.Gui and Window.Gui.Parent) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui")) or LocalPlayer:WaitForChild("PlayerGui")
-        
-        local MobileToggleGui = Instance.new("ScreenGui")
-        MobileToggleGui.Name = "Nexara_MobileToggleGui"
-        MobileToggleGui.ResetOnSpawn = false
-        MobileToggleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-        MobileToggleGui.DisplayOrder = 9999
-        MobileToggleGui.Parent = targetParent
+        local safeGui = Window.Gui or (gethui and gethui()) or game:GetService("CoreGui")
+        local existingBtn = safeGui:FindFirstChild("Nexara_MobileCircleButton", true)
+        if existingBtn then pcall(function() existingBtn:Destroy() end) end
 
         local circleBtn = Instance.new("ImageButton")
-        circleBtn.Name = "MobileCircleButton"
+        circleBtn.Name = "Nexara_MobileCircleButton"
         circleBtn.Size = UDim2.fromOffset(50, 50)
-        circleBtn.Position = UDim2.new(0, 20, 0.45, 0)
-        circleBtn.BackgroundColor3 = Window.Theme.Background or Color3.fromRGB(15, 17, 24)
+        circleBtn.Position = UDim2.new(0, 24, 0.45, 0)
+        circleBtn.BackgroundColor3 = Color3.fromRGB(15, 17, 24)
         circleBtn.BackgroundTransparency = 0.12
         circleBtn.BorderSizePixel = 0
         circleBtn.AutoButtonColor = false
         circleBtn.Active = true
-        circleBtn.ZIndex = 100
+        circleBtn.ZIndex = 150
         circleBtn.Visible = false
-        circleBtn.Parent = MobileToggleGui
+        circleBtn.Parent = safeGui
         Instance.new("UICorner", circleBtn).CornerRadius = UDim.new(1, 0)
 
+        local circleScale = Instance.new("UIScale")
+        circleScale.Name = "Scale"
+        circleScale.Scale = 1.0
+        circleScale.Parent = circleBtn
+
         local circleStroke = Instance.new("UIStroke")
-        circleStroke.Color = Window.Theme.Accent or Color3.fromRGB(90, 140, 255)
+        circleStroke.Color = Window.Theme.Accent or Color3.fromRGB(245, 245, 250)
         circleStroke.Thickness = 1.8
         circleStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
         circleStroke.Parent = circleBtn
@@ -3456,64 +3456,109 @@ pcall(function()
         circleIcon.AnchorPoint = Vector2.new(0.5, 0.5)
         circleIcon.BackgroundTransparency = 1
         circleIcon.Image = "rbxassetid://90559595473272"
-        circleIcon.ZIndex = 101
+        circleIcon.ZIndex = 151
         circleIcon.Parent = circleBtn
         Instance.new("UICorner", circleIcon).CornerRadius = UDim.new(1, 0)
+
+        local function UpdateCircleVisual()
+            if not circleBtn or not circleBtn.Parent then return end
+            local isWindowOpen = Window.Visible
+            local targetStrokeColor = isWindowOpen and (Window.Theme.Accent or Color3.fromRGB(245, 245, 250)) or Color3.fromRGB(75, 80, 100)
+            local targetBgColor = isWindowOpen and Color3.fromRGB(22, 26, 38) or Color3.fromRGB(15, 17, 24)
+            TweenService:Create(circleStroke, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Color = targetStrokeColor
+            }):Play()
+            TweenService:Create(circleBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                BackgroundColor3 = targetBgColor
+            }):Play()
+        end
+
+        if Window.MainFrame then
+            Window.MainFrame:GetPropertyChangedSignal("Visible"):Connect(UpdateCircleVisual)
+        end
 
         -- Smooth Touch & Mouse Dragging + Tap Click Handling
         local dragging = false
         local dragStartPos = nil
-        local btnStartPos = nil
-        local totalMovement = 0
+        local btnStartAbsPos = nil
+        local hasMoved = false
+
+        local dragInputConn = nil
+        local dragEndConn = nil
+
+        local function StopDragging()
+            if not dragging then return end
+            dragging = false
+            if dragInputConn then dragInputConn:Disconnect(); dragInputConn = nil end
+            if dragEndConn then dragEndConn:Disconnect(); dragEndConn = nil end
+        end
+
+        local function OnToggleClick()
+            TweenService:Create(circleScale, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 0.84 }):Play()
+            task.delay(0.09, function()
+                TweenService:Create(circleScale, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1.0 }):Play()
+            end)
+            Window:SetVisible(not Window.Visible)
+            task.delay(0.05, UpdateCircleVisual)
+        end
+
+        local lastTapTime = 0
+        local function SafeToggle()
+            local now = os.clock()
+            if (now - lastTapTime) > 0.25 then
+                lastTapTime = now
+                OnToggleClick()
+            end
+        end
 
         circleBtn.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = true
+                hasMoved = false
                 dragStartPos = input.Position
-                btnStartPos = circleBtn.Position
-                totalMovement = 0
-                input.Changed:Connect(function()
-                    if input.UserInputState == Enum.UserInputState.End then
-                        dragging = false
+                local gs = game:GetService("GuiService")
+                local inset = gs:GetGuiInset()
+                local abs = circleBtn.AbsolutePosition
+                btnStartAbsPos = Vector2.new(abs.X + inset.X, abs.Y + inset.Y)
+
+                if dragInputConn then dragInputConn:Disconnect() end
+                if dragEndConn then dragEndConn:Disconnect() end
+
+                dragInputConn = UserInputService.InputChanged:Connect(function(moveInput)
+                    if not dragging then return end
+                    if moveInput.UserInputType == Enum.UserInputType.MouseMovement or moveInput.UserInputType == Enum.UserInputType.Touch then
+                        local delta = moveInput.Position - dragStartPos
+                        if delta.Magnitude > 4 then
+                            hasMoved = true
+                        end
+                        if hasMoved then
+                            local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+                            local targetX = math.clamp(btnStartAbsPos.X + delta.X, 4, vp.X - 54)
+                            local targetY = math.clamp(btnStartAbsPos.Y + delta.Y, 4, vp.Y - 54)
+                            circleBtn.Position = UDim2.fromOffset(targetX, targetY)
+                        end
+                    end
+                end)
+
+                dragEndConn = UserInputService.InputEnded:Connect(function(endInput)
+                    if endInput.UserInputType == Enum.UserInputType.MouseButton1 or endInput.UserInputType == Enum.UserInputType.Touch then
+                        local moved = hasMoved
+                        StopDragging()
+                        if not moved then
+                            SafeToggle()
+                        end
                     end
                 end)
             end
         end)
 
-        circleBtn.InputChanged:Connect(function(input)
-            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                local delta = input.Position - dragStartPos
-                totalMovement = math.max(totalMovement, delta.Magnitude)
-                circleBtn.Position = UDim2.new(
-                    btnStartPos.X.Scale,
-                    btnStartPos.X.Offset + delta.X,
-                    btnStartPos.Y.Scale,
-                    btnStartPos.Y.Offset + delta.Y
-                )
-            end
-        end)
-
-        local function OnToggleClick()
-            TweenService:Create(circleBtn, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = UDim2.fromOffset(44, 44) }):Play()
-            task.delay(0.09, function()
-                TweenService:Create(circleBtn, TweenInfo.new(0.14, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.fromOffset(50, 50) }):Play()
-            end)
-            Window:SetVisible(not Window.Visible)
-        end
-
-        circleBtn.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                dragging = false
-                if totalMovement < 12 then
-                    OnToggleClick()
-                end
-            end
-        end)
-
         if Window.Gui then
             Window.Gui.AncestryChanged:Connect(function(_, parent)
-                if not parent and MobileToggleGui and MobileToggleGui.Parent then
-                    pcall(function() MobileToggleGui:Destroy() end)
+                if not parent then
+                    StopDragging()
+                    if circleBtn and circleBtn.Parent then
+                        pcall(function() circleBtn:Destroy() end)
+                    end
                 end
             end)
         end
@@ -3527,7 +3572,7 @@ pcall(function()
 
         local lbl = Instance.new("TextLabel")
         lbl.Name = "Label"
-        lbl.Size = UDim2.new(1, -120, 1, 0)
+        lbl.Size = UDim2.new(1, -128, 1, 0)
         lbl.BackgroundTransparency = 1
         lbl.Text = "Platform Mode"
         lbl.TextColor3 = Window.Theme.SubText
@@ -3538,9 +3583,9 @@ pcall(function()
 
         local segContainer = Instance.new("Frame")
         segContainer.Name = "Segmented"
-        segContainer.Size = UDim2.fromOffset(116, 22)
-        segContainer.Position = UDim2.new(1, -116, 0.5, -11)
-        segContainer.BackgroundColor3 = Window.Theme.Inline or Color3.fromRGB(24, 28, 38)
+        segContainer.Size = UDim2.fromOffset(124, 22)
+        segContainer.Position = UDim2.new(1, -124, 0.5, -11)
+        segContainer.BackgroundColor3 = Window.Theme.Inline or Color3.fromRGB(22, 25, 34)
         segContainer.BorderSizePixel = 0
         segContainer.Parent = modeRow
         Instance.new("UICorner", segContainer).CornerRadius = UDim.new(0, 5)
@@ -3550,54 +3595,92 @@ pcall(function()
         segStroke.Thickness = 1
         segStroke.Parent = segContainer
 
-        local segLayout = Instance.new("UIListLayout")
-        segLayout.FillDirection = Enum.FillDirection.Horizontal
-        segLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-        segLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-        segLayout.Padding = UDim.new(0, 2)
-        segLayout.Parent = segContainer
+        -- Smooth Sliding Pill Indicator
+        local indicator = Instance.new("Frame")
+        indicator.Name = "Indicator"
+        indicator.Size = UDim2.new(0.5, -2, 1, -4)
+        indicator.Position = UDim2.new(0, 2, 0, 2)
+        indicator.BackgroundColor3 = Window.Theme.Accent or Color3.fromRGB(245, 245, 250)
+        indicator.BorderSizePixel = 0
+        indicator.ZIndex = 2
+        indicator.Parent = segContainer
+        Instance.new("UICorner", indicator).CornerRadius = UDim.new(0, 4)
+        if Window.RegisterAccent then Window:RegisterAccent(indicator, "BackgroundColor3") end
 
         local pcBtn = Instance.new("TextButton")
         pcBtn.Name = "Btn_PC"
-        pcBtn.Size = UDim2.new(0.5, -2, 1, -4)
+        pcBtn.Size = UDim2.new(0.5, 0, 1, 0)
+        pcBtn.Position = UDim2.new(0, 0, 0, 0)
         pcBtn.Text = "PC"
         pcBtn.TextSize = 10
         pcBtn.FontFace = GetPreferredFont()
+        pcBtn.BackgroundTransparency = 1
         pcBtn.BorderSizePixel = 0
         pcBtn.AutoButtonColor = false
-        Instance.new("UICorner", pcBtn).CornerRadius = UDim.new(0, 4)
+        pcBtn.ZIndex = 3
         pcBtn.Parent = segContainer
 
         local mobBtn = Instance.new("TextButton")
         mobBtn.Name = "Btn_Mobile"
-        mobBtn.Size = UDim2.new(0.5, -2, 1, -4)
+        mobBtn.Size = UDim2.new(0.5, 0, 1, 0)
+        mobBtn.Position = UDim2.new(0.5, 0, 0, 0)
         mobBtn.Text = "Mobile"
         mobBtn.TextSize = 10
         mobBtn.FontFace = GetPreferredFont()
+        mobBtn.BackgroundTransparency = 1
         mobBtn.BorderSizePixel = 0
         mobBtn.AutoButtonColor = false
-        Instance.new("UICorner", mobBtn).CornerRadius = UDim.new(0, 4)
+        mobBtn.ZIndex = 3
         mobBtn.Parent = segContainer
 
-        local function SetPlatformMode(mode, skipSave)
+        local activeTextCol = Color3.fromRGB(15, 17, 24)
+        local inactiveTextCol = Window.Theme.SubText or Color3.fromRGB(120, 125, 140)
+
+        local function SetPlatformMode(mode, skipSave, instant)
             Config.PlatformMode = mode
             local isMobile = (mode == "Mobile")
-            circleBtn.Visible = isMobile
+            local targetPillPos = isMobile and UDim2.new(0.5, 0, 0, 2) or UDim2.new(0, 2, 0, 2)
+            local pcCol = isMobile and inactiveTextCol or activeTextCol
+            local mobCol = isMobile and activeTextCol or inactiveTextCol
 
-            if isMobile then
-                mobBtn.BackgroundColor3 = Window.Theme.Accent
-                mobBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                mobBtn.BackgroundTransparency = 0
-                pcBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-                pcBtn.TextColor3 = Window.Theme.SubText
-                pcBtn.BackgroundTransparency = 1
+            if instant then
+                indicator.Position = targetPillPos
+                pcBtn.TextColor3 = pcCol
+                mobBtn.TextColor3 = mobCol
+                circleBtn.Visible = isMobile
+                circleScale.Scale = isMobile and 1.0 or 0
+                UpdateCircleVisual()
             else
-                pcBtn.BackgroundColor3 = Window.Theme.Accent
-                pcBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                pcBtn.BackgroundTransparency = 0
-                mobBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-                mobBtn.TextColor3 = Window.Theme.SubText
-                mobBtn.BackgroundTransparency = 1
+                -- Sliding Pill Animation
+                TweenService:Create(indicator, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    Position = targetPillPos
+                }):Play()
+                TweenService:Create(pcBtn, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    TextColor3 = pcCol
+                }):Play()
+                TweenService:Create(mobBtn, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    TextColor3 = mobCol
+                }):Play()
+
+                -- Circular Button Pop In / Out Animation
+                if isMobile then
+                    circleBtn.Visible = true
+                    circleScale.Scale = 0
+                    TweenService:Create(circleScale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                        Scale = 1.0
+                    }):Play()
+                    UpdateCircleVisual()
+                else
+                    local tweenOut = TweenService:Create(circleScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                        Scale = 0
+                    })
+                    tweenOut:Play()
+                    tweenOut.Completed:Connect(function()
+                        if Config.PlatformMode == "PC" then
+                            circleBtn.Visible = false
+                        end
+                    end)
+                end
             end
 
             Window.ConfigValues["Platform Mode"] = mode
@@ -3609,16 +3692,20 @@ pcall(function()
         _G.Nexara_SetPlatformMode = SetPlatformMode
 
         pcBtn.MouseButton1Click:Connect(function()
-            SetPlatformMode("PC")
+            if Config.PlatformMode ~= "PC" then
+                SetPlatformMode("PC")
+            end
         end)
         mobBtn.MouseButton1Click:Connect(function()
-            SetPlatformMode("Mobile")
+            if Config.PlatformMode ~= "Mobile" then
+                SetPlatformMode("Mobile")
+            end
         end)
 
         local isAutoMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
         local initialMode = (Config.PlatformMode == "Mobile" or Config.PlatformMode == "PC") and Config.PlatformMode
                          or (isAutoMobile and "Mobile" or "PC")
-        SetPlatformMode(initialMode, true)
+        SetPlatformMode(initialMode, true, true)
 
         modeRow.Parent = elems
     end
