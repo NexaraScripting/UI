@@ -1,10 +1,11 @@
-return function(ctx)
+local uiFunc = function(ctx)
     local Window = ctx.Window
     local Config = ctx.Config
     local Nexara = ctx.Nexara
     local TofCombat = ctx.TofCombat
     local _AutoParry = ctx.AutoParry
-    local _CameraHooks = ctx.CameraHooks
+    local CameraHooks = ctx.CameraHooks or {}
+    local _CameraHooks = CameraHooks
     local UnloadScript = ctx.UnloadScript
     local ApplyFullbrightNow = ctx.ApplyFullbrightNow
     local RestoreOriginalLighting = ctx.RestoreOriginalLighting
@@ -37,6 +38,7 @@ return function(ctx)
     local WindowAuras = ctx.WindowAuras
     local WindowAdornments = ctx.WindowAdornments
     local PumpkinAuras = ctx.PumpkinAuras
+    local ZombieAuras = ctx.ZombieAuras or {}
 
     local Players = game:GetService("Players")
     local Workspace = game:GetService("Workspace")
@@ -641,7 +643,7 @@ secSurv1:AddToggle({
 })
 
 local secSurv2 = colV2:CreateSection("Survivor Status & Items")
-secSurv2:AddToggle({ Name = "Survivor Status (Knock/Hook)", Default = false, Callback = function(v)
+secSurv2:AddToggle({ Name = "Survivor Status", Default = false, Callback = function(v)
     Config.ESP_SurvivorStatus = v
 end })
 secSurv2:AddToggle({ Name = "Survivor Items & Cooldowns", Default = false, Callback = function(v)
@@ -650,8 +652,25 @@ end })
 secSurv2:AddToggle({ Name = "Flashlight Blind Progress", Default = false, Callback = function(v)
     Config.BlindProgressEnabled = v
 end })
+secSurv2:AddToggle({
+    Name = "Zombie ESP",
+    Default = false,
+    Color = Config.Color_Zombies or Color3.fromRGB(165, 90, 255),
+    Callback = function(v, col)
+        Config.ESP_Zombies = v
+        if col then
+            Config.Color_Zombies = col
+            for _, hl in pairs(ZombieAuras) do
+                pcall(function()
+                    hl.FillColor = col
+                    hl.OutlineColor = col
+                end)
+            end
+        end
+    end
+})
 
-local secSurvCam = colV1:CreateSection("Camera & Movement")
+local secSurvCam = colV1:CreateSection("Camera")
 secSurvCam:AddToggle({ Name = "Enable Custom FOV", Default = false, Callback = function(v)
     Config.CustomFOVEnabled = v
     if not v then
@@ -696,7 +715,7 @@ secKiller1:AddToggle({
         if col then Config.Color_KillerSkeleton = col end
     end
 })
-secKiller1:AddSlider({ Name = "Skeleton Line Width", Min = 1, Max = 3, Default = 1.3, Decimals = 1, Callback = function(v)
+secKiller1:AddSlider({ Name = "Thickness", Min = 1, Max = 3, Default = 1.3, Decimals = 1, Callback = function(v)
     Config.KillerSkeletonThickness = v
     for _, esp in pairs(ESP_Objects) do
         for _, l in pairs(esp.Skeleton) do l.Thickness = v end
@@ -796,7 +815,7 @@ secObj1:AddToggle({
 
 local secObj2 = colV2:CreateSection("Pallets & Vaults")
 secObj2:AddToggle({
-    Name = "Pallet 3D Aura",
+    Name = "Pallet Chams",
     Default = false,
     Color = Config.Color_PalletAura,
     Callback = function(v, col)
@@ -824,7 +843,7 @@ secObj2:AddToggle({
 secObj2:AddSlider({ Name = "Pallet Max Distance", Flag = "Pallet Max Distance", Min = 50, Max = 3000, Default = 1500, Suffix = " studs", Callback = function(v) Config.PalletMaxDist = v end })
 
 secObj2:AddToggle({
-    Name = "Window 3D Aura",
+    Name = "Window Chams",
     Default = false,
     Color = Config.Color_WindowAura,
     Callback = function(v, col)
@@ -853,9 +872,9 @@ local secWorld1 = colV1:CreateSection("World & Lighting")
 secWorld1:AddToggle({ Name = "Fullbright (Clear Vision)", Default = false, Callback = function(v)
     Config.Fullbright = v
     if v then
-        ApplyFullbrightNow()
+        if ApplyFullbrightNow then ApplyFullbrightNow() end
     else
-        RestoreOriginalLighting()
+        if RestoreOriginalLighting then RestoreOriginalLighting() end
     end
 end })
 
@@ -1406,24 +1425,12 @@ secParry1:AddToggle({
 secParry1:AddSlider({
     Name = "Parry Radius",
     Min = 6,
-    Max = 12,
-    Default = Config.AutoParry_Radius or 8.5,
+    Max = 16,
+    Default = Config.AutoParry_Radius or 11.5,
     Decimals = 1,
     Suffix = " studs",
     Callback = function(v)
         Config.AutoParry_Radius = v
-    end
-})
-
-secParry1:AddSlider({
-    Name = "Windup Delay",
-    Min = 0,
-    Max = 0.35,
-    Default = Config.AutoParry_Delay or 0.14,
-    Decimals = 2,
-    Suffix = "s",
-    Callback = function(v)
-        Config.AutoParry_Delay = v
     end
 })
 
@@ -2390,8 +2397,8 @@ local function CreatePlayerRow(plr)
         pbs.Thickness = 1
 
         local pImg = Instance.new("ImageLabel")
-        pImg.Size = UDim2.fromOffset(34, 34)
-        pImg.Position = UDim2.fromOffset(4, 4)
+        pImg.Size = UDim2.fromOffset(26, 26)
+        pImg.Position = UDim2.fromOffset(4, 8)
         pImg.BackgroundTransparency = 1
         pImg.ScaleType = Enum.ScaleType.Fit
         pImg.Visible = false
@@ -2399,8 +2406,8 @@ local function CreatePlayerRow(plr)
         Instance.new("UICorner", pImg).CornerRadius = UDim.new(0, 4)
 
         local pl = Instance.new("TextLabel")
-        pl.Size = UDim2.new(1, -42, 1, -4)
-        pl.Position = UDim2.fromOffset(40, 2)
+        pl.Size = UDim2.new(1, -32, 1, -4)
+        pl.Position = UDim2.fromOffset(30, 2)
         pl.BackgroundTransparency = 1
         pl.Text = "---"
         pl.TextColor3 = Window.Theme.SubText
@@ -2705,13 +2712,13 @@ local function UpdateRoster(force)
 
             if pb then pb.Visible = true end
             if pName and pName ~= "" and pName ~= "---" then
-                local pTier = (PlayerPerkTiers[plr] and PlayerPerkTiers[plr][pName]) or 3
+                local pTier = (PlayerPerkTiers[plr] and PlayerPerkTiers[plr][pName]) or (plr and plr.UserId and PlayerPerkTiers[plr.UserId] and PlayerPerkTiers[plr.UserId][pName]) or 3
                 local pIcon = GetPerkIcon(pName, pTier) or "rbxassetid://115375812494391"
                 if pIcon and pIcon ~= "" then
                     pImg.Image = pIcon
                     pImg.Visible = true
-                    pLbl.Position = UDim2.fromOffset(40, 2)
-                    pLbl.Size = UDim2.new(1, -42, 1, -4)
+                    pLbl.Position = UDim2.fromOffset(30, 2)
+                    pLbl.Size = UDim2.new(1, -32, 1, -4)
                 else
                     pImg.Visible = false
                     pLbl.Position = UDim2.fromOffset(4, 2)
@@ -4470,7 +4477,9 @@ local function SynchronizeConfigState()
     local cv = Window and Window.ConfigValues
     if not cv then return end
 
-    if cv["Skeleton Line Width"] ~= nil then
+    if cv["Thickness"] ~= nil then
+        Config.KillerSkeletonThickness = tonumber(cv["Thickness"]) or Config.KillerSkeletonThickness
+    elseif cv["Skeleton Line Width"] ~= nil then
         Config.KillerSkeletonThickness = tonumber(cv["Skeleton Line Width"]) or Config.KillerSkeletonThickness
         for _, esp in pairs(ESP_Objects) do
             for _, l in pairs(esp.Skeleton) do l.Thickness = Config.KillerSkeletonThickness end
@@ -4514,9 +4523,9 @@ local function SynchronizeConfigState()
     if cv["Fullbright (Clear Vision)"] ~= nil then
         Config.Fullbright = (cv["Fullbright (Clear Vision)"] == true)
         if Config.Fullbright then
-            ApplyFullbrightNow()
+            if ApplyFullbrightNow then ApplyFullbrightNow() end
         else
-            RestoreOriginalLighting()
+            if RestoreOriginalLighting then RestoreOriginalLighting() end
         end
     end
 
@@ -4602,10 +4611,11 @@ local function SynchronizeConfigState()
     Config.Color_Generators = syncCol("Generator ESP", Config.Color_Generators)
     Config.Color_GenChams = syncCol("Generator Chams", Config.Color_GenChams)
     Config.Color_ExitGates = syncCol("Exit Gates ESP", Config.Color_ExitGates)
-    Config.Color_PalletAura = syncCol("Pallet 3D Aura", Config.Color_PalletAura)
+    Config.Color_PalletAura = syncCol("Pallet Chams", Config.Color_PalletAura)
     Config.Color_PalletNames = syncCol("Pallet Name & Distance", Config.Color_PalletNames)
-    Config.Color_WindowAura = syncCol("Window 3D Aura", Config.Color_WindowAura)
+    Config.Color_WindowAura = syncCol("Window Chams", Config.Color_WindowAura)
     Config.Color_WindowNames = syncCol("Window Name & Distance", Config.Color_WindowNames)
+    Config.Color_Zombies = syncCol("Zombie ESP", Config.Color_Zombies or Color3.fromRGB(165, 90, 255))
 
     if TopKillerSkillText then
         TopKillerSkillText.Color = Config.Color_KillerSkills or Color3.fromRGB(80, 220, 255)
@@ -4622,14 +4632,15 @@ local function SynchronizeConfigState()
     if cv["Survivor Skeleton"] ~= nil then Config.ESP_SurvivorSkeleton = (cv["Survivor Skeleton"] == true) end
     if cv["Survivor Chams"] ~= nil then Config.ESP_SurvivorChams = (cv["Survivor Chams"] == true) end
     if cv["Survivor Names & Distance"] ~= nil then Config.ESP_SurvivorNames = (cv["Survivor Names & Distance"] == true) end
-    if cv["Survivor Status (Knock/Hook)"] ~= nil then Config.ESP_SurvivorStatus = (cv["Survivor Status (Knock/Hook)"] == true) end
+    if cv["Survivor Status"] ~= nil then Config.ESP_SurvivorStatus = (cv["Survivor Status"] == true) elseif cv["Survivor Status (Knock/Hook)"] ~= nil then Config.ESP_SurvivorStatus = (cv["Survivor Status (Knock/Hook)"] == true) end
     if cv["Survivor Items & Cooldowns"] ~= nil then Config.ESP_SurvivorSkills = (cv["Survivor Items & Cooldowns"] == true) end
+    if cv["Zombie ESP"] ~= nil then Config.ESP_Zombies = (cv["Zombie ESP"] == true) end
     if cv["Generator ESP"] ~= nil then Config.ESP_Generators = (cv["Generator ESP"] == true) end
     if cv["Generator Chams"] ~= nil then Config.ESP_GenChams = (cv["Generator Chams"] == true) end
     if cv["Generator Progress %"] ~= nil then Config.ESP_GenProgress = (cv["Generator Progress %"] == true) end
-    if cv["Pallet 3D Aura"] ~= nil then Config.ESP_PalletAura = (cv["Pallet 3D Aura"] == true) end
+    if cv["Pallet Chams"] ~= nil then Config.ESP_PalletAura = (cv["Pallet Chams"] == true) elseif cv["Pallet 3D Aura"] ~= nil then Config.ESP_PalletAura = (cv["Pallet 3D Aura"] == true) end
     if cv["Pallet Name & Distance"] ~= nil then Config.ESP_Pallets = (cv["Pallet Name & Distance"] == true) end
-    if cv["Window 3D Aura"] ~= nil then Config.ESP_WindowAura = (cv["Window 3D Aura"] == true) end
+    if cv["Window Chams"] ~= nil then Config.ESP_WindowAura = (cv["Window Chams"] == true) elseif cv["Window 3D Aura"] ~= nil then Config.ESP_WindowAura = (cv["Window 3D Aura"] == true) end
     if cv["Window Name & Distance"] ~= nil then Config.ESP_Windows = (cv["Window Name & Distance"] == true) end
     if cv["Exit Gates ESP"] ~= nil then Config.ESP_ExitGates = (cv["Exit Gates ESP"] == true) end
     if cv["Bear Traps ESP"] ~= nil then Config.ESP_BearTraps = (cv["Bear Traps ESP"] == true) end
@@ -4638,6 +4649,14 @@ local function SynchronizeConfigState()
     elseif cv["100% Great Skill Check"] ~= nil then
         Config.AutoSkillCheck = (cv["100% Great Skill Check"] == true)
     end
+    if cv["Auto Parry"] ~= nil then Config.AutoParry_Enabled = (cv["Auto Parry"] == true) end
+    if cv["Parry Radius"] ~= nil then Config.AutoParry_Radius = tonumber(cv["Parry Radius"]) or Config.AutoParry_Radius end
+    if cv["Show Radius Circle"] ~= nil then Config.AutoParry_ShowRadius = (cv["Show Radius Circle"] == true) end
+    Config.Color_AutoParry_Radius = syncCol("Show Radius Circle", Config.Color_AutoParry_Radius)
+    if cv["The Killer: Frenzy Slash"] ~= nil then Config.AutoParry_Skill_Frenzy = (cv["The Killer: Frenzy Slash"] == true) end
+    if cv["The Hidden: Shadow Leap"] ~= nil then Config.AutoParry_Skill_ShadowLeap = (cv["The Hidden: Shadow Leap"] ~= false) end
+    if cv["Abysswalker: Dark Severance"] ~= nil then Config.AutoParry_Skill_DarkSeverance = (cv["Abysswalker: Dark Severance"] ~= false) end
+    if cv["The Masked: Chainsaw Dash"] ~= nil then Config.AutoParry_Skill_ChainsawDash = (cv["The Masked: Chainsaw Dash"] ~= false) end
 
     IsRestoringConfig = true
     pcall(function()
@@ -4709,3 +4728,6 @@ if Window and Window.SetVisible and not Window.Visible then
 end
 
 end
+_G._Nexara_UI_Func = uiFunc
+if type(getgenv) == "function" then getgenv()._Nexara_UI_Func = uiFunc end
+return uiFunc
