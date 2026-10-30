@@ -2134,67 +2134,6 @@ do
     end)
 end
 
-local IsRestoringConfig = false
-local function WrapConfigFlagsForAutoLoad()
-    if not Window or not Window.ConfigFlags then return end
-    for flag, item in pairs(Window.ConfigFlags) do
-        if item and type(item.Set) == "function" and not item._wrappedForCallbacks then
-            local rawSet = item.Set
-            item._wrappedForCallbacks = true
-            item.Set = function(selfItem, val, silent)
-                if silent or IsRestoringConfig then
-                    local origAutoSave = Window.OnSilentAutoSave
-                    Window.OnSilentAutoSave = nil
-                    pcall(function()
-                        rawSet(selfItem, val, false)
-                    end)
-                    Window.OnSilentAutoSave = origAutoSave
-                else
-                    pcall(function()
-                        rawSet(selfItem, val, false)
-                    end)
-                    if Window.OnSilentAutoSave then
-                        pcall(Window.OnSilentAutoSave)
-                    end
-                end
-            end
-        end
-        if item and type(item.Open) == "function" and not item._wrappedForPopupPos then
-            item._wrappedForPopupPos = true
-            local rawOpen = item.Open
-            item.Open = function(selfItem)
-                rawOpen(selfItem)
-                task.defer(function()
-                    local gs = game:GetService("GuiService")
-                    local insetY = (Window.Gui and Window.Gui.IgnoreGuiInset and gs:GetGuiInset().Y) or 0
-                    if insetY > 0 then
-                        pcall(function()
-                            local btn, popup
-                            for i = 1, 15 do
-                                local ok, val = pcall(function() return debug.getupvalue(rawOpen, i) end)
-                                if not ok then break end
-                                if typeof(val) == "Instance" then
-                                    local valName = tostring(val.Name)
-                                    if valName == "Button" and val:IsA("TextButton") then
-                                        btn = val
-                                    elseif valName == "DropdownPopup" and val:IsA("ScrollingFrame") then
-                                        popup = val
-                                    end
-                                end
-                            end
-                            if btn and popup and popup.Visible then
-                                local targetY = btn.AbsolutePosition.Y + btn.AbsoluteSize.Y + 2 + insetY
-                                popup.Position = UDim2.fromOffset(btn.AbsolutePosition.X, targetY)
-                            end
-                        end)
-                    end
-                end)
-            end
-        end
-    end
-end
-
-
 local TabPlayerlist = Window:CreateTab("Playerlist", "rbxassetid://10723415766")
 local colRoster = TabPlayerlist:CreateColumn()
 colRoster.Frame.Size = UDim2.new(1, 0, 1, 0)
@@ -2982,6 +2921,67 @@ task.spawn(function()
 end)
 end
 
+local IsRestoringConfig = false
+local function WrapConfigFlagsForAutoLoad()
+    if not Window or not Window.ConfigFlags then return end
+    for flag, item in pairs(Window.ConfigFlags) do
+        if item and type(item.Set) == "function" and not item._wrappedForCallbacks then
+            local rawSet = item.Set
+            item._wrappedForCallbacks = true
+            item.Set = function(selfItem, val, silent)
+                if silent or IsRestoringConfig then
+                    local origAutoSave = Window.OnSilentAutoSave
+                    Window.OnSilentAutoSave = nil
+                    pcall(function()
+                        rawSet(selfItem, val, false)
+                    end)
+                    Window.OnSilentAutoSave = origAutoSave
+                else
+                    pcall(function()
+                        rawSet(selfItem, val, false)
+                    end)
+                    if Window.OnSilentAutoSave then
+                        pcall(Window.OnSilentAutoSave)
+                    end
+                end
+            end
+        end
+        if item and type(item.Open) == "function" and not item._wrappedForPopupPos then
+            item._wrappedForPopupPos = true
+            local rawOpen = item.Open
+            item.Open = function(selfItem)
+                rawOpen(selfItem)
+                task.defer(function()
+                    local gs = game:GetService("GuiService")
+                    local insetY = (Window.Gui and Window.Gui.IgnoreGuiInset and gs:GetGuiInset().Y) or 0
+                    if insetY > 0 then
+                        pcall(function()
+                            local btn, popup
+                            for i = 1, 15 do
+                                local ok, val = pcall(function() return debug.getupvalue(rawOpen, i) end)
+                                if not ok then break end
+                                if typeof(val) == "Instance" then
+                                    local valName = tostring(val.Name)
+                                    if valName == "Button" and val:IsA("TextButton") then
+                                        btn = val
+                                    elseif valName == "DropdownPopup" and val:IsA("ScrollingFrame") then
+                                        popup = val
+                                    end
+                                end
+                            end
+                            if btn and popup and popup.Visible then
+                                local targetY = btn.AbsolutePosition.Y + btn.AbsoluteSize.Y + 2 + insetY
+                                popup.Position = UDim2.fromOffset(btn.AbsolutePosition.X, targetY)
+                            end
+                        end)
+                    end
+                end)
+            end
+        end
+    end
+end
+
+
 WrapConfigFlagsForAutoLoad()
 
 local ConfigDirName = "Nexara Config"
@@ -3415,6 +3415,212 @@ pcall(function()
         end)
 
         toggleRow.Parent = elems
+    end
+
+    -- Mobile / PC Platform Selector & Floating Circular Toggle Button
+    if elems and not elems:FindFirstChild("Row_PlatformMode") then
+        local targetParent = (gethui and gethui()) or (Window.Gui and Window.Gui.Parent) or (pcall(function() return game:GetService("CoreGui") end) and game:GetService("CoreGui")) or LocalPlayer:WaitForChild("PlayerGui")
+        
+        local MobileToggleGui = Instance.new("ScreenGui")
+        MobileToggleGui.Name = "Nexara_MobileToggleGui"
+        MobileToggleGui.ResetOnSpawn = false
+        MobileToggleGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        MobileToggleGui.DisplayOrder = 9999
+        MobileToggleGui.Parent = targetParent
+
+        local circleBtn = Instance.new("ImageButton")
+        circleBtn.Name = "MobileCircleButton"
+        circleBtn.Size = UDim2.fromOffset(50, 50)
+        circleBtn.Position = UDim2.new(0, 20, 0.45, 0)
+        circleBtn.BackgroundColor3 = Window.Theme.Background or Color3.fromRGB(15, 17, 24)
+        circleBtn.BackgroundTransparency = 0.12
+        circleBtn.BorderSizePixel = 0
+        circleBtn.AutoButtonColor = false
+        circleBtn.Active = true
+        circleBtn.ZIndex = 100
+        circleBtn.Visible = false
+        circleBtn.Parent = MobileToggleGui
+        Instance.new("UICorner", circleBtn).CornerRadius = UDim.new(1, 0)
+
+        local circleStroke = Instance.new("UIStroke")
+        circleStroke.Color = Window.Theme.Accent or Color3.fromRGB(90, 140, 255)
+        circleStroke.Thickness = 1.8
+        circleStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        circleStroke.Parent = circleBtn
+        if Window.RegisterAccent then Window:RegisterAccent(circleStroke, "Color") end
+
+        local circleIcon = Instance.new("ImageLabel")
+        circleIcon.Name = "Icon"
+        circleIcon.Size = UDim2.new(1, -8, 1, -8)
+        circleIcon.Position = UDim2.new(0.5, 0, 0.5, 0)
+        circleIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+        circleIcon.BackgroundTransparency = 1
+        circleIcon.Image = "rbxassetid://90559595473272"
+        circleIcon.ZIndex = 101
+        circleIcon.Parent = circleBtn
+        Instance.new("UICorner", circleIcon).CornerRadius = UDim.new(1, 0)
+
+        -- Smooth Touch & Mouse Dragging + Tap Click Handling
+        local dragging = false
+        local dragStartPos = nil
+        local btnStartPos = nil
+        local totalMovement = 0
+
+        circleBtn.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                dragStartPos = input.Position
+                btnStartPos = circleBtn.Position
+                totalMovement = 0
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end)
+            end
+        end)
+
+        circleBtn.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                local delta = input.Position - dragStartPos
+                totalMovement = math.max(totalMovement, delta.Magnitude)
+                circleBtn.Position = UDim2.new(
+                    btnStartPos.X.Scale,
+                    btnStartPos.X.Offset + delta.X,
+                    btnStartPos.Y.Scale,
+                    btnStartPos.Y.Offset + delta.Y
+                )
+            end
+        end)
+
+        local function OnToggleClick()
+            TweenService:Create(circleBtn, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = UDim2.fromOffset(44, 44) }):Play()
+            task.delay(0.09, function()
+                TweenService:Create(circleBtn, TweenInfo.new(0.14, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = UDim2.fromOffset(50, 50) }):Play()
+            end)
+            Window:SetVisible(not Window.Visible)
+        end
+
+        circleBtn.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+                if totalMovement < 12 then
+                    OnToggleClick()
+                end
+            end
+        end)
+
+        if Window.Gui then
+            Window.Gui.AncestryChanged:Connect(function(_, parent)
+                if not parent and MobileToggleGui and MobileToggleGui.Parent then
+                    pcall(function() MobileToggleGui:Destroy() end)
+                end
+            end)
+        end
+
+        -- Row inside Menu section
+        local modeRow = Instance.new("Frame")
+        modeRow.Name = "Row_PlatformMode"
+        modeRow.Size = UDim2.new(1, 0, 0, 24)
+        modeRow.BackgroundTransparency = 1
+        modeRow.LayoutOrder = 0
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Name = "Label"
+        lbl.Size = UDim2.new(1, -120, 1, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = "Platform Mode"
+        lbl.TextColor3 = Window.Theme.SubText
+        lbl.TextSize = 11
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.FontFace = GetPreferredFont()
+        lbl.Parent = modeRow
+
+        local segContainer = Instance.new("Frame")
+        segContainer.Name = "Segmented"
+        segContainer.Size = UDim2.fromOffset(116, 22)
+        segContainer.Position = UDim2.new(1, -116, 0.5, -11)
+        segContainer.BackgroundColor3 = Window.Theme.Inline or Color3.fromRGB(24, 28, 38)
+        segContainer.BorderSizePixel = 0
+        segContainer.Parent = modeRow
+        Instance.new("UICorner", segContainer).CornerRadius = UDim.new(0, 5)
+
+        local segStroke = Instance.new("UIStroke")
+        segStroke.Color = Window.Theme.ElementBorder or Color3.fromRGB(40, 45, 60)
+        segStroke.Thickness = 1
+        segStroke.Parent = segContainer
+
+        local segLayout = Instance.new("UIListLayout")
+        segLayout.FillDirection = Enum.FillDirection.Horizontal
+        segLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        segLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+        segLayout.Padding = UDim.new(0, 2)
+        segLayout.Parent = segContainer
+
+        local pcBtn = Instance.new("TextButton")
+        pcBtn.Name = "Btn_PC"
+        pcBtn.Size = UDim2.new(0.5, -2, 1, -4)
+        pcBtn.Text = "PC"
+        pcBtn.TextSize = 10
+        pcBtn.FontFace = GetPreferredFont()
+        pcBtn.BorderSizePixel = 0
+        pcBtn.AutoButtonColor = false
+        Instance.new("UICorner", pcBtn).CornerRadius = UDim.new(0, 4)
+        pcBtn.Parent = segContainer
+
+        local mobBtn = Instance.new("TextButton")
+        mobBtn.Name = "Btn_Mobile"
+        mobBtn.Size = UDim2.new(0.5, -2, 1, -4)
+        mobBtn.Text = "Mobile"
+        mobBtn.TextSize = 10
+        mobBtn.FontFace = GetPreferredFont()
+        mobBtn.BorderSizePixel = 0
+        mobBtn.AutoButtonColor = false
+        Instance.new("UICorner", mobBtn).CornerRadius = UDim.new(0, 4)
+        mobBtn.Parent = segContainer
+
+        local function SetPlatformMode(mode, skipSave)
+            Config.PlatformMode = mode
+            local isMobile = (mode == "Mobile")
+            circleBtn.Visible = isMobile
+
+            if isMobile then
+                mobBtn.BackgroundColor3 = Window.Theme.Accent
+                mobBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                mobBtn.BackgroundTransparency = 0
+                pcBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+                pcBtn.TextColor3 = Window.Theme.SubText
+                pcBtn.BackgroundTransparency = 1
+            else
+                pcBtn.BackgroundColor3 = Window.Theme.Accent
+                pcBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                pcBtn.BackgroundTransparency = 0
+                mobBtn.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+                mobBtn.TextColor3 = Window.Theme.SubText
+                mobBtn.BackgroundTransparency = 1
+            end
+
+            Window.ConfigValues["Platform Mode"] = mode
+            if not skipSave and Window.OnSilentAutoSave then
+                Window.OnSilentAutoSave()
+            end
+        end
+
+        _G.Nexara_SetPlatformMode = SetPlatformMode
+
+        pcBtn.MouseButton1Click:Connect(function()
+            SetPlatformMode("PC")
+        end)
+        mobBtn.MouseButton1Click:Connect(function()
+            SetPlatformMode("Mobile")
+        end)
+
+        local isAutoMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+        local initialMode = (Config.PlatformMode == "Mobile" or Config.PlatformMode == "PC") and Config.PlatformMode
+                         or (isAutoMobile and "Mobile" or "PC")
+        SetPlatformMode(initialMode, true)
+
+        modeRow.Parent = elems
     end
 end)
 
@@ -4597,6 +4803,12 @@ local function SynchronizeConfigState()
         end
         if KeybindsHUD and KeybindsHUD.UpdateSettingToggle then
             KeybindsHUD.UpdateSettingToggle(Config.ShowKeybindsList)
+        end
+    end
+    if cv["Platform Mode"] ~= nil then
+        local pMode = cv["Platform Mode"]
+        if pMode == "Mobile" or pMode == "PC" then
+            if _G.Nexara_SetPlatformMode then _G.Nexara_SetPlatformMode(pMode, true) end
         end
     end
     if TofCombat.RefreshTargetDropdown then TofCombat.RefreshTargetDropdown() end
