@@ -4631,7 +4631,7 @@ DiscordStroke.Thickness = 1
 DiscordStroke.Parent = DiscordBtn
 
 DiscordBtn.MouseButton1Click:Connect(function()
-    if setclipboard then setclipboard("https://discord.gg/aGGBzd7HHU") end
+    if setclipboard then setclipboard("https://discord.gg/JAZJzUe45U") end
     Nexara:Notify({ Title = "Discord", Content = "Discord invite link copied to clipboard!", Duration = 2 })
 end)
 
