@@ -293,6 +293,32 @@ TopBadge.FontFace = Font.fromEnum(Enum.Font.GothamBold)
 TopBadge.Parent = WelcomeCard
 Window:RegisterAccent(TopBadge, "TextColor3")
 
+local DiscordBtn = Instance.new("TextButton")
+DiscordBtn.Size = UDim2.fromOffset(84, 20)
+DiscordBtn.Position = UDim2.new(1, -94, 0, 6)
+DiscordBtn.BackgroundColor3 = Color3.fromRGB(25, 30, 38)
+DiscordBtn.BorderSizePixel = 0
+DiscordBtn.Text = "Discord Link"
+DiscordBtn.TextColor3 = Color3.fromRGB(120, 180, 255)
+DiscordBtn.TextSize = 10
+DiscordBtn.FontFace = GetPreferredFont()
+DiscordBtn.AutoButtonColor = false
+DiscordBtn.Parent = WelcomeCard
+
+local DiscordCorner = Instance.new("UICorner")
+DiscordCorner.CornerRadius = UDim.new(0, 4)
+DiscordCorner.Parent = DiscordBtn
+
+local DiscordStroke = Instance.new("UIStroke")
+DiscordStroke.Color = Window.Theme.SectionBorder
+DiscordStroke.Thickness = 1
+DiscordStroke.Parent = DiscordBtn
+
+DiscordBtn.MouseButton1Click:Connect(function()
+    if setclipboard then setclipboard("https://discord.gg/JAZJzUe45U") end
+    Nexara:Notify({ Title = "Discord", Content = "Discord invite link copied to clipboard!", Duration = 2 })
+end)
+
 local WelcomeTitle = Instance.new("TextLabel")
 WelcomeTitle.Size = UDim2.new(1, -20, 0, 16)
 WelcomeTitle.Position = UDim2.fromOffset(10, 24)
@@ -308,7 +334,7 @@ local WelcomeName = Instance.new("TextLabel")
 WelcomeName.Size = UDim2.new(1, -20, 0, 20)
 WelcomeName.Position = UDim2.fromOffset(10, 40)
 WelcomeName.BackgroundTransparency = 1
-WelcomeName.Text = LocalPlayer.DisplayName
+WelcomeName.Text = (Config.StreamerMode and "NexaraScript") or LocalPlayer.DisplayName
 WelcomeName.TextColor3 = Window.Theme.Text
 WelcomeName.TextSize = 16
 WelcomeName.TextXAlignment = Enum.TextXAlignment.Left
@@ -319,7 +345,7 @@ local WelcomeTag = Instance.new("TextLabel")
 WelcomeTag.Size = UDim2.new(1, -20, 0, 14)
 WelcomeTag.Position = UDim2.fromOffset(10, 60)
 WelcomeTag.BackgroundTransparency = 1
-WelcomeTag.Text = "@" .. LocalPlayer.Name
+WelcomeTag.Text = (Config.StreamerMode and "@NexaraScript") or ("@" .. LocalPlayer.Name)
 WelcomeTag.TextColor3 = Window.Theme.SubText
 WelcomeTag.TextSize = 10
 WelcomeTag.TextXAlignment = Enum.TextXAlignment.Left
@@ -409,6 +435,74 @@ GameSub.TextSize = 9
 GameSub.TextXAlignment = Enum.TextXAlignment.Left
 GameSub.FontFace = GetPreferredFont()
 GameSub.Parent = GameCard
+
+local StreamerCard, StreamerAccent = MainCol1:CreateCustomCard(44)
+Window:RegisterAccent(StreamerAccent, "BackgroundColor3")
+
+local StTitle = Instance.new("TextLabel")
+StTitle.Size = UDim2.new(1, -70, 0, 16)
+StTitle.Position = UDim2.fromOffset(10, 6)
+StTitle.BackgroundTransparency = 1
+StTitle.Text = "Streamer Mode"
+StTitle.TextColor3 = Window.Theme.Text
+StTitle.TextSize = 11
+StTitle.TextXAlignment = Enum.TextXAlignment.Left
+StTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
+StTitle.Parent = StreamerCard
+
+local StSub = Instance.new("TextLabel")
+StSub.Size = UDim2.new(1, -70, 0, 12)
+StSub.Position = UDim2.fromOffset(10, 24)
+StSub.BackgroundTransparency = 1
+StSub.Text = "Spoof Name, Level 999 & Stats"
+StSub.TextColor3 = Window.Theme.SubText
+StSub.TextSize = 9
+StSub.TextXAlignment = Enum.TextXAlignment.Left
+StSub.FontFace = GetPreferredFont()
+StSub.Parent = StreamerCard
+
+local StToggle = Instance.new("TextButton")
+StToggle.Size = UDim2.fromOffset(40, 20)
+StToggle.Position = UDim2.new(1, -50, 0.5, -10)
+StToggle.BackgroundColor3 = (Config.StreamerMode == true) and (Window.Theme.Accent or Color3.fromRGB(80, 140, 255)) or Window.Theme.ElementBackground
+StToggle.BorderSizePixel = 0
+StToggle.Text = ""
+StToggle.AutoButtonColor = false
+StToggle.Parent = StreamerCard
+Instance.new("UICorner", StToggle).CornerRadius = UDim.new(1, 0)
+
+local StPill = Instance.new("Frame")
+StPill.Size = UDim2.fromOffset(16, 16)
+StPill.Position = (Config.StreamerMode == true) and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+StPill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+StPill.BorderSizePixel = 0
+StPill.Parent = StToggle
+Instance.new("UICorner", StPill).CornerRadius = UDim.new(1, 0)
+
+local function UpdateStreamerToggleVisual(state)
+    local targetBg = state and (Window.Theme.Accent or Color3.fromRGB(80, 140, 255)) or Window.Theme.ElementBackground
+    local targetPos = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+    TweenService:Create(StToggle, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = targetBg }):Play()
+    TweenService:Create(StPill, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Position = targetPos }):Play()
+    if WelcomeName and WelcomeName.Parent then
+        WelcomeName.Text = state and "NexaraScript" or LocalPlayer.DisplayName
+    end
+    if WelcomeTag and WelcomeTag.Parent then
+        WelcomeTag.Text = state and "@NexaraScript" or ("@" .. LocalPlayer.Name)
+    end
+end
+
+StToggle.MouseButton1Click:Connect(function()
+    Config.StreamerMode = not Config.StreamerMode
+    UpdateStreamerToggleVisual(Config.StreamerMode)
+    if ctx.SetStreamerMode then
+        ctx.SetStreamerMode(Config.StreamerMode)
+    elseif _G.Nexara_SetStreamerMode then
+        _G.Nexara_SetStreamerMode(Config.StreamerMode)
+    end
+    Window.ConfigValues["Streamer Mode"] = Config.StreamerMode
+    if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
+end)
 
 local SysCard, SysAccent = MainCol2:CreateCustomCard(120)
 Window:RegisterAccent(SysAccent, "BackgroundColor3")
@@ -727,6 +821,7 @@ secKiller1:AddToggle({
     Color = Config.Color_KillerChams,
     Callback = function(v, col)
         Config.ESP_KillerChams = v
+        if v then Config.ESP_KillerEnabled = true end
         if col then Config.Color_KillerChams = col end
     end
 })
@@ -736,6 +831,7 @@ secKiller1:AddToggle({
     Color = Config.Color_KillerNames,
     Callback = function(v, col)
         Config.ESP_KillerNames = v
+        if v then Config.ESP_KillerEnabled = true end
         if col then Config.Color_KillerNames = col end
     end
 })
@@ -3020,6 +3116,19 @@ pcall(function()
                 end
             end
         })
+
+        local secStreamer = SettingsTabObj.Col2:CreateSection("Streamer Mode")
+        secStreamer:AddToggle({
+            Name = "Streamer Mode (Spoof)",
+            Default = (Config.StreamerMode == true),
+            Callback = function(v)
+                Config.StreamerMode = v
+                if UpdateStreamerToggleVisual then UpdateStreamerToggleVisual(v) end
+                if ctx.SetStreamerMode then ctx.SetStreamerMode(v) end
+                Window.ConfigValues["Streamer Mode"] = v
+                if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
+            end
+        })
     end
 end)
 
@@ -3184,6 +3293,18 @@ do
                 return kn and kn ~= "None" and kn ~= ""
             end,
             LayoutOrder = 2,
+        },
+        {
+            Id = "Discord",
+            Name = "Discord",
+            GetKey = function() return "Join" end,
+            IsActive = function() return false end,
+            IsVisible = function() return true end,
+            OnClick = function()
+                if setclipboard then setclipboard("https://discord.gg/JAZJzUe45U") end
+                Nexara:Notify({ Title = "Discord", Content = "Discord invite link copied to clipboard!", Duration = 2 })
+            end,
+            LayoutOrder = 3,
         }
     }
 
@@ -3230,6 +3351,15 @@ do
                     keyLbl.ZIndex = 63
                     keyLbl.Parent = rowFrame
 
+                    if entry.OnClick then
+                        local clickBtn = Instance.new("TextButton")
+                        clickBtn.Size = UDim2.new(1, 0, 1, 0)
+                        clickBtn.BackgroundTransparency = 1
+                        clickBtn.Text = ""
+                        clickBtn.ZIndex = 64
+                        clickBtn.Parent = rowFrame
+                        clickBtn.MouseButton1Click:Connect(entry.OnClick)
+                    end
                     row.Frame = rowFrame
                     row.NameLabel = nameLbl
                     row.KeyLabel = keyLbl
@@ -3272,55 +3402,34 @@ do
 
     local function playFadeIn()
         animToken = animToken + 1
-        if currentFadeTween then currentFadeTween:Cancel() end
-        if currentScaleTween then currentScaleTween:Cancel() end
+        if currentFadeTween then currentFadeTween:Cancel() currentFadeTween = nil end
+        if currentScaleTween then currentScaleTween:Cancel() currentScaleTween = nil end
 
         hudFrame.Visible = true
+        hudFrame.GroupTransparency = 0
+        uiScale.Scale = 1.0
         updateRows()
-
-        currentFadeTween = TweenService:Create(hudFrame, TweenInfo.new(0.24, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
-            GroupTransparency = 0
-        })
-        currentScaleTween = TweenService:Create(uiScale, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-            Scale = 1.0
-        })
-
-        currentFadeTween:Play()
-        currentScaleTween:Play()
     end
 
     local function playFadeOut()
         animToken = animToken + 1
-        local myToken = animToken
-        if currentFadeTween then currentFadeTween:Cancel() end
-        if currentScaleTween then currentScaleTween:Cancel() end
+        if currentFadeTween then currentFadeTween:Cancel() currentFadeTween = nil end
+        if currentScaleTween then currentScaleTween:Cancel() currentScaleTween = nil end
 
-        currentFadeTween = TweenService:Create(hudFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-            GroupTransparency = 1
-        })
-        currentScaleTween = TweenService:Create(uiScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-            Scale = 0.90
-        })
-
-        currentFadeTween.Completed:Connect(function()
-            if animToken == myToken and hudFrame.GroupTransparency >= 0.95 then
-                hudFrame.Visible = false
-            end
-        end)
-
-        currentFadeTween:Play()
-        currentScaleTween:Play()
+        hudFrame.Visible = false
+        hudFrame.GroupTransparency = 1
+        uiScale.Scale = 1.0
     end
 
     if isVisible then
         hudFrame.Visible = true
-        hudFrame.GroupTransparency = 1
-        uiScale.Scale = 0.90
-        task.defer(playFadeIn)
+        hudFrame.GroupTransparency = 0
+        uiScale.Scale = 1.0
+        updateRows()
     else
         hudFrame.Visible = false
         hudFrame.GroupTransparency = 1
-        uiScale.Scale = 0.90
+        uiScale.Scale = 1.0
     end
 
     KeybindsHUD.SetVisible = function(vis)
@@ -4892,6 +5001,11 @@ local function SynchronizeConfigState()
             KeybindsHUD.UpdateSettingToggle(Config.ShowKeybindsList)
         end
     end
+    if cv["Streamer Mode"] ~= nil then
+        Config.StreamerMode = (cv["Streamer Mode"] == true)
+        if UpdateStreamerToggleVisual then UpdateStreamerToggleVisual(Config.StreamerMode) end
+        if ctx.SetStreamerMode then ctx.SetStreamerMode(Config.StreamerMode) end
+    end
     if cv["Platform Mode"] ~= nil then
         local pMode = cv["Platform Mode"]
         if pMode == "Mobile" or pMode == "PC" then
@@ -4923,8 +5037,14 @@ local function SynchronizeConfigState()
 
     if cv["Enable Killer ESP"] ~= nil then Config.ESP_KillerEnabled = (cv["Enable Killer ESP"] == true) end
     if cv["Stick Skeleton"] ~= nil then Config.ESP_KillerSkeleton = (cv["Stick Skeleton"] == true) end
-    if cv["Killer Chams"] ~= nil then Config.ESP_KillerChams = (cv["Killer Chams"] == true) end
-    if cv["Killer Name & Distance"] ~= nil then Config.ESP_KillerNames = (cv["Killer Name & Distance"] == true) end
+    if cv["Killer Chams"] ~= nil then
+        Config.ESP_KillerChams = (cv["Killer Chams"] == true)
+        if Config.ESP_KillerChams then Config.ESP_KillerEnabled = true end
+    end
+    if cv["Killer Name & Distance"] ~= nil then
+        Config.ESP_KillerNames = (cv["Killer Name & Distance"] == true)
+        if Config.ESP_KillerNames then Config.ESP_KillerEnabled = true end
+    end
     if cv["Killer Skills, Charges & CD"] ~= nil then Config.ESP_KillerSkills = (cv["Killer Skills, Charges & CD"] == true) end
     if cv["The Masked: Mask Alert"] ~= nil then Config.Alert_MaskChange = (cv["The Masked: Mask Alert"] == true) end
     if cv["Enable Survivor ESP"] ~= nil then Config.ESP_SurvivorEnabled = (cv["Enable Survivor ESP"] == true) end
