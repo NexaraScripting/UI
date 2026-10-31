@@ -436,74 +436,6 @@ GameSub.TextXAlignment = Enum.TextXAlignment.Left
 GameSub.FontFace = GetPreferredFont()
 GameSub.Parent = GameCard
 
-local StreamerCard, StreamerAccent = MainCol1:CreateCustomCard(44)
-Window:RegisterAccent(StreamerAccent, "BackgroundColor3")
-
-local StTitle = Instance.new("TextLabel")
-StTitle.Size = UDim2.new(1, -70, 0, 16)
-StTitle.Position = UDim2.fromOffset(10, 6)
-StTitle.BackgroundTransparency = 1
-StTitle.Text = "Streamer Mode"
-StTitle.TextColor3 = Window.Theme.Text
-StTitle.TextSize = 11
-StTitle.TextXAlignment = Enum.TextXAlignment.Left
-StTitle.FontFace = Font.fromEnum(Enum.Font.GothamBold)
-StTitle.Parent = StreamerCard
-
-local StSub = Instance.new("TextLabel")
-StSub.Size = UDim2.new(1, -70, 0, 12)
-StSub.Position = UDim2.fromOffset(10, 24)
-StSub.BackgroundTransparency = 1
-StSub.Text = "Spoof Name, Level 999 & Stats"
-StSub.TextColor3 = Window.Theme.SubText
-StSub.TextSize = 9
-StSub.TextXAlignment = Enum.TextXAlignment.Left
-StSub.FontFace = GetPreferredFont()
-StSub.Parent = StreamerCard
-
-local StToggle = Instance.new("TextButton")
-StToggle.Size = UDim2.fromOffset(40, 20)
-StToggle.Position = UDim2.new(1, -50, 0.5, -10)
-StToggle.BackgroundColor3 = (Config.StreamerMode == true) and (Window.Theme.Accent or Color3.fromRGB(80, 140, 255)) or Window.Theme.ElementBackground
-StToggle.BorderSizePixel = 0
-StToggle.Text = ""
-StToggle.AutoButtonColor = false
-StToggle.Parent = StreamerCard
-Instance.new("UICorner", StToggle).CornerRadius = UDim.new(1, 0)
-
-local StPill = Instance.new("Frame")
-StPill.Size = UDim2.fromOffset(16, 16)
-StPill.Position = (Config.StreamerMode == true) and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
-StPill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-StPill.BorderSizePixel = 0
-StPill.Parent = StToggle
-Instance.new("UICorner", StPill).CornerRadius = UDim.new(1, 0)
-
-local function UpdateStreamerToggleVisual(state)
-    local targetBg = state and (Window.Theme.Accent or Color3.fromRGB(80, 140, 255)) or Window.Theme.ElementBackground
-    local targetPos = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
-    TweenService:Create(StToggle, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = targetBg }):Play()
-    TweenService:Create(StPill, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Position = targetPos }):Play()
-    if WelcomeName and WelcomeName.Parent then
-        WelcomeName.Text = state and "NexaraScript" or LocalPlayer.DisplayName
-    end
-    if WelcomeTag and WelcomeTag.Parent then
-        WelcomeTag.Text = state and "@NexaraScript" or ("@" .. LocalPlayer.Name)
-    end
-end
-
-StToggle.MouseButton1Click:Connect(function()
-    Config.StreamerMode = not Config.StreamerMode
-    UpdateStreamerToggleVisual(Config.StreamerMode)
-    if ctx.SetStreamerMode then
-        ctx.SetStreamerMode(Config.StreamerMode)
-    elseif _G.Nexara_SetStreamerMode then
-        _G.Nexara_SetStreamerMode(Config.StreamerMode)
-    end
-    Window.ConfigValues["Streamer Mode"] = Config.StreamerMode
-    if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
-end)
-
 local SysCard, SysAccent = MainCol2:CreateCustomCard(120)
 Window:RegisterAccent(SysAccent, "BackgroundColor3")
 
@@ -3116,19 +3048,6 @@ pcall(function()
                 end
             end
         })
-
-        local secStreamer = SettingsTabObj.Col2:CreateSection("Streamer Mode")
-        secStreamer:AddToggle({
-            Name = "Streamer Mode (Spoof)",
-            Default = (Config.StreamerMode == true),
-            Callback = function(v)
-                Config.StreamerMode = v
-                if UpdateStreamerToggleVisual then UpdateStreamerToggleVisual(v) end
-                if ctx.SetStreamerMode then ctx.SetStreamerMode(v) end
-                Window.ConfigValues["Streamer Mode"] = v
-                if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
-            end
-        })
     end
 end)
 
@@ -3520,6 +3439,80 @@ pcall(function()
                 KeybindsHUD.SetVisible(Config.ShowKeybindsList)
             end
             Window.ConfigValues["Show Keybinds List"] = Config.ShowKeybindsList
+            if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
+        end)
+
+        toggleRow.Parent = elems
+    end
+
+    if elems and not elems:FindFirstChild("ToggleRow_StreamerMode") then
+        local toggleRow = Instance.new("Frame")
+        toggleRow.Name = "ToggleRow_StreamerMode"
+        toggleRow.Size = UDim2.new(1, 0, 0, 20)
+        toggleRow.BackgroundTransparency = 1
+        toggleRow.LayoutOrder = 4
+
+        local trigger = Instance.new("TextButton")
+        trigger.Name = "Trigger"
+        trigger.Size = UDim2.new(1, 0, 1, 0)
+        trigger.BackgroundTransparency = 1
+        trigger.Text = ""
+        trigger.Parent = toggleRow
+
+        local lbl = Instance.new("TextLabel")
+        lbl.Name = "Label"
+        lbl.Size = UDim2.new(1, -44, 1, 0)
+        lbl.BackgroundTransparency = 1
+        lbl.Text = "Streamer Mode"
+        lbl.TextColor3 = Window.Theme.SubText
+        lbl.TextSize = 11
+        lbl.TextXAlignment = Enum.TextXAlignment.Left
+        lbl.FontFace = GetPreferredFont()
+        lbl.Parent = trigger
+
+        local pill = Instance.new("Frame")
+        pill.Name = "Pill"
+        pill.Size = UDim2.fromOffset(34, 18)
+        pill.Position = UDim2.new(1, -34, 0.5, -9)
+        local initialOn = (Config.StreamerMode == true)
+        pill.BackgroundColor3 = initialOn and Window.Theme.Accent or Window.Theme.Inline
+        pill.BorderSizePixel = 0
+        pill.Parent = trigger
+        Instance.new("UICorner", pill).CornerRadius = UDim.new(0, 9)
+
+        local pillStroke = Instance.new("UIStroke")
+        pillStroke.Color = Window.Theme.ElementBorder
+        pillStroke.Thickness = 1
+        pillStroke.Parent = pill
+
+        local knob = Instance.new("Frame")
+        knob.Name = "Knob"
+        knob.Size = UDim2.fromOffset(14, 14)
+        knob.Position = initialOn and UDim2.new(1, -16, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+        knob.AnchorPoint = Vector2.new(0, 0.5)
+        knob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        knob.BorderSizePixel = 0
+        knob.Parent = pill
+        Instance.new("UICorner", knob).CornerRadius = UDim.new(0, 7)
+
+        local function updateStreamerToggleVisual(on)
+            local targetPos = on and UDim2.new(1, -16, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
+            local targetCol = on and Window.Theme.Accent or Window.Theme.Inline
+            TweenService:Create(knob, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Position = targetPos }):Play()
+            TweenService:Create(pill, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundColor3 = targetCol }):Play()
+        end
+
+        _G.Nexara_UpdateStreamerToggle = updateStreamerToggleVisual
+
+        trigger.MouseButton1Click:Connect(function()
+            Config.StreamerMode = not Config.StreamerMode
+            updateStreamerToggleVisual(Config.StreamerMode)
+            if ctx.SetStreamerMode then
+                ctx.SetStreamerMode(Config.StreamerMode)
+            elseif _G.Nexara_SetStreamerMode then
+                _G.Nexara_SetStreamerMode(Config.StreamerMode)
+            end
+            Window.ConfigValues["Streamer Mode"] = Config.StreamerMode
             if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
         end)
 
@@ -5003,7 +4996,7 @@ local function SynchronizeConfigState()
     end
     if cv["Streamer Mode"] ~= nil then
         Config.StreamerMode = (cv["Streamer Mode"] == true)
-        if UpdateStreamerToggleVisual then UpdateStreamerToggleVisual(Config.StreamerMode) end
+        if _G.Nexara_UpdateStreamerToggle then _G.Nexara_UpdateStreamerToggle(Config.StreamerMode) end
         if ctx.SetStreamerMode then ctx.SetStreamerMode(Config.StreamerMode) end
     end
     if cv["Platform Mode"] ~= nil then
