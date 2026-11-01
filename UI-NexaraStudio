@@ -2268,7 +2268,7 @@ function Nexara:CreateWindow(options)
 
                     local SliderItem = { Value = currentValue, Flag = sFlag }
                     function SliderItem:Set(val, silent)
-                        local clamped = math.clamp(val, sMin, sMax)
+                        local clamped = math.clamp(val, math.min(sMin, sMax), math.max(sMin, sMax))
                         local pct = (clamped - sMin) / (sMax - sMin)
                         currentValue = clamped
                         Fill.Size = UDim2.new(pct, 0, 1, 0)
