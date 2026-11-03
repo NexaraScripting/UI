@@ -813,6 +813,7 @@ secObj1:AddToggle({
         if col then Config.Color_Generators = col end
     end
 })
+secObj1:AddToggle({ Name = "Generator Name", Default = false, Callback = function(v) Config.ESP_GenName = v end })
 secObj1:AddToggle({
     Name = "Generator Chams",
     Default = false,
@@ -3265,18 +3266,6 @@ do
                 return kn and kn ~= "None" and kn ~= ""
             end,
             LayoutOrder = 2,
-        },
-        {
-            Id = "Discord",
-            Name = "Discord",
-            GetKey = function() return "Join" end,
-            IsActive = function() return false end,
-            IsVisible = function() return true end,
-            OnClick = function()
-                if setclipboard then setclipboard("https://discord.gg/JAZJzUe45U") end
-                Nexara:Notify({ Title = "Discord", Content = "Discord invite link copied to clipboard!", Duration = 2 })
-            end,
-            LayoutOrder = 3,
         }
     }
 
@@ -4577,7 +4566,7 @@ function Window:SetWeather(wType)
             end
         end
 
-        local starCount = (wType == "Stars" or wType == "Shooting Stars") and 62 or 45
+        local starCount = (wType == "Stars" or wType == "Shooting Stars") and 24 or 16
         for _ = 1, starCount do
             local p = Instance.new("Frame")
             p.BorderSizePixel = 0
@@ -4678,8 +4667,8 @@ function Window:SetWeather(wType)
             })
         end
 
-        for _ = 1, 22 do spawnOverlayParticle(false) end
-        for _ = 1, 18 do spawnOverlayParticle(true) end
+        for _ = 1, 10 do spawnOverlayParticle(false) end
+        for _ = 1, 8 do spawnOverlayParticle(true) end
     end
 
     local function FireShootingStar()
@@ -4757,7 +4746,7 @@ function Window:SetWeather(wType)
     rwWeatherConn = RunService.RenderStepped:Connect(function(dt)
         if not self.Visible or not mf.Visible then return end
         rwWeatherAcc = rwWeatherAcc + dt
-        if rwWeatherAcc < 0.033 then return end
+        if rwWeatherAcc < 0.05 then return end
         dt = math.min(rwWeatherAcc, 0.1)
         rwWeatherAcc = 0
         screenW = gui.AbsoluteSize.X > 0 and gui.AbsoluteSize.X or 1920
@@ -5116,6 +5105,7 @@ local function SynchronizeConfigState()
     if cv["Survivor Items & Cooldowns"] ~= nil then Config.ESP_SurvivorSkills = (cv["Survivor Items & Cooldowns"] == true) end
     if cv["Zombie ESP"] ~= nil then Config.ESP_Zombies = (cv["Zombie ESP"] == true) end
     if cv["Generator ESP"] ~= nil then Config.ESP_Generators = (cv["Generator ESP"] == true) end
+    if cv["Generator Name"] ~= nil then Config.ESP_GenName = (cv["Generator Name"] == true) end
     if cv["Generator Chams"] ~= nil then Config.ESP_GenChams = (cv["Generator Chams"] == true) end
     if cv["Generator Progress %"] ~= nil then Config.ESP_GenProgress = (cv["Generator Progress %"] == true) end
     if cv["Pallet Chams"] ~= nil then Config.ESP_PalletAura = (cv["Pallet Chams"] == true) elseif cv["Pallet 3D Aura"] ~= nil then Config.ESP_PalletAura = (cv["Pallet 3D Aura"] == true) end
