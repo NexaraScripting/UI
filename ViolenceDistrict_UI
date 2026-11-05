@@ -771,14 +771,14 @@ secKiller1:AddToggle({
 local secKiller2 = colV2:CreateSection("Killer Skills & Traps")
 secKiller2:AddToggle({
     Name = "The Masked: Mask Alert",
-    Default = true,
+    Default = false,
     Callback = function(v)
         Config.Alert_MaskChange = v
     end
 })
 secKiller2:AddToggle({
     Name = "Killer Skills, Charges & CD",
-    Default = true,
+    Default = false,
     Color = Config.Color_KillerSkills,
     Callback = function(v, col)
         Config.ESP_KillerSkills = v
@@ -794,7 +794,7 @@ secKiller2:AddSlider({ Name = "Top Killer Skill Size", Min = 12, Max = 26, Defau
 end })
 secKiller2:AddToggle({
     Name = "Bear Traps ESP",
-    Default = true,
+    Default = false,
     Color = Config.Color_BearTraps,
     Callback = function(v, col)
         Config.ESP_BearTraps = v
@@ -1224,6 +1224,12 @@ secTwist1:AddToggle({
     Default = false,
     Callback = function(v)
         Config.Tof_SilentAim = v
+        if v and TofCombat.EnsureHooksActive then
+            TofCombat.EnsureHooksActive()
+        end
+        if TofCombat.SyncFovWithAimbot then
+            TofCombat.SyncFovWithAimbot("SilentAim")
+        end
     end
 })
 
@@ -1232,6 +1238,12 @@ TofCombat.AimbotToggle = secTwist1:AddToggle({
     Default = false,
     Callback = function(v)
         Config.Tof_Aimbot = v
+        if v and TofCombat.EnsureHooksActive then
+            TofCombat.EnsureHooksActive()
+        end
+        if TofCombat.SyncFovWithAimbot then
+            TofCombat.SyncFovWithAimbot("Aimbot")
+        end
     end
 })
 
@@ -1353,11 +1365,20 @@ secTwist2:AddToggle({
     Default = false,
     Color = Config.Color_Tof_FOV,
     Callback = function(v, col)
-        Config.Tof_ShowFOV = v
         if col then
             Config.Color_Tof_FOV = col
             if TofCombat.FovCircle then TofCombat.FovCircle.Color = col end
         end
+        if Config.Tof_SilentAim or not Config.Tof_Aimbot then
+            Config.Tof_ShowFOV = false
+            if TofCombat.FovCircle then TofCombat.FovCircle.Visible = false end
+            local f = Window.ConfigFlags and Window.ConfigFlags["Show FOV Circle"]
+            if f and f.State == true and f.Set then
+                task.defer(function() f:Set(false, true) end)
+            end
+            return
+        end
+        Config.Tof_ShowFOV = v
     end
 })
 secTwist2:AddSlider({
@@ -1393,7 +1414,7 @@ secTwist2:AddSlider({
 
 secTwist2:AddToggle({
     Name = "Hitmarker",
-    Default = Config.Hitmarker,
+    Default = false,
     Color = Config.Color_Hitmarker,
     Callback = function(v, col)
         Config.Hitmarker = v
@@ -1478,7 +1499,7 @@ secParry2.Box.Visible = false
 
 secParry2:AddToggle({
     Name = "The Killer: Frenzy Slash",
-    Default = Config.AutoParry_Skill_Frenzy == true,
+    Default = false,
     Callback = function(v)
         Config.AutoParry_Skill_Frenzy = v
     end
@@ -1486,7 +1507,7 @@ secParry2:AddToggle({
 
 secParry2:AddToggle({
     Name = "The Hidden: Shadow Leap",
-    Default = Config.AutoParry_Skill_ShadowLeap ~= false,
+    Default = false,
     Callback = function(v)
         Config.AutoParry_Skill_ShadowLeap = v
     end
@@ -1494,7 +1515,7 @@ secParry2:AddToggle({
 
 secParry2:AddToggle({
     Name = "Abysswalker: Dark Severance",
-    Default = Config.AutoParry_Skill_DarkSeverance ~= false,
+    Default = false,
     Callback = function(v)
         Config.AutoParry_Skill_DarkSeverance = v
     end
@@ -1502,7 +1523,7 @@ secParry2:AddToggle({
 
 secParry2:AddToggle({
     Name = "The Masked: Chainsaw Dash",
-    Default = Config.AutoParry_Skill_ChainsawDash ~= false,
+    Default = false,
     Callback = function(v)
         Config.AutoParry_Skill_ChainsawDash = v
     end
@@ -3081,7 +3102,12 @@ pcall(function()
         if isfile(cfgPath) then
             local raw = readfile(cfgPath)
             if raw and raw ~= "" then
-                InitialSavedConfig = hs:JSONDecode(raw)
+                local dec = hs:JSONDecode(raw)
+                if ActiveConfigProfile == "Default" and (not dec or dec["_CleanDefaultsV2"] ~= true) then
+                    if delfile then pcall(delfile, cfgPath) end
+                else
+                    InitialSavedConfig = dec
+                end
             end
         end
     end
@@ -3094,7 +3120,7 @@ pcall(function()
         local secCombatLogs = SettingsTabObj.Col2:CreateSection("Combat & Hit Logs")
         secCombatLogs:AddToggle({
             Name = "Hit Log",
-            Default = (Config.HitLog ~= false),
+            Default = false,
             Callback = function(v)
                 Config.HitLog = v
                 if _G.Nexara_VD_HitLogContainer then
@@ -3869,11 +3895,11 @@ pcall(function()
     end
 end)
 
-local AntiAfkActive = true
+local AntiAfkActive = false
 local AntiAfkIdledConn = nil
 
 local function ApplyAntiAfkState(enabled)
-    AntiAfkActive = (enabled ~= false)
+    AntiAfkActive = (enabled == true)
     if AntiAfkIdledConn then
         pcall(function() AntiAfkIdledConn:Disconnect() end)
         AntiAfkIdledConn = nil
@@ -3920,7 +3946,7 @@ pcall(function()
             ApplyAntiAfkState(val == true)
         end
     end
-    local initAfk = true
+    local initAfk = false
     if Window.ConfigValues and Window.ConfigValues["AntiAFK"] ~= nil then
         initAfk = (Window.ConfigValues["AntiAFK"] == true)
     end
@@ -3946,6 +3972,7 @@ local function ForceSaveCurrentConfig()
             data["_AccentG"] = math.floor(Window.Theme.Accent.G * 255)
             data["_AccentB"] = math.floor(Window.Theme.Accent.B * 255)
         end
+        data["_CleanDefaultsV2"] = true
         writefile(ConfigDirName .. "/" .. prof .. ".json", hs:JSONEncode(data))
     end)
 end
@@ -5038,6 +5065,14 @@ local function SynchronizeConfigState()
     if cv["Laser Tracer"] ~= nil then Config.Tof_Laser = (cv["Laser Tracer"] == true) end
     Config.Tof_TargetMode = "Auto (Killer)" 
     if cv["Show FOV Circle"] ~= nil then Config.Tof_ShowFOV = (cv["Show FOV Circle"] == true) end
+    if Config.Tof_SilentAim then
+        Config.Tof_ShowFOV = false
+    else
+        Config.Tof_ShowFOV = (Config.Tof_Aimbot == true)
+    end
+    if TofCombat.SyncFovWithAimbot then
+        TofCombat.SyncFovWithAimbot("Init")
+    end
     if cv["FOV Radius"] ~= nil then Config.Tof_FOV = tonumber(cv["FOV Radius"]) or Config.Tof_FOV end
     if cv["Aimbot Smoothness"] ~= nil then Config.Tof_AimbotSmooth = tonumber(cv["Aimbot Smoothness"]) or Config.Tof_AimbotSmooth end
     if cv["Laser Beam Duration"] ~= nil then Config.Tof_LaserDuration = tonumber(cv["Laser Beam Duration"]) or Config.Tof_LaserDuration end
@@ -5124,9 +5159,9 @@ local function SynchronizeConfigState()
     if cv["Show Radius Circle"] ~= nil then Config.AutoParry_ShowRadius = (cv["Show Radius Circle"] == true) end
     Config.Color_AutoParry_Radius = syncCol("Show Radius Circle", Config.Color_AutoParry_Radius)
     if cv["The Killer: Frenzy Slash"] ~= nil then Config.AutoParry_Skill_Frenzy = (cv["The Killer: Frenzy Slash"] == true) end
-    if cv["The Hidden: Shadow Leap"] ~= nil then Config.AutoParry_Skill_ShadowLeap = (cv["The Hidden: Shadow Leap"] ~= false) end
-    if cv["Abysswalker: Dark Severance"] ~= nil then Config.AutoParry_Skill_DarkSeverance = (cv["Abysswalker: Dark Severance"] ~= false) end
-    if cv["The Masked: Chainsaw Dash"] ~= nil then Config.AutoParry_Skill_ChainsawDash = (cv["The Masked: Chainsaw Dash"] ~= false) end
+    if cv["The Hidden: Shadow Leap"] ~= nil then Config.AutoParry_Skill_ShadowLeap = (cv["The Hidden: Shadow Leap"] == true) end
+    if cv["Abysswalker: Dark Severance"] ~= nil then Config.AutoParry_Skill_DarkSeverance = (cv["Abysswalker: Dark Severance"] == true) end
+    if cv["The Masked: Chainsaw Dash"] ~= nil then Config.AutoParry_Skill_ChainsawDash = (cv["The Masked: Chainsaw Dash"] == true) end
 
     IsRestoringConfig = true
     pcall(function()
