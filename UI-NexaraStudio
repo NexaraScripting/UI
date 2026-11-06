@@ -2171,15 +2171,25 @@ function Nexara:CreateWindow(options)
                             Nexara:OpenColorPicker(ColorBadge, ToggleItem.Color, function(newCol)
                                 ToggleItem.Color = newCol
                                 ColorBadge.BackgroundColor3 = newCol
-                                WindowObj.ConfigValues[tFlag .. "_Color"] = {newCol.R, newCol.G, newCol.B}
+                                WindowObj.ConfigValues[tFlag .. "_Color"] = { math.floor(newCol.R * 255), math.floor(newCol.G * 255), math.floor(newCol.B * 255) }
                                 tCallback(ToggleItem.State, newCol)
                                 if WindowObj.OnSilentAutoSave then WindowObj.OnSilentAutoSave() end
                             end)
                         end)
+                        WindowObj.ConfigValues[tFlag .. "_Color"] = { math.floor(currentColor.R * 255), math.floor(currentColor.G * 255), math.floor(currentColor.B * 255) }
                     end
 
                     function ToggleItem:Set(val, silent)
                         SetState(val, silent)
+                    end
+                    function ToggleItem:SetColor(newCol, silent)
+                        ToggleItem.Color = newCol
+                        if ColorBadge then ColorBadge.BackgroundColor3 = newCol end
+                        WindowObj.ConfigValues[tFlag .. "_Color"] = { math.floor(newCol.R * 255), math.floor(newCol.G * 255), math.floor(newCol.B * 255) }
+                        if not silent then
+                            tCallback(ToggleItem.State, newCol)
+                            if WindowObj.OnSilentAutoSave then WindowObj.OnSilentAutoSave() end
+                        end
                     end
 
                     WindowObj.ConfigFlags[tFlag] = ToggleItem
@@ -3798,6 +3808,28 @@ function Nexara:CreateWindow(options)
                                 pcall(function() item:Set(val, true) end)
                             end
                             self.ConfigValues[flag] = val
+                            if type(flag) == "string" and flag:sub(-6) == "_Color" then
+                                local baseFlag = flag:sub(1, -7)
+                                local baseItem = self.ConfigFlags[baseFlag]
+                                if baseItem and type(baseItem.SetColor) == "function" then
+                                    local col = nil
+                                    if type(val) == "table" and #val >= 3 then
+                                        local r, g, b = tonumber(val[1]) or 0, tonumber(val[2]) or 0, tonumber(val[3]) or 0
+                                        if r > 1 or g > 1 or b > 1 then
+                                            col = Color3.fromRGB(math.clamp(math.floor(r), 0, 255), math.clamp(math.floor(g), 0, 255), math.clamp(math.floor(b), 0, 255))
+                                        else
+                                            col = Color3.new(math.clamp(r, 0, 1), math.clamp(g, 0, 1), math.clamp(b, 0, 1))
+                                        end
+                                    elseif typeof(val) == "Color3" then
+                                        col = val
+                                    elseif type(val) == "string" and val:sub(1, 1) == "#" then
+                                        pcall(function() col = Color3.fromHex(val) end)
+                                    end
+                                    if col then
+                                        pcall(function() baseItem:SetColor(col, false) end)
+                                    end
+                                end
+                            end
                         end
                         if decoded["_ToggleKey"] then
                             local kEnum = Enum.KeyCode[decoded["_ToggleKey"]]
