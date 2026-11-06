@@ -5159,3 +5159,10 @@ end)
 AddActionRow(68, "Copy Place ID", "Copy", function()
     if setclipboard then setclipboard(tostring(game.PlaceId)) end
     Nexara:Notify({ Title = "Copied", Content = "Place ID: " .. tostring(game.PlaceId), Duration = 2 })
+end)
+
+Window:CreateSettingsTab({ ConfigDirectory = "Nexara Studio Config", DefaultTheme = "NexaraTheme", StatConfigs = statConfigs })
+
+MainTab:Select()
+
+return Nexara
