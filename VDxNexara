@@ -2159,7 +2159,7 @@ task.spawn(function()
     end)
 end)
 Window = Nexara:CreateWindow({
-    Title = "Nexara | Violence District - v1.0.1-f9b2757beta",
+    Title = "Nexara | Violence District - v1.0.0-a912beta",
     Size = UDim2.fromOffset(720, 520),
     ToggleKey = Enum.KeyCode.RightControl,
     Theme = { Accent = Color3.fromRGB(245, 245, 250) } 
@@ -2319,7 +2319,7 @@ if Window.MainFrame then
         end
     end))
 end
-Nexara:Notify({ Title = "Violence District", Content = "Loaded V 1.0.1-f9b2757beta! Press [RightControl] to toggle.", Duration = 4 })
+Nexara:Notify({ Title = "Violence District", Content = "Loaded V 1.0.0-a912beta! Press [RightControl] to toggle.", Duration = 4 })
 local KnownKillerPerks = {}
 for _, v in ipairs({
     "Predator","Eternal Torment","Play With Your Food","Terror Spread","Sloppy Mess","Resentment Clinger",
@@ -8086,20 +8086,20 @@ function AutoParry.UpdateKillerAngularState(kChar, kHrp, toMe)
         camVel, hrpVel, dotVel = 0, 0, 0
     end
 
-    if math.abs(camVel) >= 2.2 or math.abs(hrpVel) >= 2.2 then
+    if math.abs(camVel) >= 1.2 or math.abs(hrpVel) >= 1.2 then
         AutoParry.KillerLastTurnTick[kChar] = now
     end
-    if dotVel >= 1.1 and (math.abs(camVel) >= 2.2 or math.abs(hrpVel) >= 2.2) then
+    if dotVel >= 0.35 and (math.abs(camVel) >= 1.2 or math.abs(hrpVel) >= 1.2 or dotVel >= 0.75) then
         AutoParry.KillerLastSpinTick[kChar] = now
     end
-    local isFlickingTowardMe = (dotVel >= 1.0) and (math.abs(camVel) >= 2.2 or math.abs(hrpVel) >= 2.2)
+    local isFlickingTowardMe = (dotVel >= 0.30) and (math.abs(camVel) >= 1.2 or math.abs(hrpVel) >= 1.2 or dotVel >= 0.65)
     return isFlickingTowardMe, camVel, hrpVel, dotVel
 end
 function AutoParry.IsKillerSpinning(kChar, kHrp)
     if not kChar or not kHrp then return false end
     local lastData = AutoParry.KillerLastHeading[kChar]
     if not lastData then return false end
-    return math.abs(lastData.camVel or 0) >= 2.4 or math.abs(lastData.hrpVel or 0) >= 2.4
+    return math.abs(lastData.camVel or 0) >= 2.0 or math.abs(lastData.hrpVel or 0) >= 2.0
 end
 function AutoParry.CanTrackStillHitUs(tr, meta, kChar, kHrp, myHrp)
     if not tr or not kChar or not kHrp or not myHrp then return false end
@@ -8109,23 +8109,19 @@ function AutoParry.CanTrackStillHitUs(tr, meta, kChar, kHrp, myHrp)
         startT = now - (tr.TimePosition or 0)
         AutoParry.TrackStartTick[tr] = startT
     end
+    if meta and meta.isSkillAnim then
+        return true
+    end
     local primaryLook = AutoParry.GetKillerAimData(kChar, kHrp)
     local diff = Vector3.new(myHrp.Position.X - kHrp.Position.X, 0, myHrp.Position.Z - kHrp.Position.Z)
     local toMe = diff.Magnitude > 0.001 and diff.Unit or primaryLook
     local curDot = primaryLook:Dot(toMe)
-    local startDot = AutoParry.TrackStartDot[tr]
-    if startDot == nil then
-        startDot = curDot
-        AutoParry.TrackStartDot[tr] = startDot
-    end
-    if meta and meta.isSkillAnim then
-        return true
-    end
-    local elapsed = math.max(now - startT, tr.TimePosition or 0)
-    -- Only expire if killer started M1 facing > 72 deg away from us AND 0.26s has already elapsed
-    if startDot < 0.30 and elapsed > 0.26 then
-        AutoParry.ResolvedTracks[tr] = true
-        return false
+    -- Only reject if killer is aiming completely backwards (> 105 deg away) and NOT actively flicking toward us
+    if curDot < -0.25 then
+        local isFlick = AutoParry.UpdateKillerAngularState(kChar, kHrp, toMe)
+        if not isFlick then
+            return false
+        end
     end
     return true
 end
@@ -8336,14 +8332,18 @@ function AutoParry.EvaluateSweptHitbox(myHrp, kHrp)
                     local fwd = df:Dot(L)
                     local side = (df - (L * fwd)).Magnitude
 
-                    -- 1) Anti-Bait Flick-Away Rejection (only at range d > 5.2 and NOT when juking/moonwalking)
+                    -- 1) Anti-Bait Feint / Flick-Away Rejection
                     local isFlickingAway = false
-                    if not isZigZagOrSpin and d > 5.2 and math.abs(activeAngVel) >= 2.6 and dotVel <= -1.1 then
-                        local baseAng = math.atan2(L.X, L.Z)
-                        local stepAng = baseAng + (activeAngVel * 0.05)
-                        local stepL = Vector3.new(math.sin(stepAng), 0, math.cos(stepAng))
-                        local stepDot = stepL:Dot(u)
-                        if (stepDot < dot - 0.08) and stepDot < 0.62 then
+                    if not isZigZagOrSpin and d >= 4.0 then
+                        if math.abs(activeAngVel) >= 1.5 and dotVel <= -0.50 then
+                            local baseAng = math.atan2(L.X, L.Z)
+                            local stepAng = baseAng + (activeAngVel * 0.05)
+                            local stepL = Vector3.new(math.sin(stepAng), 0, math.cos(stepAng))
+                            local stepDot = stepL:Dot(u)
+                            if (stepDot < dot - 0.06) and stepDot < 0.50 then
+                                isFlickingAway = true
+                            end
+                        elseif primaryLook:Dot(toMeDirect) < 0.15 and dotVel <= 0.05 then
                             isFlickingAway = true
                         end
                     end
@@ -8352,8 +8352,8 @@ function AutoParry.EvaluateSweptHitbox(myHrp, kHrp)
                         -- 2) Close-Range Melee & Moonwalk/Juke Hitbox:
                         if d <= 6.2 then
                             local closeReqFwd = (d <= 4.0) and -0.20 or 0.05
-                            local closeMaxSide = isZigZagOrSpin and 4.30 or 3.75
-                            local closeReqDot = isZigZagOrSpin and 0.24 or 0.52
+                            local closeMaxSide = isZigZagOrSpin and 4.30 or 4.00
+                            local closeReqDot = isZigZagOrSpin and 0.24 or 0.38
                             if fwd >= closeReqFwd and side <= closeMaxSide and dot >= closeReqDot then
                                 hitConfirmed = true
                             end
@@ -8369,10 +8369,10 @@ function AutoParry.EvaluateSweptHitbox(myHrp, kHrp)
                             end
                         end
 
-                        -- 4) Converging Flick Lead
-                        local minFlickStartDot = isZigZagOrSpin and 0.22 or 0.38
-                        if not hitConfirmed and isFlickingTowardMe and math.abs(activeAngVel) >= 1.8 and dotVel >= 0.7 and dot >= minFlickStartDot then
-                            local maxLead = math.clamp(pingSec * 0.95 + 0.06, 0.08, 0.16)
+                        -- 4) Converging Flick Lead (Handles high ping and sudden flick to face)
+                        local minFlickStartDot = isZigZagOrSpin and 0.15 or 0.20
+                        if not hitConfirmed and isFlickingTowardMe and math.abs(activeAngVel) >= 1.1 and dotVel >= 0.30 and dot >= minFlickStartDot then
+                            local maxLead = math.clamp(pingSec * 1.10 + 0.08, 0.08, 0.20)
                             local baseAng = math.atan2(L.X, L.Z)
                             for step = 1, 4 do
                                 local dtSweep = (maxLead / 4) * step
@@ -8381,8 +8381,8 @@ function AutoParry.EvaluateSweptHitbox(myHrp, kHrp)
                                 local sDot = sL:Dot(u)
                                 local sFwd = df:Dot(sL)
                                 local sSide = (df - (sL * sFwd)).Magnitude
-                                local flickMaxSide = (d <= 6.2) and 4.30 or 3.90
-                                if sFwd >= 0.10 and sSide <= flickMaxSide and sDot >= 0.68 then
+                                local flickMaxSide = (d <= 6.2) and 4.35 or 4.00
+                                if sFwd >= -0.15 and sSide <= flickMaxSide and sDot >= 0.42 then
                                     hitConfirmed = true
                                     isPanSweepHit = true
                                     if sDot > bestAimDot then
@@ -8639,7 +8639,11 @@ function AutoParry.WillAttackConnect(kHrp, myHrp, maxRange)
     local cfgRadius = maxRange or (tonumber(Config.AutoParry_Radius) or 11.5)
     local curDist, closingSpeed, predDist, killerSpeedTowardMe, effectiveToward, visualDist, _srvDist, mySpeedAway = AutoParry.ComputePredictedDistance(kHrp, myHrp)
 
-    -- 1. Hard Range Filter: Killer must be within the configured parry circle radius
+    -- 1. Hard Range Filter: Killer must actually be within the configured parry circle radius
+    local rawDistance = math.min(visualDist, _srvDist or visualDist)
+    if rawDistance > (cfgRadius + 0.15) then
+        return false, false, curDist, closingSpeed, predDist
+    end
     if curDist > cfgRadius then
         return false, false, curDist, closingSpeed, predDist
     end
@@ -8651,6 +8655,11 @@ function AutoParry.WillAttackConnect(kHrp, myHrp, maxRange)
     local standingReach = AutoParry.GetStandingBladeReach(kChar)
     local isDashSkill = AutoParry.IsDarkSeveranceActive(kChar) or AutoParry.IsShadowLeapActive(kChar) or AutoParry.IsChainsawDashActive(kChar)
     local isLunging = AutoParry.IsKillerLunging(kChar)
+
+    -- If killer is retreating/stepping backwards out of reach, it is a whiff/feint - cannot connect
+    if not isDashSkill and not isLunging and closingSpeed < -1.2 and curDist > (standingReach - 0.2) then
+        return false, false, curDist, closingSpeed, predDist
+    end
 
     -- If survivor is sprinting away faster than killer and already outside weapon reach, cannot connect
     if not isDashSkill and not isLunging and effectiveToward < 2.0 and mySpeedAway > (killerSpeedTowardMe + 2.5) and curDist > (standingReach + 1.2) and visualDist > (standingReach + 1.5) then
@@ -8675,7 +8684,7 @@ function AutoParry.WillAttackConnect(kHrp, myHrp, maxRange)
     if isDashSkill then
         local dashReach = standingReach + 3.0 + pingLeadStuds
         local timeToImpact = (curDist - standingReach) / math.max(closingSpeed, killerSpeedTowardMe, 15.0)
-        local readyForImpact = (curDist <= dashReach) or (timeToImpact <= (0.12 + pingSec))
+        local readyForImpact = (curDist <= dashReach) or (timeToImpact <= (0.13 + pingSec))
         return true, readyForImpact, curDist, closingSpeed, predDist
     end
 
@@ -8684,7 +8693,7 @@ function AutoParry.WillAttackConnect(kHrp, myHrp, maxRange)
     if isRushingTowardMe then
         local maxLungeReach = standingReach + 1.85 + pingLeadStuds
         local timeToImpact = (curDist - standingReach) / math.max(closingSpeed, killerSpeedTowardMe, 6.0)
-        local readyForImpact = (curDist <= maxLungeReach) or (timeToImpact <= (0.10 + (pingSec * 0.9)))
+        local readyForImpact = (curDist <= maxLungeReach) or (timeToImpact <= (0.13 + (pingSec * 1.15)))
         return true, readyForImpact, curDist, closingSpeed, predDist
     end
 
@@ -10472,12 +10481,17 @@ _G.Nexara_SetStreamerMode = StreamerManager.SetEnabled
 local StepAutoSkillCheck = nil
 local mouseUnlockBound = false
 do
-local skillCheckTriggered = false
-local lastTriggeredGoalRot = nil
-local lastLineRot = nil
-local cachedSkillCheckCheck = nil
-local lastSkillCheckLookupClock = 0
-StepAutoSkillCheck = function()
+    local skillCheckTriggered = false
+    local lastTriggeredGoalRot = nil
+    local lastTriggeredClock = 0
+    local lastLineRot = nil
+    local lastCheckClock = nil
+    local smoothedVel = nil
+    local cachedSkillCheckCheck = nil
+    local lastSkillCheckLookupClock = 0
+    local statsNetworkPing = nil
+
+    StepAutoSkillCheck = function()
         local now = os.clock()
         if (not cachedSkillCheckCheck or not cachedSkillCheckCheck.Parent) and (now - lastSkillCheckLookupClock > 0.25) then
             lastSkillCheckLookupClock = now
@@ -10489,37 +10503,103 @@ StepAutoSkillCheck = function()
         if check and check.Visible then
             local line = check:FindFirstChild("Line")
             if not line then return end
-            local trapGoal = check:FindFirstChild("TrapGoal")
             local trapPerf = check:FindFirstChild("TrapPerfect")
+            local trapGoal = check:FindFirstChild("TrapGoal")
             local stdGoal = check:FindFirstChild("Goal")
-            local activeGoal = nil
-            if trapGoal and trapGoal.Visible then
-                activeGoal = trapGoal
-            elseif trapPerf and trapPerf.Visible then
-                activeGoal = trapPerf
-            elseif stdGoal and stdGoal.Visible then
-                activeGoal = stdGoal
-            else
-                activeGoal = stdGoal or trapGoal or trapPerf
+            local activeGoal = (trapPerf and trapPerf.Visible and trapPerf)
+                or (trapGoal and trapGoal.Visible and trapGoal)
+                or (stdGoal and stdGoal.Visible and stdGoal)
+                or trapPerf or trapGoal or stdGoal
+            if not activeGoal then return end
+
+            local gRot = activeGoal.Rotation
+            local lRot = line.Rotation
+
+            -- King's Scourge & rapid multi-check reset detection
+            if lastTriggeredGoalRot ~= nil and math.abs(gRot - lastTriggeredGoalRot) > 0.2 then
+                skillCheckTriggered = false
+                lastTriggeredGoalRot = nil
             end
-            if activeGoal then
-                local gRot = activeGoal.Rotation
-                local lRot = line.Rotation
-                if lastTriggeredGoalRot ~= nil and math.abs(gRot - lastTriggeredGoalRot) > 0.5 then
+            if lastLineRot ~= nil then
+                local wrapDelta = lRot - lastLineRot
+                if wrapDelta < -10 or (lRot < 40 and lastLineRot > 80) then
                     skillCheckTriggered = false
                 end
-                if lastLineRot ~= nil and (lRot < lastLineRot - 15) then
-                    skillCheckTriggered = false
+            end
+            local currentDiff = (lRot - gRot) % 360
+            if skillCheckTriggered and (now - lastTriggeredClock > 0.22) and (currentDiff < 85 or lRot < 45) then
+                skillCheckTriggered = false
+            end
+
+            -- Measure angular velocity (degrees/sec)
+            local dt = (lastCheckClock and (now - lastCheckClock) or 0.016)
+            if dt <= 0.0001 or dt > 0.2 then dt = 0.016 end
+
+            if lastLineRot ~= nil then
+                local dRot = (lRot - lastLineRot) % 360
+                if dRot > 180 then dRot = dRot - 360 end
+                if dRot > 0.05 and dt > 0.001 then
+                    local instVel = dRot / dt
+                    if instVel >= 50 and instVel <= 3000 then
+                        smoothedVel = smoothedVel and (smoothedVel * 0.6 + instVel * 0.4) or instVel
+                    end
                 end
-                lastLineRot = lRot
-                local diff = (lRot - gRot) % 360
-                local isGreat = (diff >= 103.0 and diff <= 115.0) or (lRot >= gRot + 103.0 and lRot <= gRot + 115.0)
-                if isGreat and not skillCheckTriggered then
-                    skillCheckTriggered = true
-                    lastTriggeredGoalRot = gRot
+            end
+            lastLineRot = lRot
+            lastCheckClock = now
+
+            local estSpeed = (smoothedVel and smoothedVel > 50) and smoothedVel or 300.0
+
+            -- Real-time ping lookup
+            local rawPing = 50
+            pcall(function()
+                if not statsNetworkPing then
+                    local s = game:GetService("Stats")
+                    statsNetworkPing = s and s:FindFirstChild("Network") and s.Network:FindFirstChild("ServerStatsItem") and s.Network.ServerStatsItem:FindFirstChild("Data Ping")
+                end
+                if statsNetworkPing then
+                    local p = statsNetworkPing:GetValue()
+                    if p and p > 0 then rawPing = p end
+                end
+            end)
+            local pingSec = math.clamp(rawPing / 1000, 0.015, 0.20)
+            local leadTime = math.clamp(0.012 + (pingSec * 0.10), 0.012, 0.040)
+
+            -- Target Great zone: center is 108.5 deg within [103.0, 115.0]
+            local degToTarget = 108.5 - currentDiff
+            local timeToTarget = degToTarget / estSpeed
+            local fireDelay = timeToTarget - leadTime
+
+            local shouldTrigger = false
+            local executeDelay = 0
+
+            if currentDiff >= 50.0 and currentDiff <= 115.0 then
+                if fireDelay >= 0 and fireDelay <= dt then
+                    shouldTrigger = true
+                    executeDelay = fireDelay
+                elseif fireDelay < 0 and currentDiff <= 113.5 then
+                    shouldTrigger = true
+                    executeDelay = 0
+                elseif currentDiff >= 103.5 and currentDiff <= 114.0 then
+                    shouldTrigger = true
+                    executeDelay = 0
+                end
+            end
+
+            if shouldTrigger and not skillCheckTriggered then
+                skillCheckTriggered = true
+                lastTriggeredGoalRot = gRot
+                lastTriggeredClock = now
+                if executeDelay > 0.001 then
+                    task.delay(executeDelay, function()
+                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                        task.delay(0.02, function()
+                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                        end)
+                    end)
+                else
                     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-                    task.spawn(function()
-                        task.wait(0.015)
+                    task.delay(0.02, function()
                         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
                     end)
                 end
@@ -10528,8 +10608,10 @@ StepAutoSkillCheck = function()
             skillCheckTriggered = false
             lastTriggeredGoalRot = nil
             lastLineRot = nil
+            lastCheckClock = nil
+            smoothedVel = nil
         end
-end
+    end
 mouseUnlockBound = false
 UpdateMouseUnlockBinding = function()
     if Window and Window.Visible then
@@ -12997,4 +13079,4 @@ do
 end
 pcall(function() RunService:UnbindFromRenderStep("NexaraESP_Render") end)
 RunService:BindToRenderStep("NexaraESP_Render", Enum.RenderPriority.Last.Value + 10, RenderESP)
-print("[Nexara] Violence District V 1.0.1-f9b2757beta loaded successfully.")
+print("[Nexara] Violence District V 1.0.0-a912beta loaded successfully.")
