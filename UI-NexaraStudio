@@ -128,6 +128,13 @@ local function MakeDraggable(dragHandle, frameToMove, getDragStyle, getAccentCol
                 local c = Instance.new("UICorner")
                 c.CornerRadius = UDim.new(0, 10)
                 c.Parent = ghostOutline
+
+                local frameScale = frameToMove:FindFirstChildOfClass("UIScale")
+                if frameScale then
+                    local ghostScale = Instance.new("UIScale")
+                    ghostScale.Scale = frameScale.Scale
+                    ghostScale.Parent = ghostOutline
+                end
             end
         end
     end
@@ -195,6 +202,19 @@ function Nexara:CreateWindow(options)
     local Size = options.Size or UDim2.fromOffset(720, 530)
     local Theme = setmetatable(options.Theme or {}, { __index = DefaultTheme })
     local ToggleKey = options.ToggleKey or Enum.KeyCode.RightControl
+
+    local isMobileDevice = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+    local function GetAutoFitScale()
+        local curVp = Camera and Camera.ViewportSize or Vector2.new(1920, 1080)
+        local hFit = (curVp.Y * 0.86) / 525
+        local wFit = (curVp.X * 0.90) / 725
+        local fit = math.min(hFit, wFit)
+        if isMobileDevice or fit < 1.0 or curVp.Y < 560 then
+            return math.clamp(math.floor(fit * 100) / 100, 0.45, 1.0)
+        end
+        return 1.0
+    end
+    local initialScale = options.Scale or GetAutoFitScale()
 
     local gui = self:InitScreenGui()
 
@@ -282,7 +302,7 @@ function Nexara:CreateWindow(options)
 
     local uiScale = Instance.new("UIScale")
     uiScale.Name = "Scale"
-    uiScale.Scale = 1
+    uiScale.Scale = initialScale
     uiScale.Parent = MainFrame
 
     local OuterStroke = Instance.new("UIStroke")
@@ -444,6 +464,10 @@ function Nexara:CreateWindow(options)
         Visible = true,
         ToggleKey = ToggleKey,
         UnlockMouse = true,
+        TargetScale = initialScale,
+        BaseScale = initialScale,
+        UserCustomScaleSet = false,
+        GetAutoFitScale = GetAutoFitScale,
         ConfigValues = {},
         ConfigFlags = {},
         AccentElements = {},
@@ -1529,19 +1553,39 @@ function Nexara:CreateWindow(options)
     end)
     table.insert(self.Connections, renderConn)
 
+    function WindowObj:SetScale(scaleValue)
+        scaleValue = math.clamp(scaleValue, 0.45, 1.30)
+        self.TargetScale = scaleValue
+        self.BaseScale = scaleValue
+        if uiScale then
+            uiScale.Scale = scaleValue
+        end
+    end
+
+    local vpConn = Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+        if not WindowObj.UserCustomScaleSet and WindowObj.GetAutoFitScale then
+            local autoScale = WindowObj.GetAutoFitScale()
+            if math.abs((WindowObj.TargetScale or 1) - autoScale) > 0.03 then
+                WindowObj:SetScale(autoScale)
+            end
+        end
+    end)
+    table.insert(self.Connections, vpConn)
+
     local isTweeningVis = false
     function WindowObj:SetVisible(state, instant)
         if self.Visible == state and not isTweeningVis then return end
         self.Visible = state
 
+        local curScale = self.TargetScale or 1.0
         if state then
             MainFrame.Visible = true
             if not instant and uiScale then
-                uiScale.Scale = 0.88
-                local openTween = TweenService:Create(uiScale, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 })
+                uiScale.Scale = curScale * 0.88
+                local openTween = TweenService:Create(uiScale, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = curScale })
                 openTween:Play()
             elseif uiScale then
-                uiScale.Scale = 1
+                uiScale.Scale = curScale
             end
             if self.ActiveTab and self.ActiveTab.View then
                 self.ActiveTab.View.Position = UDim2.new(0, 0, 0, not instant and 8 or 0)
@@ -1605,13 +1649,13 @@ function Nexara:CreateWindow(options)
             end
             if instant then
                 MainFrame.Visible = false
-                if uiScale then uiScale.Scale = 0.88 end
+                if uiScale then uiScale.Scale = curScale * 0.88 end
                 if self.PreviewWindow and self.PreviewWindow.MainFrame then
                     self.PreviewWindow.MainFrame.Visible = false
                 end
             elseif uiScale then
                 isTweeningVis = true
-                local closeTween = TweenService:Create(uiScale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0.88 })
+                local closeTween = TweenService:Create(uiScale, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = curScale * 0.88 })
                 closeTween:Play()
                 closeTween.Completed:Connect(function()
                     if not WindowObj.Visible then
@@ -3215,10 +3259,11 @@ function Nexara:CreateWindow(options)
         PickerFrame.ClipsDescendants = true
         PickerFrame.Parent = gui
 
+        local mainScale = (MainFrame and MainFrame:FindFirstChild("Scale")) and MainFrame.Scale.Scale or 1
         local uiScale = Instance.new("UIScale")
-        uiScale.Scale = 0.9
+        uiScale.Scale = 0.9 * mainScale
         uiScale.Parent = PickerFrame
-        TweenService:Create(uiScale, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+        TweenService:Create(uiScale, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = mainScale }):Play()
 
         local PickerCorner = Instance.new("UICorner")
         PickerCorner.CornerRadius = UDim.new(0, 6)
@@ -3374,7 +3419,8 @@ function Nexara:CreateWindow(options)
                 return
             end
 
-            local tw = TweenService:Create(uiScale, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0.8 })
+            local mainScale = (MainFrame and MainFrame:FindFirstChild("Scale")) and MainFrame.Scale.Scale or 1
+            local tw = TweenService:Create(uiScale, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0.8 * mainScale })
             tw:Play()
             tw.Completed:Connect(function()
                 PickerFrame:Destroy()
@@ -4090,14 +4136,17 @@ function Nexara:CreateWindow(options)
 
         SecTheme:AddSlider({
             Name = "UI Scale",
-            Min = 70,
+            Min = 45,
             Max = 130,
-            Default = 100,
+            Default = math.floor((self.TargetScale or 1.0) * 100),
             Decimals = 0,
             Suffix = "%",
             Flag = "UIScalePct",
             Callback = function(val)
-                if self.MainFrame and self.MainFrame:FindFirstChild("Scale") then
+                self.UserCustomScaleSet = true
+                if self.SetScale then
+                    self:SetScale(val / 100)
+                elseif self.MainFrame and self.MainFrame:FindFirstChild("Scale") then
                     self.MainFrame.Scale.Scale = val / 100
                 end
             end
@@ -5110,10 +5159,3 @@ end)
 AddActionRow(68, "Copy Place ID", "Copy", function()
     if setclipboard then setclipboard(tostring(game.PlaceId)) end
     Nexara:Notify({ Title = "Copied", Content = "Place ID: " .. tostring(game.PlaceId), Duration = 2 })
-end)
-
-Window:CreateSettingsTab({ ConfigDirectory = "Nexara Studio Config", DefaultTheme = "NexaraTheme", StatConfigs = statConfigs })
-
-MainTab:Select()
-
-return Nexara
