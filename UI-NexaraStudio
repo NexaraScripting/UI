@@ -203,14 +203,15 @@ function Nexara:CreateWindow(options)
     local Theme = setmetatable(options.Theme or {}, { __index = DefaultTheme })
     local ToggleKey = options.ToggleKey or Enum.KeyCode.RightControl
 
-    local isMobileDevice = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
     local function GetAutoFitScale()
-        local curVp = Camera and Camera.ViewportSize or Vector2.new(1920, 1080)
+        local cam = workspace.CurrentCamera or Camera
+        local curVp = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+        local isMobile = UserInputService.TouchEnabled and (not UserInputService.MouseEnabled or curVp.Y < 560)
         local hFit = (curVp.Y * 0.86) / 525
         local wFit = (curVp.X * 0.90) / 725
         local fit = math.min(hFit, wFit)
-        if isMobileDevice or fit < 1.0 or curVp.Y < 560 then
-            return math.clamp(math.floor(fit * 100) / 100, 0.45, 1.0)
+        if isMobile or fit < 1.0 or curVp.Y < 560 then
+            return math.clamp(math.floor(fit * 100) / 100, 0.45, 0.75)
         end
         return 1.0
     end
@@ -1554,7 +1555,16 @@ function Nexara:CreateWindow(options)
     table.insert(self.Connections, renderConn)
 
     function WindowObj:SetScale(scaleValue)
-        scaleValue = math.clamp(scaleValue, 0.45, 1.30)
+        local cam = workspace.CurrentCamera or Camera
+        local curVp = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+        local isMobile = UserInputService.TouchEnabled and (not UserInputService.MouseEnabled or curVp.Y < 560)
+        if isMobile or curVp.Y < 560 then
+            local maxFit = math.clamp((curVp.Y * 0.86) / 525, 0.45, 0.75)
+            if scaleValue > maxFit then
+                scaleValue = maxFit
+            end
+        end
+        scaleValue = math.clamp(scaleValue, 0.40, 1.30)
         self.TargetScale = scaleValue
         self.BaseScale = scaleValue
         if uiScale then
@@ -1562,15 +1572,31 @@ function Nexara:CreateWindow(options)
         end
     end
 
-    local vpConn = Camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+    local currentVpConn = nil
+    local function BindVpListener()
+        if currentVpConn then pcall(function() currentVpConn:Disconnect() end) currentVpConn = nil end
+        local activeCam = workspace.CurrentCamera or Camera
+        if activeCam then
+            currentVpConn = activeCam:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+                if not WindowObj.UserCustomScaleSet and WindowObj.GetAutoFitScale then
+                    local autoScale = WindowObj.GetAutoFitScale()
+                    if math.abs((WindowObj.TargetScale or 1) - autoScale) > 0.03 then
+                        WindowObj:SetScale(autoScale)
+                    end
+                end
+            end)
+            table.insert(self.Connections, currentVpConn)
+        end
+    end
+    BindVpListener()
+    local camChangeConn = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+        Camera = workspace.CurrentCamera or Camera
+        BindVpListener()
         if not WindowObj.UserCustomScaleSet and WindowObj.GetAutoFitScale then
-            local autoScale = WindowObj.GetAutoFitScale()
-            if math.abs((WindowObj.TargetScale or 1) - autoScale) > 0.03 then
-                WindowObj:SetScale(autoScale)
-            end
+            WindowObj:SetScale(WindowObj.GetAutoFitScale())
         end
     end)
-    table.insert(self.Connections, vpConn)
+    table.insert(self.Connections, camChangeConn)
 
     local isTweeningVis = false
     function WindowObj:SetVisible(state, instant)
@@ -3758,7 +3784,15 @@ function Nexara:CreateWindow(options)
                     local content = readfile(filePath)
                     local success, decoded = pcall(function() return HttpService:JSONDecode(content) end)
                     if success and decoded then
+                        local cam = workspace.CurrentCamera or Camera
+                        local curVp = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+                        local isMobile = UserInputService.TouchEnabled and (not UserInputService.MouseEnabled or curVp.Y < 560)
                         for flag, val in pairs(decoded) do
+                            if flag == "UIScalePct" and (isMobile or curVp.Y < 560) and tonumber(val) and tonumber(val) >= 80 then
+                                val = math.floor((self.GetAutoFitScale and self.GetAutoFitScale() or 0.65) * 100)
+                            elseif flag == "Platform Mode" and isMobile then
+                                val = "Mobile"
+                            end
                             local item = self.ConfigFlags[flag]
                             if item and item.Set then
                                 pcall(function() item:Set(val, true) end)
