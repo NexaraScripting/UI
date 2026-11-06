@@ -2159,7 +2159,7 @@ task.spawn(function()
     end)
 end)
 Window = Nexara:CreateWindow({
-    Title = "Nexara | Violence District - v1.0.0-a912beta",
+    Title = "Nexara | Violence District - v1.0.1-f9b2757beta",
     Size = UDim2.fromOffset(720, 520),
     ToggleKey = Enum.KeyCode.RightControl,
     Theme = { Accent = Color3.fromRGB(245, 245, 250) } 
@@ -2319,7 +2319,7 @@ if Window.MainFrame then
         end
     end))
 end
-Nexara:Notify({ Title = "Violence District", Content = "Loaded V 1.0.0-a912beta! Press [RightControl] to toggle.", Duration = 4 })
+Nexara:Notify({ Title = "Violence District", Content = "Loaded V 1.0.1-f9b2757beta! Press [RightControl] to toggle.", Duration = 4 })
 local KnownKillerPerks = {}
 for _, v in ipairs({
     "Predator","Eternal Torment","Play With Your Food","Terror Spread","Sloppy Mess","Resentment Clinger",
@@ -10128,7 +10128,7 @@ pcall(function()
                             Nexara:OpenColorPicker(colorBadge, toggleItem.Color, function(newCol)
                                 toggleItem:SetColor(newCol)
                                 colorBadge.BackgroundColor3 = newCol
-                                Window.ConfigValues["Zombie ESP_Color"] = {newCol.R, newCol.G, newCol.B}
+                                Window.ConfigValues["Zombie ESP_Color"] = { math.floor(newCol.R * 255), math.floor(newCol.G * 255), math.floor(newCol.B * 255) }
                                 if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
                             end)
                         end
@@ -12997,4 +12997,4 @@ do
 end
 pcall(function() RunService:UnbindFromRenderStep("NexaraESP_Render") end)
 RunService:BindToRenderStep("NexaraESP_Render", Enum.RenderPriority.Last.Value + 10, RenderESP)
-print("[Nexara] Violence District V 1.0.0-a912beta loaded successfully.")
+print("[Nexara] Violence District V 1.0.1-f9b2757beta loaded successfully.")
