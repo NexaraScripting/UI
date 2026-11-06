@@ -18,7 +18,7 @@ local uiFunc = function(ctx)
     local _IsHooked = ctx.IsHooked
     local _IsStunned = ctx.IsStunned
     local GetRoot = ctx.GetRoot
-    local GetPreferredFont = ctx.GetPreferredFont
+    local GetPreferredFont = ctx.GetPreferredFont or function() return Font.fromEnum(Enum.Font.Ubuntu) end
     local GetPlayerSkillInfo = ctx.GetPlayerSkillInfo
     local GetPlayerPerks = ctx.GetPlayerPerks
     local PlayerPerkTiers = ctx.PlayerPerkTiers
@@ -67,6 +67,7 @@ function Window:CreateTab(tabName, tabIcon)
             end
         end)
     end
+    local ForceSaveCurrentConfig
     local origSelect = TabObj.Select
     if origSelect then
         function TabObj:Select()
@@ -242,6 +243,13 @@ function Window:CreateTab(tabName, tabIcon)
                             Window.ConfigValues[tFlag .. "_Color"] = { math.floor(newCol.R * 255), math.floor(newCol.G * 255), math.floor(newCol.B * 255) }
                             tCallback(ToggleItem.State, newCol)
                             if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
+                            if ForceSaveCurrentConfig then
+                                task.delay(0.35, function()
+                                    if Window and Window.ConfigValues and Window.ConfigValues[tFlag .. "_Color"] then
+                                        ForceSaveCurrentConfig()
+                                    end
+                                end)
+                            end
                         end)
                     end)
                     Window.ConfigValues[tFlag .. "_Color"] = { math.floor(currentColor.R * 255), math.floor(currentColor.G * 255), math.floor(currentColor.B * 255) }
@@ -256,7 +264,17 @@ function Window:CreateTab(tabName, tabIcon)
                     if hasColor then
                         Window.ConfigValues[tFlag .. "_Color"] = { math.floor(newCol.R * 255), math.floor(newCol.G * 255), math.floor(newCol.B * 255) }
                     end
-                    if not silent then tCallback(ToggleItem.State, newCol) end
+                    if not silent then
+                        tCallback(ToggleItem.State, newCol)
+                        if Window.OnSilentAutoSave then Window.OnSilentAutoSave() end
+                        if ForceSaveCurrentConfig then
+                            task.delay(0.35, function()
+                                if Window and Window.ConfigValues and Window.ConfigValues[tFlag .. "_Color"] then
+                                    ForceSaveCurrentConfig()
+                                end
+                            end)
+                        end
+                    end
                 end
 
                 Window.ConfigFlags[tFlag] = ToggleItem
@@ -1469,6 +1487,8 @@ secParry1:AddToggle({
     Default = false,
     Callback = function(v)
         Config.AutoParry_Enabled = v
+        local ap = _AutoParry or (getgenv and getgenv().AutoParry) or _G.Nexara_VD_AutoParry
+        if ap and ap.UpdateCircle then ap.LastCircleUpdateClock = nil; ap.UpdateCircle() end
     end
 })
 
@@ -1481,6 +1501,8 @@ secParry1:AddSlider({
     Suffix = " studs",
     Callback = function(v)
         Config.AutoParry_Radius = v
+        local ap = _AutoParry or (getgenv and getgenv().AutoParry) or _G.Nexara_VD_AutoParry
+        if ap and ap.UpdateCircle then ap.LastCircleUpdateClock = nil; ap.UpdateCircle() end
     end
 })
 
@@ -1491,6 +1513,8 @@ secParry1:AddToggle({
     Callback = function(v, col)
         Config.AutoParry_ShowRadius = v
         if col then Config.Color_AutoParry_Radius = col end
+        local ap = _AutoParry or (getgenv and getgenv().AutoParry) or _G.Nexara_VD_AutoParry
+        if ap and ap.UpdateCircle then ap.LastCircleUpdateClock = nil; ap.UpdateCircle() end
     end
 })
 
@@ -3831,8 +3855,8 @@ pcall(function()
             local pcCol = isMobile and inactiveTextCol or activeTextCol
             local mobCol = isMobile and activeTextCol or inactiveTextCol
 
+            local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
             if isMobile then
-                local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
                 local fitScale = math.clamp(math.min((vp.Y * 0.86) / 520, (vp.X * 0.90) / 720, 0.70), 0.45, 0.70)
                 if Window.SetScale and not Window.UserCustomScaleSet then
                     Window:SetScale(fitScale)
@@ -3978,7 +4002,7 @@ pcall(function()
     ApplyAntiAfkState(initAfk)
 end)
 
-local function ForceSaveCurrentConfig()
+ForceSaveCurrentConfig = function()
     if IsRestoringConfig then return end
     pcall(function()
         if not writefile or not Window or not Window.ConfigValues then return end
@@ -4981,6 +5005,12 @@ local function SynchronizeConfigState()
     local cv = Window and Window.ConfigValues
     if not cv then return end
 
+    if InitialSavedConfig then
+        for k, v in pairs(InitialSavedConfig) do
+            cv[k] = v
+        end
+    end
+
     if cv["Thickness"] ~= nil then
         Config.KillerSkeletonThickness = tonumber(cv["Thickness"]) or Config.KillerSkeletonThickness
     elseif cv["Skeleton Line Width"] ~= nil then
@@ -5191,11 +5221,6 @@ local function SynchronizeConfigState()
     IsRestoringConfig = true
     pcall(function()
         if InitialSavedConfig then
-            for _, k in ipairs({"ThemePreset", "ThemeWeather", "ThemeBackgroundType", "ThemeBgCustomImage", "ThemeBgOpacity", "_AccentR", "_AccentG", "_AccentB"}) do
-                if InitialSavedConfig[k] ~= nil then
-                    cv[k] = InitialSavedConfig[k]
-                end
-            end
             InitialSavedConfig = nil
         end
 
