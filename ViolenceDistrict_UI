@@ -3382,6 +3382,10 @@ do
     KeybindsHUD.Scale = uiScale
     KeybindsHUD.Update = updateRows
 
+    local isAutoMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+    if Config.ShowKeybindsList == nil and isAutoMobile then
+        Config.ShowKeybindsList = false
+    end
     local isVisible = (Config.ShowKeybindsList ~= false)
     local currentFadeTween = nil
     local currentScaleTween = nil
@@ -3826,6 +3830,26 @@ pcall(function()
             local targetPillPos = isMobile and UDim2.new(0.5, 0, 0, 2) or UDim2.new(0, 2, 0, 2)
             local pcCol = isMobile and inactiveTextCol or activeTextCol
             local mobCol = isMobile and activeTextCol or inactiveTextCol
+
+            if isMobile then
+                local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+                local fitScale = math.clamp(math.min((vp.Y * 0.86) / 520, (vp.X * 0.90) / 720, 0.70), 0.45, 0.70)
+                if Window.SetScale and not Window.UserCustomScaleSet then
+                    Window:SetScale(fitScale)
+                end
+                local scaleSlider = Window.ConfigFlags and Window.ConfigFlags["UIScalePct"]
+                if scaleSlider and scaleSlider.Set and not Window.UserCustomScaleSet then
+                    pcall(scaleSlider.Set, scaleSlider, math.floor(fitScale * 100), true)
+                end
+            elseif not isMobile and not Window.UserCustomScaleSet then
+                if Window.SetScale then
+                    Window:SetScale(1.0)
+                end
+                local scaleSlider = Window.ConfigFlags and Window.ConfigFlags["UIScalePct"]
+                if scaleSlider and scaleSlider.Set then
+                    pcall(scaleSlider.Set, scaleSlider, 100, true)
+                end
+            end
 
             if instant then
                 indicator.Position = targetPillPos
