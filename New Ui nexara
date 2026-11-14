@@ -67,7 +67,7 @@ local function CreateNexaraCustomUI(ctx)
             return v
         end
         function ConfigSys.NormalizeConfig()
-            for _, p in ipairs({ "Tof_Aim", "Veil_Aim", "AutoParry_" }) do
+            for _, p in ipairs({ "Tof_Aim", "Veil_Aim", "AutoParry_", "SelfHeal_" }) do
                 local kc = ConfigSys.ResolveKey(Config[p .. "KeyCode"], Config[p .. "KeyName"])
                 Config[p .. "KeyCode"] = kc
                 if kc then
@@ -145,6 +145,7 @@ local function CreateNexaraCustomUI(ctx)
                 ConfigSys.SaveProfile(ConfigSys.CurrentProfile or "Default")
             end)
         end
+        _G.Nexara_ScheduleAutoSave = ConfigSys.ScheduleAutoSave
         function ConfigSys.LoadProfile(name, isStartup)
             local loaded = false
             local prof = (name and name ~= "" and name) or "Default"
@@ -569,6 +570,9 @@ local function CreateNexaraCustomUI(ctx)
         end
         if not UIState.Animating then
             MainScale.Scale = UIState.BaseScale
+        end
+        if Theme and Theme._syncMobileButtons then
+            Theme._syncMobileButtons()
         end
     end
 
@@ -1024,6 +1028,8 @@ local function CreateNexaraCustomUI(ctx)
     local OpenSliderFlyout, CloseAllSliderFlyouts
     local OpenKeybindFlyout, CloseAllKeybindFlyouts
     local OpenDropdownFlyout, CloseAllDropdownFlyouts
+    Theme._mobileButtons = Theme._mobileButtons or {}
+    Theme._openUIPill = {}
 
     do
     local ColorFlyout
@@ -1031,6 +1037,7 @@ local function CreateNexaraCustomUI(ctx)
     local SliderFlyout
     local KeybindFlyout
     local DropdownFlyout
+    local DD = {}
 
     local DimOverlay = Instance.new("TextButton")
     DimOverlay.Name = "DimOverlay"
@@ -1564,7 +1571,7 @@ local function CreateNexaraCustomUI(ctx)
 
     DropdownFlyout = Instance.new("TextButton")
     DropdownFlyout.Name = "DropdownFlyout"
-    DropdownFlyout.Size = UDim2.fromOffset(180, 32)
+    DropdownFlyout.Size = UDim2.fromOffset(196, 38)
     DropdownFlyout.BackgroundColor3 = Theme.FlyoutBg
     DropdownFlyout.BorderSizePixel = 0
     DropdownFlyout.Text = ""
@@ -1575,52 +1582,125 @@ local function CreateNexaraCustomUI(ctx)
     DropdownFlyout.ClipsDescendants = true
     DropdownFlyout.Visible = false
     DropdownFlyout.Parent = ScreenGui
-    DropdownFlyout.MouseButton1Click:Connect(function() end)
-
-    local DFCorner = Instance.new("UICorner")
-    DFCorner.CornerRadius = UDim.new(0, 6)
-    DFCorner.Parent = DropdownFlyout
-
-    local DFStroke = Instance.new("UIStroke")
-    DFStroke.Color = Theme.FlyoutStroke
-    DFStroke.Thickness = 1
-    DFStroke.Parent = DropdownFlyout
 
     local DropdownFlyoutTitle = Instance.new("TextLabel")
-    DropdownFlyoutTitle.Name = "DropdownFlyoutTitle"
-    DropdownFlyoutTitle.Text = "Mode"
-    DropdownFlyoutTitle.Font = Enum.Font.Gotham
-    DropdownFlyoutTitle.TextSize = 12
-    DropdownFlyoutTitle.TextColor3 = Theme.TextDim
-    DropdownFlyoutTitle.TextXAlignment = Enum.TextXAlignment.Left
-    DropdownFlyoutTitle.Size = UDim2.new(0, 55, 1, 0)
-    DropdownFlyoutTitle.Position = UDim2.new(0, 12, 0, 0)
-    DropdownFlyoutTitle.BackgroundTransparency = 1
-    DropdownFlyoutTitle.ZIndex = 951
-    DropdownFlyoutTitle.Parent = DropdownFlyout
-
     local DropdownBtn = Instance.new("TextButton")
-    DropdownBtn.Name = "DropdownBtn"
-    DropdownBtn.Size = UDim2.fromOffset(96, 22)
-    DropdownBtn.Position = UDim2.new(1, -102, 0.5, -11)
-    DropdownBtn.BackgroundColor3 = Theme.Input
-    DropdownBtn.BorderSizePixel = 0
-    DropdownBtn.Font = Enum.Font.GothamMedium
-    DropdownBtn.Text = "Instant"
-    DropdownBtn.TextColor3 = Theme.Text
-    DropdownBtn.TextSize = 11.5
-    DropdownBtn.AutoButtonColor = false
-    DropdownBtn.ZIndex = 952
-    DropdownBtn.Parent = DropdownFlyout
-
-    local DBtnCorner = Instance.new("UICorner")
-    DBtnCorner.CornerRadius = UDim.new(0, 4)
-    DBtnCorner.Parent = DropdownBtn
-
     local DBtnStroke = Instance.new("UIStroke")
-    DBtnStroke.Color = Theme.CardStroke
-    DBtnStroke.Thickness = 1
-    DBtnStroke.Parent = DropdownBtn
+    do
+        local DFCorner = Instance.new("UICorner")
+        DFCorner.CornerRadius = UDim.new(0, 6)
+        DFCorner.Parent = DropdownFlyout
+
+        local DFStroke = Instance.new("UIStroke")
+        DFStroke.Color = Theme.FlyoutStroke
+        DFStroke.Thickness = 1
+        DFStroke.Parent = DropdownFlyout
+
+        DropdownFlyoutTitle.Name = "DropdownFlyoutTitle"
+        DropdownFlyoutTitle.Text = "Mode"
+        DropdownFlyoutTitle.Font = Enum.Font.Gotham
+        DropdownFlyoutTitle.TextSize = 12
+        DropdownFlyoutTitle.TextColor3 = Theme.TextDim
+        DropdownFlyoutTitle.TextXAlignment = Enum.TextXAlignment.Left
+        DropdownFlyoutTitle.Size = UDim2.new(0, 55, 1, 0)
+        DropdownFlyoutTitle.Position = UDim2.new(0, 12, 0, 0)
+        DropdownFlyoutTitle.BackgroundTransparency = 1
+        DropdownFlyoutTitle.ZIndex = 951
+        DropdownFlyoutTitle.Parent = DropdownFlyout
+
+        DropdownBtn.Name = "DropdownBtn"
+        DropdownBtn.Size = UDim2.fromOffset(116, 28)
+        DropdownBtn.Position = UDim2.new(1, -124, 0.5, -14)
+        DropdownBtn.BackgroundColor3 = Theme.Input
+        DropdownBtn.BorderSizePixel = 0
+        DropdownBtn.Font = Enum.Font.GothamMedium
+        DropdownBtn.Text = "Instant"
+        DropdownBtn.TextColor3 = Theme.Text
+        DropdownBtn.TextSize = 12
+        DropdownBtn.TextXAlignment = Enum.TextXAlignment.Left
+        DropdownBtn.TextTruncate = Enum.TextTruncate.AtEnd
+        DropdownBtn.AutoButtonColor = false
+        DropdownBtn.ZIndex = 952
+        DropdownBtn.Parent = DropdownFlyout
+
+        local DBtnPadding = Instance.new("UIPadding")
+        DBtnPadding.PaddingLeft = UDim.new(0, 10)
+        DBtnPadding.PaddingRight = UDim.new(0, 22)
+        DBtnPadding.Parent = DropdownBtn
+
+        local DropdownBtnArrow = Instance.new("TextLabel")
+        DropdownBtnArrow.Name = "DropdownBtnArrow"
+        DropdownBtnArrow.Size = UDim2.fromOffset(16, 16)
+        DropdownBtnArrow.AnchorPoint = Vector2.new(0.5, 0.5)
+        DropdownBtnArrow.Position = UDim2.new(1, 10, 0.5, 0)
+        DropdownBtnArrow.BackgroundTransparency = 1
+        DropdownBtnArrow.Font = Enum.Font.GothamBold
+        DropdownBtnArrow:SetAttribute("NexaraFontIgnore", true)
+        DropdownBtnArrow.Text = "▼"
+        DropdownBtnArrow.TextSize = 10
+        DropdownBtnArrow.TextColor3 = Theme.TextMuted
+        DropdownBtnArrow.ZIndex = 953
+        DropdownBtnArrow.Parent = DropdownBtn
+        DD.Arrow = DropdownBtnArrow
+
+        local DBtnCorner = Instance.new("UICorner")
+        DBtnCorner.CornerRadius = UDim.new(0, 4)
+        DBtnCorner.Parent = DropdownBtn
+
+        DBtnStroke.Color = Theme.CardStroke
+        DBtnStroke.Thickness = 1
+        DBtnStroke.Parent = DropdownBtn
+
+        local DropdownOptionList = Instance.new("TextButton")
+        DropdownOptionList.Name = "DropdownOptionList"
+        DropdownOptionList.Size = UDim2.fromOffset(196, 0)
+        DropdownOptionList.BackgroundColor3 = Theme.FlyoutBg
+        DropdownOptionList.BorderSizePixel = 0
+        DropdownOptionList.Text = ""
+        DropdownOptionList.AutoButtonColor = false
+        DropdownOptionList.Active = true
+        DropdownOptionList.Selectable = false
+        DropdownOptionList.ZIndex = 980
+        DropdownOptionList.ClipsDescendants = true
+        DropdownOptionList.Visible = false
+        DropdownOptionList.Parent = ScreenGui
+        DropdownOptionList.MouseButton1Click:Connect(function() end)
+        DD.List = DropdownOptionList
+
+        local DOLCorner = Instance.new("UICorner")
+        DOLCorner.CornerRadius = UDim.new(0, 6)
+        DOLCorner.Parent = DropdownOptionList
+
+        local DOLStroke = Instance.new("UIStroke")
+        DOLStroke.Color = Theme.FlyoutStroke
+        DOLStroke.Thickness = 1
+        DOLStroke.Parent = DropdownOptionList
+
+        local DropdownListHolder = Instance.new("ScrollingFrame")
+        DropdownListHolder.Name = "DropdownListHolder"
+        DropdownListHolder.Size = UDim2.new(1, 0, 1, 0)
+        DropdownListHolder.BackgroundTransparency = 1
+        DropdownListHolder.BorderSizePixel = 0
+        DropdownListHolder.ScrollBarThickness = 2
+        DropdownListHolder.ScrollBarImageColor3 = Theme.Accent
+        DropdownListHolder.CanvasSize = UDim2.new(0, 0, 0, 0)
+        DropdownListHolder.ScrollingEnabled = false
+        DropdownListHolder.ZIndex = 981
+        DropdownListHolder.Parent = DropdownOptionList
+        DD.Holder = DropdownListHolder
+
+        local DOLPadding = Instance.new("UIPadding")
+        DOLPadding.PaddingTop = UDim.new(0, 5)
+        DOLPadding.PaddingBottom = UDim.new(0, 5)
+        DOLPadding.PaddingLeft = UDim.new(0, 6)
+        DOLPadding.PaddingRight = UDim.new(0, 6)
+        DOLPadding.Parent = DropdownListHolder
+
+        local DOLLayout = Instance.new("UIListLayout")
+        DOLLayout.SortOrder = Enum.SortOrder.LayoutOrder
+        DOLLayout.Padding = UDim.new(0, 4)
+        DOLLayout.Parent = DropdownListHolder
+    end
 
     local activeRowAnchor = nil
     local activeChevronLabel = nil
@@ -1646,13 +1726,16 @@ local function CreateNexaraCustomUI(ctx)
     local activeCurrentKey = nil
     local isKeybindListening = false
     local keybindInputConn = nil
+    local keybindMenuConn = nil
 
     local activeDropdownRow = nil
     local activeDropdownChevron = nil
     local activeDropdownCallback = nil
     local activeDropdownOptions = {}
     local activeDropdownCurrent = nil
-    local CloseAllDropdownFlyouts
+    DD.IsOpen = false
+    DD.Token = 0
+    DD.LastToggle = 0
 
     local function SafeVis(inst)
         return typeof(inst) == "Instance" and inst.Parent ~= nil and inst.Visible == true
@@ -1839,7 +1922,12 @@ local function CreateNexaraCustomUI(ctx)
 
     CloseAllKeybindFlyouts = function()
         if keybindInputConn then keybindInputConn:Disconnect(); keybindInputConn = nil end
-        isKeybindListening = false
+        if keybindMenuConn then keybindMenuConn:Disconnect(); keybindMenuConn = nil end
+        if isKeybindListening then
+            isKeybindListening = false
+            UIState.Capturing = false
+            _G.Nexara_IsCapturingKeybind = false
+        end
         if SafeVis(KeybindFlyout) then
             TweenService:Create(KeybindFlyout, TweenInfo.new(0.14, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
                 Size = UDim2.fromOffset(0, 32)
@@ -1869,13 +1957,40 @@ local function CreateNexaraCustomUI(ctx)
         end
         activeKeybindCallback = nil
         activeKeybindRow = nil
+        Theme._activeKeybindMobEntry = nil
         if KBStroke and typeof(KBStroke) == "Instance" then KBStroke.Color = Theme.CardStroke end
     end
 
+    DD.CloseList = function()
+        DD.IsOpen = false
+        DD.Token = DD.Token + 1
+        local myTok = DD.Token
+        if DD.Arrow then
+            TweenService:Create(DD.Arrow, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                Rotation = 0,
+                TextColor3 = Theme.TextMuted
+            }):Play()
+        end
+        if DBtnStroke and typeof(DBtnStroke) == "Instance" then
+            DBtnStroke.Color = Theme.CardStroke
+        end
+        if SafeVis(DD.List) then
+            TweenService:Create(DD.List, TweenInfo.new(0.14, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+                Size = UDim2.fromOffset(196, 0)
+            }):Play()
+            task.delay(0.14, function()
+                if not DD.IsOpen and DD.Token == myTok and typeof(DD.List) == "Instance" then
+                    DD.List.Visible = false
+                end
+            end)
+        end
+    end
+
     CloseAllDropdownFlyouts = function()
+        if DD.CloseList then DD.CloseList() end
         if SafeVis(DropdownFlyout) then
             TweenService:Create(DropdownFlyout, TweenInfo.new(0.14, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
-                Size = UDim2.fromOffset(0, 32)
+                Size = UDim2.fromOffset(0, 38)
             }):Play()
             task.delay(0.14, function()
                 if SafeVis(DropdownFlyout) and activeDropdownRow == nil then DropdownFlyout.Visible = false end
@@ -1991,6 +2106,15 @@ local function CreateNexaraCustomUI(ctx)
         end
     end
 
+    function DD.GetMetrics()
+        local total = #(activeDropdownOptions or {})
+        if total <= 0 then return 0, 0 end
+        local visibleCount = math.min(total, 6)
+        local contentH = (total * 32) + ((total - 1) * 4) + 10
+        local listH = (visibleCount * 32) + ((visibleCount - 1) * 4) + 10
+        return listH, contentH
+    end
+
     local function UpdateDropdownFlyoutPosition()
         if activeDropdownRow and activeDropdownRow.Parent then
             local rowX = activeDropdownRow.AbsolutePosition.X
@@ -1999,14 +2123,20 @@ local function CreateNexaraCustomUI(ctx)
             local screenW = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.X or 1920
             local screenH = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 1080
 
-            local flyoutW = 180
-            local targetX = rowX + rowW + 10
-            if targetX + flyoutW > screenW - 8 then
-                targetX = screenW - flyoutW - 8
-            end
-
-            local targetY = math.clamp(rowY - 2, 15, screenH - 45)
+            local flyoutW = 196
+            local flyoutH = 38
+            local targetX = math.clamp(rowX + rowW + 10, 8, math.max(8, screenW - flyoutW - 8))
+            local targetY = math.clamp(rowY - 4, 15, math.max(15, screenH - flyoutH - 12))
             DropdownFlyout.Position = UDim2.fromOffset(targetX, targetY)
+
+            if DD.List then
+                local listH = DD.GetMetrics()
+                local listY = targetY + flyoutH + 4
+                if listH > 0 and (listY + listH > screenH - 12) and (targetY - listH - 4 >= 12) then
+                    listY = targetY - listH - 4
+                end
+                DD.List.Position = UDim2.fromOffset(targetX, listY)
+            end
         end
     end
 
@@ -2099,7 +2229,321 @@ local function CreateNexaraCustomUI(ctx)
         }):Play()
     end
 
-    OpenKeybindFlyout = function(anchorRow, chevronLbl, currentKey, callback)
+    Theme._isMobilePlatform = function()
+        return Config.PlatformMode == "Mobile"
+    end
+
+    Theme._syncMobileButtons = function()
+        for _, entry in ipairs(Theme._mobileButtons or {}) do
+            if entry.SyncVisibility then pcall(entry.SyncVisibility) end
+            if entry.SyncState then pcall(entry.SyncState) end
+        end
+    end
+
+    local function getContrastText(col)
+        local lum = 0.299 * col.R + 0.587 * col.G + 0.114 * col.B
+        return (lum > 0.62) and Color3.fromRGB(15, 17, 24) or Color3.fromRGB(255, 255, 255)
+    end
+
+    Theme._updateOpenUIPillVisual = function(isOn, instant)
+        local p = Theme._openUIPill
+        if not (p and p.Button) then return end
+        local targetPos = isOn and UDim2.new(0.5, 2, 0, 2) or UDim2.new(0, 2, 0, 2)
+        local indCol = isOn and Theme.Accent or Theme.Track
+        local offCol = isOn and Theme.TextDim or Theme.Text
+        local onCol = isOn and getContrastText(Theme.Accent) or Theme.TextDim
+        local strokeCol = isOn and Theme.Accent or Theme.CardStroke
+        if instant then
+            p.Indicator.Position = targetPos
+            p.Indicator.BackgroundColor3 = indCol
+            p.OffLbl.TextColor3 = offCol
+            p.OnLbl.TextColor3 = onCol
+            p.Stroke.Color = strokeCol
+        else
+            TweenService:Create(p.Indicator, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                Position = targetPos,
+                BackgroundColor3 = indCol
+            }):Play()
+            TweenService:Create(p.OffLbl, TweenInfo.new(0.15), { TextColor3 = offCol }):Play()
+            TweenService:Create(p.OnLbl, TweenInfo.new(0.15), { TextColor3 = onCol }):Play()
+            TweenService:Create(p.Stroke, TweenInfo.new(0.15), { Color = strokeCol }):Play()
+        end
+    end
+
+    Theme._ensureOpenUIPill = function()
+        local p = Theme._openUIPill
+        if p and p.Button then return p end
+        p = {}
+        Theme._openUIPill = p
+
+        local pill = Instance.new("TextButton")
+        pill.Name = "OpenUIPill"
+        pill.Size = UDim2.fromOffset(92, 22)
+        pill.Position = UDim2.new(1, -98, 0.5, -11)
+        pill.BackgroundColor3 = Theme.Input
+        pill.BorderSizePixel = 0
+        pill.Text = ""
+        pill.AutoButtonColor = false
+        pill.ZIndex = 952
+        pill.Visible = false
+        pill.Parent = KeybindFlyout
+        p.Button = pill
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 4)
+        corner.Parent = pill
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Color = Theme.CardStroke
+        stroke.Thickness = 1
+        stroke.Parent = pill
+        p.Stroke = stroke
+
+        local indicator = Instance.new("Frame")
+        indicator.Name = "Indicator"
+        indicator.Size = UDim2.new(0.5, -4, 1, -4)
+        indicator.Position = UDim2.new(0, 2, 0, 2)
+        indicator.BackgroundColor3 = Theme.Track
+        indicator.BorderSizePixel = 0
+        indicator.ZIndex = 953
+        indicator.Parent = pill
+        p.Indicator = indicator
+
+        local indCorner = Instance.new("UICorner")
+        indCorner.CornerRadius = UDim.new(0, 3)
+        indCorner.Parent = indicator
+
+        local offLbl = Instance.new("TextLabel")
+        offLbl.Name = "OffLabel"
+        offLbl.Size = UDim2.new(0.5, 0, 1, 0)
+        offLbl.Position = UDim2.new(0, 0, 0, 0)
+        offLbl.BackgroundTransparency = 1
+        offLbl.Text = "Off"
+        offLbl.Font = Enum.Font.GothamMedium
+        offLbl.TextSize = 11
+        offLbl.TextColor3 = Theme.Text
+        offLbl.ZIndex = 954
+        offLbl.Parent = pill
+        p.OffLbl = offLbl
+
+        local onLbl = Instance.new("TextLabel")
+        onLbl.Name = "OnLabel"
+        onLbl.Size = UDim2.new(0.5, 0, 1, 0)
+        onLbl.Position = UDim2.new(0.5, 0, 0, 0)
+        onLbl.BackgroundTransparency = 1
+        onLbl.Text = "On"
+        onLbl.Font = Enum.Font.GothamMedium
+        onLbl.TextSize = 11
+        onLbl.TextColor3 = Theme.TextDim
+        onLbl.ZIndex = 954
+        onLbl.Parent = pill
+        p.OnLbl = onLbl
+
+        Theme.HookAccent(function()
+            local curP = Theme._openUIPill
+            if Theme._activeKeybindMobEntry and curP and SafeVis(curP.Button) then
+                Theme._updateOpenUIPillVisual(Theme._activeKeybindMobEntry.isOpen(), true)
+            end
+        end)
+
+        pill.MouseButton1Click:Connect(function()
+            local entry = Theme._activeKeybindMobEntry
+            if not entry then return end
+            local nextOpen = not entry.isOpen()
+            entry.setOpen(nextOpen)
+            Theme._updateOpenUIPillVisual(nextOpen, false)
+            ConfigSys.ScheduleAutoSave()
+        end)
+        return p
+    end
+
+    Theme._registerMobileBtn = function(mobCfg, getStateFn, setStateFn)
+        if not mobCfg or not mobCfg.key then return nil end
+        local openKey = mobCfg.key .. "UI"
+        local xKey = mobCfg.key .. "X"
+        local yKey = mobCfg.key .. "Y"
+        local titleText = mobCfg.title or mobCfg.key
+        local orderIdx = tonumber(mobCfg.order) or (#(Theme._mobileButtons or {}) + 1)
+
+        local Btn = Instance.new("TextButton")
+        Btn.Name = "MobileBtn_" .. mobCfg.key
+        Btn.Size = UDim2.fromOffset(132, 34)
+        Btn.BackgroundColor3 = Theme.Sidebar
+        Btn.BackgroundTransparency = 0.08
+        Btn.BorderSizePixel = 0
+        Btn.Text = ""
+        Btn.AutoButtonColor = false
+        Btn.Active = true
+        Btn.Visible = false
+        Btn.ZIndex = 995
+        Btn.Parent = ScreenGui
+
+        local Corner = Instance.new("UICorner")
+        Corner.CornerRadius = UDim.new(0, 10)
+        Corner.Parent = Btn
+
+        local Stroke = Instance.new("UIStroke")
+        Stroke.Color = Theme.FlyoutStroke
+        Stroke.Thickness = 1.4
+        Stroke.Transparency = 0.2
+        Stroke.Parent = Btn
+
+        local Dot = Instance.new("Frame")
+        Dot.Name = "StatusDot"
+        Dot.Size = UDim2.fromOffset(8, 8)
+        Dot.Position = UDim2.new(0, 11, 0.5, -4)
+        Dot.BackgroundColor3 = Theme.TextMuted
+        Dot.BorderSizePixel = 0
+        Dot.ZIndex = 996
+        Dot.Parent = Btn
+        local DotCorner = Instance.new("UICorner")
+        DotCorner.CornerRadius = UDim.new(1, 0)
+        DotCorner.Parent = Dot
+
+        local TitleLbl = Instance.new("TextLabel")
+        TitleLbl.Name = "Title"
+        TitleLbl.Size = UDim2.new(1, -58, 1, 0)
+        TitleLbl.Position = UDim2.new(0, 24, 0, 0)
+        TitleLbl.BackgroundTransparency = 1
+        TitleLbl.Text = titleText
+        TitleLbl.Font = Enum.Font.GothamMedium
+        TitleLbl.TextSize = 11.5
+        TitleLbl.TextColor3 = Theme.TextDim
+        TitleLbl.TextXAlignment = Enum.TextXAlignment.Left
+        TitleLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        TitleLbl.ZIndex = 996
+        TitleLbl.Parent = Btn
+
+        local StateLbl = Instance.new("TextLabel")
+        StateLbl.Name = "State"
+        StateLbl.Size = UDim2.fromOffset(28, 16)
+        StateLbl.Position = UDim2.new(1, -35, 0.5, -8)
+        StateLbl.BackgroundColor3 = Theme.Input
+        StateLbl.BackgroundTransparency = 0.25
+        StateLbl.BorderSizePixel = 0
+        StateLbl.Text = "OFF"
+        StateLbl.Font = Enum.Font.GothamBold
+        StateLbl.TextSize = 9.5
+        StateLbl.TextColor3 = Theme.TextMuted
+        StateLbl.ZIndex = 996
+        StateLbl.Parent = Btn
+        local StateCorner = Instance.new("UICorner")
+        StateCorner.CornerRadius = UDim.new(0, 4)
+        StateCorner.Parent = StateLbl
+
+        local function getBoundsSize()
+            if ScreenGui and ScreenGui.AbsoluteSize.X > 0 and ScreenGui.AbsoluteSize.Y > 0 then
+                return ScreenGui.AbsoluteSize
+            end
+            local cam = workspace.CurrentCamera
+            return cam and cam.ViewportSize or Vector2.new(1280, 720)
+        end
+
+        local function applyClampPos()
+            local bounds = getBoundsSize()
+            local bw, bh = 132, 34
+            local sx = tonumber(Config[xKey])
+            local sy = tonumber(Config[yKey])
+            local defX = math.max(8, bounds.X - bw - 16)
+            local defY = math.clamp(96 + (orderIdx - 1) * 42, 48, math.max(48, bounds.Y - bh - 12))
+            local px = math.clamp(sx or defX, 4, math.max(4, bounds.X - bw - 4))
+            local py = math.clamp(sy or defY, 4, math.max(4, bounds.Y - bh - 4))
+            Btn.Position = UDim2.fromOffset(math.floor(px + 0.5), math.floor(py + 0.5))
+        end
+
+        local function syncState()
+            if not (Btn and Btn.Parent) then return end
+            local active = (getStateFn() == true)
+            Btn.BackgroundColor3 = active and Theme.Sidebar:Lerp(Theme.Accent, 0.14) or Theme.Sidebar
+            Stroke.Color = active and Theme.Accent or Theme.FlyoutStroke
+            Stroke.Transparency = active and 0.08 or 0.25
+            Dot.BackgroundColor3 = active and Theme.Accent or Theme.TextMuted
+            TitleLbl.TextColor3 = active and Theme.Text or Theme.TextDim
+            StateLbl.Text = active and "ON" or "OFF"
+            StateLbl.BackgroundColor3 = active and Theme.Accent or Theme.Input
+            StateLbl.BackgroundTransparency = active and 0.12 or 0.25
+            StateLbl.TextColor3 = active and getContrastText(Theme.Accent) or Theme.TextMuted
+        end
+
+        local function syncVisibility()
+            if not (Btn and Btn.Parent) then return end
+            local show = Theme._isMobilePlatform() and (Config[openKey] == true)
+            if show then
+                applyClampPos()
+                syncState()
+            end
+            Btn.Visible = show
+        end
+
+        Theme.HookAccent(function()
+            syncState()
+        end)
+
+        local dragging = false
+        local dragMoved = false
+        local dragInput = nil
+        local dragStart = nil
+        local startX, startY = 0, 0
+
+        Btn.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                dragMoved = false
+                dragInput = input
+                dragStart = input.Position
+                local abs = Btn.AbsolutePosition
+                startX, startY = abs.X, abs.Y
+            end
+        end)
+
+        ConnectUI(UserInputService.InputChanged, function(input)
+            if not dragging then return end
+            if input ~= dragInput and input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+            local delta = input.Position - dragStart
+            if not dragMoved and delta.Magnitude >= 6 then
+                dragMoved = true
+            end
+            if dragMoved then
+                local bounds = getBoundsSize()
+                local bw, bh = Btn.AbsoluteSize.X, Btn.AbsoluteSize.Y
+                local nx = math.clamp(math.floor(startX + delta.X + 0.5), 4, math.max(4, math.floor(bounds.X - bw - 4)))
+                local ny = math.clamp(math.floor(startY + delta.Y + 0.5), 4, math.max(4, math.floor(bounds.Y - bh - 4)))
+                Btn.Position = UDim2.fromOffset(nx, ny)
+            end
+        end)
+
+        ConnectUI(UserInputService.InputEnded, function(input)
+            if not dragging then return end
+            if input ~= dragInput and input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
+            dragging = false
+            dragInput = nil
+            if dragMoved then
+                local pos = Btn.AbsolutePosition
+                Config[xKey] = math.floor(pos.X + 0.5)
+                Config[yKey] = math.floor(pos.Y + 0.5)
+                ConfigSys.ScheduleAutoSave()
+            else
+                setStateFn(not (getStateFn() == true))
+                syncState()
+            end
+        end)
+
+        local entry = {
+            Button = Btn,
+            SyncState = syncState,
+            SyncVisibility = syncVisibility,
+            isOpen = function() return Config[openKey] == true end,
+            setOpen = function(v)
+                Config[openKey] = (v == true)
+                syncVisibility()
+            end,
+        }
+        table.insert(Theme._mobileButtons, entry)
+        syncVisibility()
+        return entry
+    end
+
+    OpenKeybindFlyout = function(anchorRow, chevronLbl, currentKey, callback, mobEntry)
         if KeybindFlyout and KeybindFlyout.Visible and activeKeybindChevron == chevronLbl then
             CloseAllKeybindFlyouts()
             return
@@ -2111,9 +2555,24 @@ local function CreateNexaraCustomUI(ctx)
         activeKeybindChevron = chevronLbl
         activeKeybindCallback = callback
         activeCurrentKey = currentKey
+        Theme._activeKeybindMobEntry = mobEntry
 
-        KeybindBtn.Text = "[" .. FormatKeyName(currentKey) .. "]"
-        KeybindBtn.TextColor3 = Theme.Text
+        local showMobileOpenUI = Theme._isMobilePlatform() and mobEntry ~= nil
+        if showMobileOpenUI then
+            local p = Theme._ensureOpenUIPill()
+            KeybindFlyoutTitle.Text = "Open UI"
+            KeybindBtn.Visible = false
+            p.Button.Visible = true
+            Theme._updateOpenUIPillVisual(mobEntry.isOpen(), true)
+        else
+            KeybindFlyoutTitle.Text = "Keybind"
+            KeybindBtn.Visible = true
+            if Theme._openUIPill and Theme._openUIPill.Button then
+                Theme._openUIPill.Button.Visible = false
+            end
+            KeybindBtn.Text = "[" .. FormatKeyName(currentKey) .. "]"
+            KeybindBtn.TextColor3 = Theme.Text
+        end
         KBStroke.Color = Theme.CardStroke
 
         if chevronLbl then
@@ -2138,6 +2597,7 @@ local function CreateNexaraCustomUI(ctx)
     end
 
     KeybindBtn.MouseButton1Click:Connect(function()
+        if Theme._isMobilePlatform() and Theme._activeKeybindMobEntry then return end
         if isKeybindListening then return end
         isKeybindListening = true
         UIState.Capturing = true
@@ -2146,32 +2606,38 @@ local function CreateNexaraCustomUI(ctx)
         KeybindBtn.TextColor3 = Color3.fromRGB(255, 210, 80)
         TweenService:Create(KBStroke, TweenInfo.new(0.18), { Color = Theme.Accent }):Play()
 
-        if keybindInputConn then keybindInputConn:Disconnect() end
-        keybindInputConn = ConnectUI(UserInputService.InputBegan, function(input, gpe)
-            local function finishListen()
+        if keybindInputConn then keybindInputConn:Disconnect(); keybindInputConn = nil end
+        if keybindMenuConn then keybindMenuConn:Disconnect(); keybindMenuConn = nil end
+
+        local function finishListen()
+            if keybindInputConn then keybindInputConn:Disconnect(); keybindInputConn = nil end
+            if keybindMenuConn then keybindMenuConn:Disconnect(); keybindMenuConn = nil end
+            -- Defer clearing capture flags so UserInputService handlers on this same Escape press do not immediately close the flyout or trigger binds
+            task.defer(function()
                 isKeybindListening = false
-                if keybindInputConn then keybindInputConn:Disconnect(); keybindInputConn = nil end
-                task.defer(function()
-                    UIState.Capturing = false
-                    _G.Nexara_IsCapturingKeybind = false
-                end)
-            end
+                UIState.Capturing = false
+                _G.Nexara_IsCapturingKeybind = false
+            end)
+        end
+
+        local function clearToNone()
+            if not isKeybindListening then return end
+            activeCurrentKey = nil
+            KeybindBtn.Text = "[None]"
+            KeybindBtn.TextColor3 = Theme.Text
+            TweenService:Create(KBStroke, TweenInfo.new(0.18), { Color = Theme.CardStroke }):Play()
+            finishListen()
+            if activeKeybindCallback then pcall(activeKeybindCallback, nil) end
+            ConfigSys.ScheduleAutoSave()
+        end
+
+        keybindMenuConn = ConnectUI(game:GetService("GuiService").MenuOpened, clearToNone)
+
+        keybindInputConn = ConnectUI(UserInputService.InputBegan, function(input, gpe)
             if input.UserInputType == Enum.UserInputType.Keyboard then
                 local keyCode = input.KeyCode
-                if keyCode == Enum.KeyCode.Escape then
-                    KeybindBtn.Text = "[" .. FormatKeyName(activeCurrentKey) .. "]"
-                    KeybindBtn.TextColor3 = Theme.Text
-                    TweenService:Create(KBStroke, TweenInfo.new(0.18), { Color = Theme.CardStroke }):Play()
-                    finishListen()
-                    return
-                elseif keyCode == Enum.KeyCode.Backspace then
-                    activeCurrentKey = nil
-                    KeybindBtn.Text = "[None]"
-                    KeybindBtn.TextColor3 = Theme.Text
-                    TweenService:Create(KBStroke, TweenInfo.new(0.18), { Color = Theme.CardStroke }):Play()
-                    finishListen()
-                    if activeKeybindCallback then pcall(activeKeybindCallback, nil) end
-                    ConfigSys.ScheduleAutoSave()
+                if keyCode == Enum.KeyCode.Escape or keyCode == Enum.KeyCode.Backspace or keyCode == Enum.KeyCode.Delete then
+                    clearToNone()
                     return
                 elseif keyCode ~= Enum.KeyCode.Unknown then
                     activeCurrentKey = keyCode
@@ -2196,6 +2662,131 @@ local function CreateNexaraCustomUI(ctx)
         end)
     end)
 
+    DD.Rebuild = function()
+        for _, ch in ipairs(DD.Holder:GetChildren()) do
+            if ch:IsA("TextButton") then
+                ch:Destroy()
+            end
+        end
+        local _, contentH = DD.GetMetrics()
+        DD.Holder.CanvasSize = UDim2.new(0, 0, 0, contentH)
+        DD.Holder.ScrollingEnabled = (#(activeDropdownOptions or {}) > 6)
+
+        for i, opt in ipairs(activeDropdownOptions or {}) do
+            local optStr = tostring(opt)
+            local isSel = (optStr == tostring(activeDropdownCurrent))
+
+            local OptBtn = Instance.new("TextButton")
+            OptBtn.Name = "Option_" .. optStr
+            OptBtn.Size = UDim2.new(1, 0, 0, 32)
+            OptBtn.BackgroundColor3 = isSel and Theme.Accent or Theme.Input
+            OptBtn.BackgroundTransparency = isSel and 0.82 or 0.35
+            OptBtn.BorderSizePixel = 0
+            OptBtn.AutoButtonColor = false
+            OptBtn.LayoutOrder = i
+            OptBtn.Font = isSel and Enum.Font.GothamBold or Enum.Font.Gotham
+            OptBtn.Text = optStr
+            OptBtn.TextSize = 12.5
+            OptBtn.TextColor3 = isSel and Theme.Text or Theme.TextDim
+            OptBtn.TextXAlignment = Enum.TextXAlignment.Left
+            OptBtn.ZIndex = 982
+            OptBtn.Parent = DD.Holder
+            if Theme.SetTextWeight then
+                Theme.SetTextWeight(OptBtn, isSel and "Bold" or "Regular")
+            end
+
+            local OptCorner = Instance.new("UICorner")
+            OptCorner.CornerRadius = UDim.new(0, 5)
+            OptCorner.Parent = OptBtn
+
+            local OptPad = Instance.new("UIPadding")
+            OptPad.PaddingLeft = UDim.new(0, 14)
+            OptPad.PaddingRight = UDim.new(0, 10)
+            OptPad.Parent = OptBtn
+
+            local OptStroke = Instance.new("UIStroke")
+            OptStroke.Color = isSel and Theme.Accent or Theme.CardStroke
+            OptStroke.Thickness = 1
+            OptStroke.Transparency = isSel and 0.25 or 0.65
+            OptStroke.Parent = OptBtn
+
+            local SelPill = Instance.new("Frame")
+            SelPill.Name = "SelPill"
+            SelPill.Size = UDim2.fromOffset(3, 16)
+            SelPill.Position = UDim2.new(0, -9, 0.5, -8)
+            SelPill.BackgroundColor3 = Theme.Accent
+            SelPill.BorderSizePixel = 0
+            SelPill.Visible = isSel
+            SelPill.ZIndex = 983
+            SelPill.Parent = OptBtn
+
+            local PillCorner = Instance.new("UICorner")
+            PillCorner.CornerRadius = UDim.new(1, 0)
+            PillCorner.Parent = SelPill
+
+            OptBtn.MouseEnter:Connect(function()
+                if tostring(activeDropdownCurrent) ~= optStr then
+                    TweenService:Create(OptBtn, TweenInfo.new(0.12), {
+                        BackgroundTransparency = 0.15
+                    }):Play()
+                end
+            end)
+            OptBtn.MouseLeave:Connect(function()
+                if tostring(activeDropdownCurrent) ~= optStr then
+                    TweenService:Create(OptBtn, TweenInfo.new(0.12), {
+                        BackgroundTransparency = 0.35
+                    }):Play()
+                end
+            end)
+
+            OptBtn.MouseButton1Click:Connect(function()
+                activeDropdownCurrent = opt
+                DropdownBtn.Text = optStr
+                DropdownBtn.BackgroundColor3 = Theme.Accent:Lerp(Theme.Input, 0.6)
+                TweenService:Create(DropdownBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    BackgroundColor3 = Theme.Input
+                }):Play()
+
+                DD.Rebuild()
+                if activeDropdownCallback then
+                    pcall(activeDropdownCallback, opt)
+                end
+                if DD.CloseList then DD.CloseList() end
+            end)
+        end
+    end
+
+    DD.ToggleList = function(forceState)
+        if not activeDropdownOptions or #activeDropdownOptions == 0 then return end
+        local wantOpen = (forceState ~= nil) and forceState or (not DD.IsOpen)
+        if not wantOpen then
+            DD.CloseList()
+            return
+        end
+
+        DD.IsOpen = true
+        DD.Token = DD.Token + 1
+        DD.Rebuild()
+        UpdateDropdownFlyoutPosition()
+
+        local listH = DD.GetMetrics()
+        DD.List.Size = UDim2.fromOffset(196, 0)
+        DD.List.Visible = true
+        TweenService:Create(DD.List, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+            Size = UDim2.fromOffset(196, listH)
+        }):Play()
+
+        if DD.Arrow then
+            TweenService:Create(DD.Arrow, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                Rotation = 180,
+                TextColor3 = Theme.Accent
+            }):Play()
+        end
+        if DBtnStroke and typeof(DBtnStroke) == "Instance" then
+            TweenService:Create(DBtnStroke, TweenInfo.new(0.15), { Color = Theme.Accent }):Play()
+        end
+    end
+
     OpenDropdownFlyout = function(anchorRow, chevronLbl, options, currentOption, titleText, callback)
         if DropdownFlyout and DropdownFlyout.Visible and activeDropdownChevron == chevronLbl then
             CloseAllDropdownFlyouts()
@@ -2213,6 +2804,11 @@ local function CreateNexaraCustomUI(ctx)
         DropdownFlyoutTitle.Text = titleText or "Mode"
         DropdownBtn.Text = tostring(activeDropdownCurrent)
         DBtnStroke.Color = Theme.CardStroke
+        if DD.Arrow then
+            DD.Arrow.Rotation = 0
+            DD.Arrow.TextColor3 = Theme.TextMuted
+        end
+        DD.Rebuild()
 
         if chevronLbl then
             TweenService:Create(chevronLbl, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
@@ -2228,10 +2824,10 @@ local function CreateNexaraCustomUI(ctx)
             BackgroundTransparency = 0.55
         }):Play()
 
-        DropdownFlyout.Size = UDim2.fromOffset(0, 32)
+        DropdownFlyout.Size = UDim2.fromOffset(0, 38)
         DropdownFlyout.Visible = true
         TweenService:Create(DropdownFlyout, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-            Size = UDim2.fromOffset(180, 32)
+            Size = UDim2.fromOffset(196, 38)
         }):Play()
     end
 
@@ -2239,32 +2835,21 @@ local function CreateNexaraCustomUI(ctx)
         TweenService:Create(DBtnStroke, TweenInfo.new(0.15), { Color = Theme.Accent }):Play()
     end)
     DropdownBtn.MouseLeave:Connect(function()
-        TweenService:Create(DBtnStroke, TweenInfo.new(0.15), { Color = Theme.CardStroke }):Play()
-    end)
-
-    DropdownBtn.MouseButton1Click:Connect(function()
-        if not activeDropdownOptions or #activeDropdownOptions == 0 then return end
-        local curIdx = 1
-        for i, opt in ipairs(activeDropdownOptions) do
-            if tostring(opt) == tostring(activeDropdownCurrent) then
-                curIdx = i
-                break
-            end
-        end
-        local nextIdx = (curIdx % #activeDropdownOptions) + 1
-        local newOpt = activeDropdownOptions[nextIdx]
-        activeDropdownCurrent = newOpt
-        DropdownBtn.Text = tostring(newOpt)
-
-        DropdownBtn.BackgroundColor3 = Theme.Accent:Lerp(Theme.Input, 0.6)
-        TweenService:Create(DropdownBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-            BackgroundColor3 = Theme.Input
-        }):Play()
-
-        if activeDropdownCallback then
-            pcall(activeDropdownCallback, newOpt)
+        if not DD.IsOpen then
+            TweenService:Create(DBtnStroke, TweenInfo.new(0.15), { Color = Theme.CardStroke }):Play()
         end
     end)
+
+    do
+        local function handleDropdownBtnToggle()
+            local now = os.clock()
+            if now - DD.LastToggle < 0.04 then return end
+            DD.LastToggle = now
+            DD.ToggleList()
+        end
+        DropdownBtn.MouseButton1Click:Connect(handleDropdownBtnToggle)
+        DropdownFlyout.MouseButton1Click:Connect(handleDropdownBtnToggle)
+    end
 
     local function HandleSliderFlyoutInput(input)
         local trackX = SFTrack.AbsolutePosition.X
@@ -2420,6 +3005,7 @@ local function CreateNexaraCustomUI(ctx)
                          or SafeVis(SliderFlyout)
                          or SafeVis(KeybindFlyout)
                          or SafeVis(DropdownFlyout)
+                         or SafeVis(DD.List)
                          or hasPopups
 
             if anyOpen then
@@ -2428,7 +3014,8 @@ local function CreateNexaraCustomUI(ctx)
                 local inColor = SafeVis(ColorFlyout) and IsPosInsideGui(pos, ColorFlyout)
                 local inSlider = SafeVis(SliderFlyout) and IsPosInsideGui(pos, SliderFlyout)
                 local inKeybind = SafeVis(KeybindFlyout) and IsPosInsideGui(pos, KeybindFlyout)
-                local inDropdown = SafeVis(DropdownFlyout) and IsPosInsideGui(pos, DropdownFlyout)
+                local inDropdown = (SafeVis(DropdownFlyout) and IsPosInsideGui(pos, DropdownFlyout))
+                                or (SafeVis(DD.List) and IsPosInsideGui(pos, DD.List))
                 local inPopup = hasPopups and Theme.IsPosInsideOpenDropdownPopup(pos)
 
                 local inChevron = false
@@ -3346,7 +3933,7 @@ local function CreateNexaraCustomUI(ctx)
             }
         end
 
-        function ModuleObj:AddCheckboxWithKeybind(label, initialCheckVal, defaultKey, onToggle, onKeyChange)
+        function ModuleObj:AddCheckboxWithKeybind(label, initialCheckVal, defaultKey, onToggle, onKeyChange, mobCfg)
             rowOrder = rowOrder + 1
             local state = (initialCheckVal == true)
             local currentKey = defaultKey
@@ -3472,8 +4059,19 @@ local function CreateNexaraCustomUI(ctx)
             CheckBox.MouseEnter:Connect(OnRowHoverEnter)
             CheckBox.MouseLeave:Connect(OnRowHoverLeave)
 
-            CheckBox.MouseButton1Click:Connect(function() SetState(not state) end)
-            LabelBtn.MouseButton1Click:Connect(function() SetState(not state) end)
+            local mobEntry = mobCfg and Theme._registerMobileBtn and Theme._registerMobileBtn(mobCfg, function()
+                return state
+            end, function(v)
+                SetState(v, false)
+            end) or nil
+
+            local function SetCheckedWithSync(v, silent)
+                SetState(v, silent)
+                if mobEntry and mobEntry.SyncState then mobEntry.SyncState() end
+            end
+
+            CheckBox.MouseButton1Click:Connect(function() SetCheckedWithSync(not state) end)
+            LabelBtn.MouseButton1Click:Connect(function() SetCheckedWithSync(not state) end)
 
             local ChevronBtn = Instance.new("TextButton")
             ChevronBtn.Name = "ChevronBtn"
@@ -3498,11 +4096,11 @@ local function CreateNexaraCustomUI(ctx)
                     currentKey = newKey
                     if onKeyChange then pcall(onKeyChange, newKey) end
                     ConfigSys.ScheduleAutoSave()
-                end)
+                end, mobEntry)
             end)
 
             return {
-                Set = SetState,
+                Set = SetCheckedWithSync,
                 Get = function() return state end,
                 SetKey = function(k, silent)
                     currentKey = k
@@ -4312,32 +4910,32 @@ local function CreateNexaraCustomUI(ctx)
                 BindBtn.TextColor3 = Color3.fromRGB(255, 210, 80)
                 TweenService:Create(Stroke, TweenInfo.new(0.18), { Color = Theme.Accent }):Play()
 
-                local conn
+                local conn, menuConn
                 local function finishBind()
-                    listening = false
                     if conn then conn:Disconnect(); conn = nil end
+                    if menuConn then menuConn:Disconnect(); menuConn = nil end
                     task.defer(function()
+                        listening = false
                         UIState.Capturing = false
                         _G.Nexara_IsCapturingKeybind = false
                     end)
                 end
+                local function clearBind()
+                    if not listening then return end
+                    currentKey = nil
+                    BindBtn.Text = "[None]"
+                    BindBtn.TextColor3 = Theme.Text
+                    TweenService:Create(Stroke, TweenInfo.new(0.18), { Color = Theme.CardStroke }):Play()
+                    finishBind()
+                    if onKeyChange then pcall(onKeyChange, nil) end
+                    ConfigSys.ScheduleAutoSave()
+                end
+                menuConn = ConnectUI(game:GetService("GuiService").MenuOpened, clearBind)
                 conn = ConnectUI(UserInputService.InputBegan, function(input, gpe)
                     if input.UserInputType == Enum.UserInputType.Keyboard then
                         local keyCode = input.KeyCode
-                        if keyCode == Enum.KeyCode.Escape then
-                            BindBtn.Text = "[" .. ConfigSys.FormatKey(currentKey) .. "]"
-                            BindBtn.TextColor3 = Theme.Text
-                            TweenService:Create(Stroke, TweenInfo.new(0.18), { Color = Theme.CardStroke }):Play()
-                            finishBind()
-                            return
-                        elseif keyCode == Enum.KeyCode.Backspace then
-                            currentKey = nil
-                            BindBtn.Text = "[None]"
-                            BindBtn.TextColor3 = Theme.Text
-                            TweenService:Create(Stroke, TweenInfo.new(0.18), { Color = Theme.CardStroke }):Play()
-                            finishBind()
-                            if onKeyChange then pcall(onKeyChange, nil) end
-                            ConfigSys.ScheduleAutoSave()
+                        if keyCode == Enum.KeyCode.Escape or keyCode == Enum.KeyCode.Backspace or keyCode == Enum.KeyCode.Delete then
+                            clearBind()
                             return
                         elseif keyCode ~= Enum.KeyCode.Unknown then
                             currentKey = keyCode
@@ -5003,13 +5601,10 @@ local function CreateNexaraCustomUI(ctx)
         Config.Color_SurvivorSkeleton = c
     end)
 
-    local SurvCooldown = WindowObj:CreateModule("Player ESP_Survivor", "Right", "Cooldowns & Perks", "")
+    local SurvCooldown = WindowObj:CreateModule("Player ESP_Survivor", "Right", "Cooldowns", "")
     W.sSkills = SurvCooldown:AddCheckbox("Cooldowns", Config.ESP_SurvivorSkills or Config.ESP_SurvivorCooldown, nil, function(v)
         Config.ESP_SurvivorSkills = v
         Config.ESP_SurvivorCooldown = v
-    end)
-    W.sPerks = SurvCooldown:AddCheckbox("Perks", Config.ESP_SurvivorPerks, nil, function(v)
-        Config.ESP_SurvivorPerks = v
     end)
 
     local KillerESP = WindowObj:CreateModule("Player ESP_Killer", "Left", "Killer ESP", "")
@@ -5017,6 +5612,10 @@ local function CreateNexaraCustomUI(ctx)
     W.kNames = KillerESP:AddCheckbox("Name", Config.ESP_KillerNames, Config.Color_KillerNames or Color3.fromRGB(255, 60, 60),
         function(v) Config.ESP_KillerNames = v end,
         function(c) Config.Color_KillerNames = c end
+    )
+    W.kKillerName = KillerESP:AddCheckbox("Name Killer", Config.ESP_NameKiller, Config.Color_NameKiller or Config.Color_KillerNames or Color3.fromRGB(255, 60, 60),
+        function(v) Config.ESP_NameKiller = v end,
+        function(c) Config.Color_NameKiller = c end
     )
     W.kDist = KillerESP:AddCheckbox("Distance", Config.ESP_KillerDistance, Config.Color_KillerDistance or Config.Color_KillerNames or Color3.fromRGB(255, 60, 60),
         function(v) Config.ESP_KillerDistance = v end,
@@ -5071,9 +5670,10 @@ local function CreateNexaraCustomUI(ctx)
         W.sSkelDist.Set(Config.SkeletonMaxDistance or 180, true)
         W.sSkelCol.Set(Config.Color_SurvivorSkeleton)
         W.sSkills.Set((Config.ESP_SurvivorSkills == true or Config.ESP_SurvivorCooldown == true), true)
-        W.sPerks.Set(Config.ESP_SurvivorPerks == true, true)
+        Config.ESP_SurvivorPerks = false
         W.kEn.Set(Config.ESP_KillerEnabled == true, true)
         W.kNames.Set(Config.ESP_KillerNames == true, true); W.kNames.SetColor(Config.Color_KillerNames)
+        W.kKillerName.Set(Config.ESP_NameKiller == true, true); W.kKillerName.SetColor(Config.Color_NameKiller or Config.Color_KillerNames)
         W.kDist.Set(Config.ESP_KillerDistance == true, true); W.kDist.SetColor(Config.Color_KillerDistance)
         W.kStatus.Set(Config.ESP_KillerStatus == true, true); W.kStatus.SetColor(Config.Color_KillerStatus)
         Config.ESP_KillerBoxes = false
@@ -5391,6 +5991,19 @@ local function CreateNexaraCustomUI(ctx)
         _G.__Nexara_AlwaysFastVault = v
     end)
 
+    local SelfHealMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Self Heal", "")
+    W.selfHeal = SelfHealMod:AddCheckboxWithKeybind("Self Heal", Config.SelfHeal_Enabled, Config.SelfHeal_KeyCode, function(v)
+        Config.SelfHeal_Enabled = v
+        if ctx.SetSelfHealEnabled then pcall(ctx.SetSelfHealEnabled, v) end
+        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
+    end, function(key)
+        Config.SelfHeal_KeyCode = key
+        Config.SelfHeal_KeyName = ConfigSys.FormatKey(key)
+        Config.SelfHeal_KeyType = key and ((key.EnumType == Enum.UserInputType) and "Mouse" or "Keyboard") or "None"
+        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
+    end, { key = "SelfHeal_Mob", title = "Self Heal", order = 4 })
+    ConfigSys.KeyedWidgets.SelfHeal_Enabled = W.selfHeal
+
     local AutoSkillMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Auto Skill Check", "")
     W.scGen = AutoSkillMod:AddCheckbox("Generator Skill Check", Config.AutoSkillCheck, nil, function(v)
         Config.AutoSkillCheck = v
@@ -5402,6 +6015,16 @@ local function CreateNexaraCustomUI(ctx)
     local FlashlightMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Flashlight", "")
     W.blind = FlashlightMod:AddCheckbox("Flashlight Blind Progress", Config.BlindProgressEnabled, nil, function(v)
         Config.BlindProgressEnabled = v
+    end)
+
+    local KillerButcherMod = WindowObj:CreateModule("Miscellaneous_Killer", "Left", "Butcher", "")
+    W.butcherHookSilent = KillerButcherMod:AddCheckbox("Hook Butcher", Config.Butcher_HookSilentAim, nil, function(v)
+        Config.Butcher_HookSilentAim = v
+        if v and TofCombat and TofCombat.EnsureButcherHooks then
+            pcall(TofCombat.EnsureButcherHooks)
+        elseif not v and TofCombat and TofCombat.HideButcherDrawings then
+            pcall(TofCombat.HideButcherDrawings)
+        end
     end)
 
     local LightingMod = WindowObj:CreateModule("Miscellaneous_Lightings", "Full", "Lighting", "")
@@ -5826,9 +6449,14 @@ local function CreateNexaraCustomUI(ctx)
         W.spdEn.Set((Config.Speed_Enabled == true or Config.SpeedHack == true), true)
         W.spdVal.Set(Config.Speed_Value or Config.SpeedValue or 26, true)
         W.fv.Set(Config.AlwaysFastVault == true, true)
+        if W.selfHeal then
+            W.selfHeal.Set(Config.SelfHeal_Enabled == true, true)
+            W.selfHeal.SetKey(Config.SelfHeal_KeyCode, true)
+        end
         W.scGen.Set(Config.AutoSkillCheck == true, true)
         W.scTrap.Set(Config.AutoSkillCheck_Trap == true, true)
         W.blind.Set(Config.BlindProgressEnabled == true, true)
+        if W.butcherHookSilent then W.butcherHookSilent.Set(Config.Butcher_HookSilentAim == true, true) end
         W.fb.Set(Config.Fullbright == true, true)
         W.nf.Set((Config.NoFog == true or Config.RemoveFog == true), true)
         if ConfigSys.SyncWorldPresetVisual then ConfigSys.SyncWorldPresetVisual(Config.SelectedWorldPreset) end
@@ -5843,7 +6471,7 @@ local function CreateNexaraCustomUI(ctx)
 
     do
         local TwistCombat = WindowObj:CreateModule("Legit_Twist of Fate", "Left", "Combat", "")
-        W.tofSilent = TwistCombat:AddCheckboxWithDropdown("Silent Aim", Config.Tof_SilentAim, { "Legit", "Instant" }, Config.Tof_ShootMode or "Legit", function(v)
+        W.tofSilent = TwistCombat:AddCheckboxWithDropdown("Silent Aim", Config.Tof_SilentAim, { "Legit", "Semi-Legit", "Instant" }, Config.Tof_ShootMode or "Legit", function(v)
             Config.Tof_SilentAim = v
             if v and TofCombat and TofCombat.EnsureHooksActive then
                 TofCombat.EnsureHooksActive()
@@ -5870,7 +6498,7 @@ local function CreateNexaraCustomUI(ctx)
             Config.Tof_AimKeyName = ConfigSys.FormatKey(key)
             Config.Tof_AimKeyType = key and ((key.EnumType == Enum.UserInputType) and "Mouse" or "Keyboard") or "None"
             if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
-        end)
+        end, { key = "Tof_AimMob", title = "Twist Aimbot", order = 1 })
         ConfigSys.KeyedWidgets.Tof_Aimbot = W.tofAim
 
         local TwistSettings = WindowObj:CreateModule("Legit_Twist of Fate", "Right", "Settings", "")
@@ -5932,7 +6560,7 @@ local function CreateNexaraCustomUI(ctx)
             Config.Veil_AimKeyName = ConfigSys.FormatKey(key)
             Config.Veil_AimKeyType = key and ((key.EnumType == Enum.UserInputType) and "Mouse" or "Keyboard") or "None"
             if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
-        end)
+        end, { key = "Veil_AimMob", title = "Veil Aimbot", order = 2 })
         ConfigSys.KeyedWidgets.Veil_Aimbot = W.veilAim
         W.veilLineup = VeilCombat:AddCheckbox("Throw Lineup", Config.Veil_ThrowLineup, Config.Color_Veil_Lineup or Color3.fromRGB(80, 230, 255),
             function(v) Config.Veil_ThrowLineup = v end,
@@ -5991,7 +6619,7 @@ local function CreateNexaraCustomUI(ctx)
             Config.AutoParry_KeyName = ConfigSys.FormatKey(key)
             Config.AutoParry_KeyType = key and ((key.EnumType == Enum.UserInputType) and "Mouse" or "Keyboard") or "None"
             if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
-        end)
+        end, { key = "AutoParry_Mob", title = "Auto Parry", order = 3 })
         ConfigSys.KeyedWidgets.AutoParry_Enabled = W.parry
         W.pRad = ParryAuto:AddSlider("Parry Radius", 6, 20, math.floor(Config.AutoParry_Radius or 12), " studs", function(v)
             Config.AutoParry_Radius = v
@@ -6918,6 +7546,9 @@ local function CreateNexaraCustomUI(ctx)
     end, Color3.fromRGB(240, 80, 80))
 
     local curPlatformIdx = (Config.PlatformMode == "Mobile" or UIState.Touch) and 2 or 1
+    if curPlatformIdx == 2 and Config.PlatformMode ~= "Mobile" then
+        Config.PlatformMode = "Mobile"
+    end
     W.platform = MenuMod:AddSegmented("Platform Mode", { "PC", "Mobile" }, curPlatformIdx, function(mode)
         Config.PlatformMode = mode
         if mode == "Mobile" then
@@ -6927,6 +7558,8 @@ local function CreateNexaraCustomUI(ctx)
             MobileToggleBtn.Visible = false
             MainScale.Scale = UIState.BaseScale or 1.0
         end
+        if Theme._closeAllFlyouts then pcall(Theme._closeAllFlyouts) end
+        if Theme._syncMobileButtons then Theme._syncMobileButtons() end
         local kbVis = (Config.ShowKeybindsList ~= false) and (mode ~= "Mobile")
         if ctx.SetKeybindsVisible then pcall(ctx.SetKeybindsVisible, kbVis) end
     end)
@@ -7235,6 +7868,7 @@ local function CreateNexaraCustomUI(ctx)
             pcall(ctx.ApplyWorldCustomNow)
         end
         _G.__Nexara_AlwaysFastVault = (Config.AlwaysFastVault == true)
+        if ctx.SetSelfHealEnabled then pcall(ctx.SetSelfHealEnabled, Config.SelfHeal_Enabled == true) end
         if Config.CustomFOVEnabled then
             pcall(function() workspace.CurrentCamera.FieldOfView = Config.FOV or 80 end)
         end
@@ -7265,6 +7899,11 @@ local function CreateNexaraCustomUI(ctx)
         if (Config.Veil_Aimbot or Config.Veil_SilentAim) and TofCombat and TofCombat.EnsureVeilHooks then
             pcall(TofCombat.EnsureVeilHooks)
         end
+        if Config.Butcher_HookSilentAim and TofCombat and TofCombat.EnsureButcherHooks then
+            pcall(TofCombat.EnsureButcherHooks)
+        elseif TofCombat and TofCombat.HideButcherDrawings then
+            pcall(TofCombat.HideButcherDrawings)
+        end
         local ap = AutoParry or _G.AutoParry or (getgenv and getgenv().AutoParry) or _G.Nexara_VD_AutoParry
         if ap and ap.UpdateCircle then ap.LastCircleUpdateClock = nil; pcall(ap.UpdateCircle) end
         if PumpkinAuras and Config.Color_PumpkinAura then
@@ -7281,11 +7920,22 @@ local function CreateNexaraCustomUI(ctx)
         end
     end
 
+    do
+        local origApplySideEffects = ConfigSys.ApplySideEffects
+        ConfigSys.ApplySideEffects = function(...)
+            if origApplySideEffects then origApplySideEffects(...) end
+            if Theme._syncMobileButtons then Theme._syncMobileButtons() end
+        end
+        task.defer(function()
+            if Theme._syncMobileButtons then Theme._syncMobileButtons() end
+        end)
+    end
+
     if Config.MinimizeUIOnStart then
         MainFrame.Visible = false
         UIState.Visible = false
         WindowObj.Visible = false
-        if UIState.Touch then
+        if UIState.Touch or Config.PlatformMode == "Mobile" then
             MobileToggleBtn.Visible = true
         end
     else
