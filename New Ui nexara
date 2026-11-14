@@ -542,6 +542,38 @@ local function CreateNexaraCustomUI(ctx)
     MainScale.Scale = 1.0
     MainScale.Parent = MainFrame
 
+    local function IsTouchMobileDevice()
+        local okP, plat = pcall(function()
+            return UserInputService:GetPlatform()
+        end)
+        if okP and plat ~= nil then
+            local pName = tostring(plat)
+            if plat == Enum.Platform.Android or plat == Enum.Platform.IOS or pName:find("Android", 1, true) or pName:find("IOS", 1, true) then
+                return true
+            end
+            if plat == Enum.Platform.Windows or plat == Enum.Platform.OSX or pName:find("Windows", 1, true) or pName:find("OSX", 1, true) or pName:find("Linux", 1, true) or pName:find("UWP", 1, true) then
+                return UserInputService.TouchEnabled and (not UserInputService.MouseEnabled) and (not UserInputService.KeyboardEnabled)
+            end
+        end
+        if not UserInputService.TouchEnabled then
+            return false
+        end
+        if not UserInputService.MouseEnabled or not UserInputService.KeyboardEnabled then
+            return true
+        end
+        local okLast, lastType = pcall(function()
+            return UserInputService:GetLastInputType()
+        end)
+        if okLast and lastType == Enum.UserInputType.Touch then
+            return true
+        end
+        local cam = workspace.CurrentCamera
+        if cam and cam.ViewportSize.Y > 0 and cam.ViewportSize.Y < 620 then
+            return true
+        end
+        return UserInputService.AccelerometerEnabled == true
+    end
+
     local UIState = {
         Animating = false,
         Capturing = false,
@@ -549,22 +581,24 @@ local function CreateNexaraCustomUI(ctx)
         Tweens = {},
         Visible = not (Config.MinimizeUIOnStart == true),
         SavedPos = UDim2.new(0.5, 0, 0.5, 0),
-        Touch = UserInputService.TouchEnabled and (not UserInputService.KeyboardEnabled or not UserInputService.MouseEnabled),
+        Touch = IsTouchMobileDevice(),
+        UserSetPlatform = false,
         BaseScale = 1.0,
     }
 
     local function UpdateResponsiveScale()
         local cam = workspace.CurrentCamera
         local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
-        local padW = UIState.Touch and 24 or 40
-        local padH = UIState.Touch and 20 or 40
-        local availW = math.max(300, vp.X - padW)
-        local availH = math.max(260, vp.Y - padH)
+        local isMobile = (Config.PlatformMode == "Mobile") or (UIState.Touch and Config.PlatformMode ~= "PC") or (UIState.Touch and not UIState.UserSetPlatform)
 
-        if UIState.Touch or vp.X < 940 or vp.Y < 600 then
-            local scaleX = availW / 900
-            local scaleY = availH / 560
-            UIState.BaseScale = math.clamp(math.min(scaleX, scaleY), 0.50, 1.0)
+        if isMobile then
+            local scaleX = (vp.X * 0.72) / 900
+            local scaleY = (vp.Y * 0.70) / 560
+            UIState.BaseScale = math.clamp(math.min(scaleX, scaleY), 0.40, 0.72)
+        elseif vp.X < 940 or vp.Y < 600 then
+            local availW = math.max(300, vp.X - 40)
+            local availH = math.max(260, vp.Y - 40)
+            UIState.BaseScale = math.clamp(math.min(availW / 900, availH / 560), 0.45, 1.0)
         else
             UIState.BaseScale = 1.0
         end
@@ -666,7 +700,7 @@ local function CreateNexaraCustomUI(ctx)
                     MainFrame.Visible = false
                 end
                 UIState.Animating = false
-                if UIState.Touch and MobileToggleBtn then
+                if (UIState.Touch or Config.PlatformMode == "Mobile") and MobileToggleBtn then
                     MobileToggleBtn.Visible = true
                 end
             end)
@@ -723,7 +757,7 @@ local function CreateNexaraCustomUI(ctx)
     MobileToggleBtn.BackgroundColor3 = Theme.Sidebar
     MobileToggleBtn.BorderSizePixel = 0
     MobileToggleBtn.AutoButtonColor = false
-    MobileToggleBtn.Visible = UIState.Touch
+    MobileToggleBtn.Visible = UIState.Touch or (Config.PlatformMode == "Mobile")
     MobileToggleBtn.Parent = ScreenGui
     MobileToggleBtn.ZIndex = 1000
 
@@ -7545,20 +7579,26 @@ local function CreateNexaraCustomUI(ctx)
     if curPlatformIdx == 2 and Config.PlatformMode ~= "Mobile" then
         Config.PlatformMode = "Mobile"
     end
+    UpdateResponsiveScale()
     W.platform = MenuMod:AddSegmented("Platform Mode", { "PC", "Mobile" }, curPlatformIdx, function(mode)
+        UIState.UserSetPlatform = true
         Config.PlatformMode = mode
         if mode == "Mobile" then
             MobileToggleBtn.Visible = true
-            UpdateResponsiveScale()
         else
             MobileToggleBtn.Visible = false
-            MainScale.Scale = UIState.BaseScale or 1.0
         end
+        UpdateResponsiveScale()
         if Theme._closeAllFlyouts then pcall(Theme._closeAllFlyouts) end
         if Theme._syncMobileButtons then Theme._syncMobileButtons() end
         local kbVis = (Config.ShowKeybindsList ~= false) and (mode ~= "Mobile")
         if ctx.SetKeybindsVisible then pcall(ctx.SetKeybindsVisible, kbVis) end
     end)
+    UIState.SyncPlatformBtn = function(mode)
+        if W and W.platform then
+            W.platform.Set(mode, true)
+        end
+    end
 
     W.showKb = MenuMod:AddCheckbox("Show Keybinds List", Config.ShowKeybindsList ~= false, nil, function(v)
         Config.ShowKeybindsList = v
@@ -7775,7 +7815,11 @@ local function CreateNexaraCustomUI(ctx)
         if type(Config.UI_Font) == "string" and Theme.ApplyFont then
             Theme.ApplyFont(Config.UI_Font)
         end
+        if UIState.Touch and not UIState.UserSetPlatform and Config.PlatformMode ~= "Mobile" then
+            Config.PlatformMode = "Mobile"
+        end
         W.platform.Set((Config.PlatformMode == "Mobile") and "Mobile" or "PC", true)
+        UpdateResponsiveScale()
         W.showKb.Set(Config.ShowKeybindsList ~= false, true)
         W.streamer.Set(Config.StreamerMode == true, true)
         W.hitLog.Set(Config.HitLog == true, true)
@@ -7877,13 +7921,19 @@ local function CreateNexaraCustomUI(ctx)
                 if h then h.WalkSpeed = Config.Speed_Value or 26 end
             end)
         end
+        if UIState.Touch and not UIState.UserSetPlatform and Config.PlatformMode ~= "Mobile" then
+            Config.PlatformMode = "Mobile"
+        end
+        if UIState.SyncPlatformBtn then
+            UIState.SyncPlatformBtn((Config.PlatformMode == "Mobile") and "Mobile" or "PC")
+        end
         if Config.PlatformMode == "Mobile" then
             MobileToggleBtn.Visible = true
-            UpdateResponsiveScale()
         else
             MobileToggleBtn.Visible = false
-            MainScale.Scale = UIState.BaseScale or 1.0
         end
+        UpdateResponsiveScale()
+        if Theme._syncMobileButtons then pcall(Theme._syncMobileButtons) end
         local kbVis = (Config.ShowKeybindsList ~= false) and (Config.PlatformMode ~= "Mobile")
         if ctx.SetKeybindsVisible then pcall(ctx.SetKeybindsVisible, kbVis) end
         if ctx.SetStreamerMode then pcall(ctx.SetStreamerMode, Config.StreamerMode == true) end
@@ -7937,7 +7987,9 @@ local function CreateNexaraCustomUI(ctx)
             MobileToggleBtn.Visible = true
         end
     else
+        UpdateResponsiveScale()
         task.defer(function()
+            UpdateResponsiveScale()
             local openTargetPos = UIState.SavedPos or UDim2.new(0.5, 0, 0.5, 0)
             local openStartPos = UDim2.new(openTargetPos.X.Scale, openTargetPos.X.Offset, openTargetPos.Y.Scale, openTargetPos.Y.Offset + 18)
             MainFrame.Position = openStartPos
