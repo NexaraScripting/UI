@@ -542,6 +542,46 @@ local function CreateNexaraCustomUI(ctx)
     MainScale.Scale = 1.0
     MainScale.Parent = MainFrame
 
+    Theme._layoutRefreshers = {}
+    function Theme._getGuiBounds()
+        if ScreenGui and ScreenGui.AbsoluteSize and ScreenGui.AbsoluteSize.X > 0 and ScreenGui.AbsoluteSize.Y > 0 then
+            return ScreenGui.AbsoluteSize
+        end
+        local cam = workspace.CurrentCamera
+        return cam and cam.ViewportSize or Vector2.new(1280, 720)
+    end
+    function Theme._getMainScale()
+        return math.max((MainScale and MainScale.Scale) or 1, 0.25)
+    end
+    function Theme._refreshScaledLayouts()
+        for _, fn in ipairs(Theme._layoutRefreshers) do
+            pcall(fn)
+        end
+    end
+    function Theme._clampMainPos(pos, targetScale)
+        local vp = Theme._getGuiBounds()
+        local s = math.max(targetScale or (MainScale and MainScale.Scale) or 1, 0.25)
+        local halfW = math.floor(450 * s + 0.5)
+        local halfH = math.floor(280 * s + 0.5)
+        local minX = math.min(halfW + 6, math.floor(vp.X * 0.5))
+        local maxX = math.max(minX, math.floor(vp.X - halfW - 6))
+        local minY = math.min(halfH + 6, math.floor(vp.Y * 0.5))
+        local maxY = math.max(minY, math.floor(vp.Y - halfH - 6))
+        local ax = pos.X.Scale * vp.X + pos.X.Offset
+        local ay = pos.Y.Scale * vp.Y + pos.Y.Offset
+        local cx = math.clamp(ax, minX, maxX)
+        local cy = math.clamp(ay, minY, maxY)
+        return UDim2.new(0.5, math.floor(cx - vp.X * 0.5 + 0.5), 0.5, math.floor(cy - vp.Y * 0.5 + 0.5))
+    end
+    function Theme._clampMobBtnPos(pos)
+        local vp = Theme._getGuiBounds()
+        local ax = pos.X.Scale * vp.X + pos.X.Offset
+        local ay = pos.Y.Scale * vp.Y + pos.Y.Offset
+        local cx = math.clamp(math.floor(ax + 0.5), 8, math.max(8, math.floor(vp.X - 54)))
+        local cy = math.clamp(math.floor(ay + 0.5), 8, math.max(8, math.floor(vp.Y - 54)))
+        return UDim2.fromOffset(cx, cy)
+    end
+
     local function IsTouchMobileDevice()
         local okP, plat = pcall(function()
             return UserInputService:GetPlatform()
@@ -587,14 +627,13 @@ local function CreateNexaraCustomUI(ctx)
     }
 
     local function UpdateResponsiveScale()
-        local cam = workspace.CurrentCamera
-        local vp = cam and cam.ViewportSize or Vector2.new(1280, 720)
+        local vp = Theme._getGuiBounds()
         local isMobile = (Config.PlatformMode == "Mobile") or (UIState.Touch and Config.PlatformMode ~= "PC") or (UIState.Touch and not UIState.UserSetPlatform)
 
         if isMobile then
-            local scaleX = (vp.X * 0.72) / 900
-            local scaleY = (vp.Y * 0.70) / 560
-            UIState.BaseScale = math.clamp(math.min(scaleX, scaleY), 0.40, 0.72)
+            local scaleX = (vp.X * 0.68) / 900
+            local scaleY = (vp.Y * 0.66) / 560
+            UIState.BaseScale = math.clamp(math.min(scaleX, scaleY), 0.38, 0.68)
         elseif vp.X < 940 or vp.Y < 600 then
             local availW = math.max(300, vp.X - 40)
             local availH = math.max(260, vp.Y - 40)
@@ -604,7 +643,13 @@ local function CreateNexaraCustomUI(ctx)
         end
         if not UIState.Animating then
             MainScale.Scale = UIState.BaseScale
+            MainFrame.Position = Theme._clampMainPos(MainFrame.Position, UIState.BaseScale)
+            UIState.SavedPos = MainFrame.Position
         end
+        if MobileToggleBtn then
+            MobileToggleBtn.Position = Theme._clampMobBtnPos(MobileToggleBtn.Position)
+        end
+        task.defer(Theme._refreshScaledLayouts)
         if Theme and Theme._syncMobileButtons then
             Theme._syncMobileButtons()
         end
@@ -646,14 +691,14 @@ local function CreateNexaraCustomUI(ctx)
         if targetState then
             if Theme._closeAllFlyouts then pcall(Theme._closeAllFlyouts) end
 
-            local openTargetPos = UIState.SavedPos or UDim2.new(0.5, 0, 0.5, 0)
+            local openTargetPos = Theme._clampMainPos(UIState.SavedPos or UDim2.new(0.5, 0, 0.5, 0), curBaseScale)
+            UIState.SavedPos = openTargetPos
             local openStartPos = UDim2.new(openTargetPos.X.Scale, openTargetPos.X.Offset, openTargetPos.Y.Scale, openTargetPos.Y.Offset + 18)
 
             MainFrame.Position = openStartPos
             MainScale.Scale = curBaseScale * 0.90
             MainFrame.GroupTransparency = 1
             MainFrame.Visible = true
-            if MobileToggleBtn then MobileToggleBtn.Visible = false end
 
             local tOpen = TweenService:Create(MainFrame, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                 Position = openTargetPos,
@@ -674,6 +719,7 @@ local function CreateNexaraCustomUI(ctx)
                 MainFrame.Position = openTargetPos
                 MainScale.Scale = curBaseScale
                 MainFrame.GroupTransparency = 0
+                Theme._refreshScaledLayouts()
             end)
         else
             if Theme._closeAllFlyouts then pcall(Theme._closeAllFlyouts) end
@@ -700,7 +746,7 @@ local function CreateNexaraCustomUI(ctx)
                     MainFrame.Visible = false
                 end
                 UIState.Animating = false
-                if (UIState.Touch or Config.PlatformMode == "Mobile") and MobileToggleBtn then
+                if (Config.PlatformMode == "Mobile" or (UIState.Touch and Config.PlatformMode ~= "PC")) and MobileToggleBtn then
                     MobileToggleBtn.Visible = true
                 end
             end)
@@ -746,18 +792,19 @@ local function CreateNexaraCustomUI(ctx)
         if input == dragInput and dragging then
             local curScale = MainScale and MainScale.Scale or 1
             local delta = (input.Position - dragStart) / curScale
-            MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            MainFrame.Position = Theme._clampMainPos(UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y), curScale)
         end
     end)
 
     MobileToggleBtn = Instance.new("ImageButton")
     MobileToggleBtn.Name = "MobileToggleBtn"
     MobileToggleBtn.Size = UDim2.fromOffset(46, 46)
-    MobileToggleBtn.Position = UDim2.new(0, 16, 0.5, -23)
+    MobileToggleBtn.Position = Theme._clampMobBtnPos(UDim2.new(0, 16, 0.5, -23))
     MobileToggleBtn.BackgroundColor3 = Theme.Sidebar
     MobileToggleBtn.BorderSizePixel = 0
     MobileToggleBtn.AutoButtonColor = false
-    MobileToggleBtn.Visible = UIState.Touch or (Config.PlatformMode == "Mobile")
+    MobileToggleBtn.ClipsDescendants = true
+    MobileToggleBtn.Visible = (Config.PlatformMode == "Mobile") or (UIState.Touch and Config.PlatformMode ~= "PC")
     MobileToggleBtn.Parent = ScreenGui
     MobileToggleBtn.ZIndex = 1000
 
@@ -773,36 +820,59 @@ local function CreateNexaraCustomUI(ctx)
 
     local MobIcon = Instance.new("ImageLabel")
     MobIcon.Name = "Icon"
-    MobIcon.Size = UDim2.fromOffset(24, 24)
-    MobIcon.Position = UDim2.new(0.5, -12, 0.5, -12)
+    MobIcon.Active = false
+    MobIcon.Size = UDim2.fromScale(1, 1)
+    MobIcon.Position = UDim2.fromScale(0, 0)
     MobIcon.BackgroundTransparency = 1
-    MobIcon.Image = "rbxassetid://10723346959"
-    MobIcon.ImageColor3 = Theme.Accent
+    MobIcon.Image = "rbxassetid://90559595473272"
+    MobIcon.ScaleType = Enum.ScaleType.Fit
+    MobIcon.ZIndex = 1001
     MobIcon.Parent = MobileToggleBtn
-    Theme.RegisterAccent(MobIcon, "ImageColor3")
 
-    local mobDragging = false
-    local mobDragStart, mobStartPos
-    MobileToggleBtn.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-            mobDragging = true
-            mobDragStart = input.Position
-            mobStartPos = MobileToggleBtn.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then mobDragging = false end
-            end)
-        end
-    end)
-    ConnectUI(UserInputService.InputChanged, function(input)
-        if mobDragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+    local MobIconCorner = Instance.new("UICorner")
+    MobIconCorner.CornerRadius = UDim.new(1, 0)
+    MobIconCorner.Parent = MobIcon
+
+    do
+        local mobDragging = false
+        local mobMoved = false
+        local mobDragInput, mobDragStart, mobStartPos
+        ConnectUI(MobileToggleBtn.InputBegan, function(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                mobDragging = true
+                mobMoved = false
+                mobDragInput = input
+                mobDragStart = input.Position
+                mobStartPos = MobileToggleBtn.Position
+            end
+        end)
+        ConnectUI(UserInputService.InputChanged, function(input)
+            if not mobDragging or not mobDragStart then return end
+            if input.UserInputType == Enum.UserInputType.Touch then
+                if mobDragInput and mobDragInput.UserInputType == Enum.UserInputType.Touch and input ~= mobDragInput then return end
+            elseif input.UserInputType ~= Enum.UserInputType.MouseMovement then
+                return
+            end
             local delta = input.Position - mobDragStart
-            MobileToggleBtn.Position = UDim2.new(mobStartPos.X.Scale, mobStartPos.X.Offset + delta.X, mobStartPos.Y.Scale, mobStartPos.Y.Offset + delta.Y)
-        end
-    end)
-
-    MobileToggleBtn.MouseButton1Click:Connect(function()
-        ToggleUI()
-    end)
+            if not mobMoved and delta.Magnitude >= 8 then mobMoved = true end
+            if mobMoved then
+                MobileToggleBtn.Position = Theme._clampMobBtnPos(UDim2.new(mobStartPos.X.Scale, mobStartPos.X.Offset + delta.X, mobStartPos.Y.Scale, mobStartPos.Y.Offset + delta.Y))
+            end
+        end)
+        ConnectUI(UserInputService.InputEnded, function(input)
+            if not mobDragging then return end
+            if input.UserInputType == Enum.UserInputType.Touch then
+                if mobDragInput and mobDragInput.UserInputType == Enum.UserInputType.Touch and input ~= mobDragInput then return end
+            elseif input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+                return
+            end
+            mobDragging = false
+            mobDragInput = nil
+            if not mobMoved then
+                ToggleUI()
+            end
+        end)
+    end
 
     local Sidebar = Instance.new("Frame")
     Sidebar.Name = "Sidebar"
@@ -881,9 +951,10 @@ local function CreateNexaraCustomUI(ctx)
     TabPadding.PaddingTop = UDim.new(0, 6)
     TabPadding.Parent = TabScroll
 
-    TabListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        TabScroll.CanvasSize = UDim2.new(0, 0, 0, TabListLayout.AbsoluteContentSize.Y + 16)
+    table.insert(Theme._layoutRefreshers, function()
+        TabScroll.CanvasSize = UDim2.new(0, 0, 0, math.ceil(TabListLayout.AbsoluteContentSize.Y / Theme._getMainScale()) + 16)
     end)
+    TabListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(Theme._layoutRefreshers[#Theme._layoutRefreshers])
 
     local TopBar = Instance.new("Frame")
     TopBar.Name = "TopBar"
@@ -2079,23 +2150,16 @@ local function CreateNexaraCustomUI(ctx)
             local screenH = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 1080
 
             local flyoutW = 150
-            local targetX = rowX + rowW + 10
-            if targetX + flyoutW > screenW - 8 then
-                targetX = screenW - flyoutW - 8
-            end
-
-            local targetY = math.clamp(rowY - 2, 15, screenH - 45)
+            local targetX = math.clamp(rowX + rowW + 10, 8, math.max(8, screenW - flyoutW - 8))
+            local targetY = math.clamp(rowY - 2, 15, math.max(15, screenH - 45))
             ColorFlyout.Position = UDim2.fromOffset(targetX, targetY)
 
             local bigW = 195
             local bigH = 245
-            local bigX = targetX
-            if bigX + bigW > screenW - 8 then
-                bigX = screenW - bigW - 8
-            end
+            local bigX = math.clamp(targetX, 8, math.max(8, screenW - bigW - 8))
             local bigY = targetY + 36
             if bigY + bigH > screenH - 12 then
-                bigY = math.clamp(targetY - bigH - 6, 15, screenH - bigH - 12)
+                bigY = math.clamp(targetY - bigH - 6, 12, math.max(12, screenH - bigH - 12))
             end
 
             BigPicker.Position = UDim2.fromOffset(bigX, bigY)
@@ -2111,12 +2175,8 @@ local function CreateNexaraCustomUI(ctx)
             local screenH = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 1080
 
             local flyoutW = 185
-            local targetX = rowX + rowW + 10
-            if targetX + flyoutW > screenW - 8 then
-                targetX = screenW - flyoutW - 8
-            end
-
-            local targetY = math.clamp(rowY - 2, 15, screenH - 45)
+            local targetX = math.clamp(rowX + rowW + 10, 8, math.max(8, screenW - flyoutW - 8))
+            local targetY = math.clamp(rowY - 2, 15, math.max(15, screenH - 45))
             SliderFlyout.Position = UDim2.fromOffset(targetX, targetY)
         end
     end
@@ -2130,12 +2190,8 @@ local function CreateNexaraCustomUI(ctx)
             local screenH = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 1080
 
             local flyoutW = 180
-            local targetX = rowX + rowW + 10
-            if targetX + flyoutW > screenW - 8 then
-                targetX = screenW - flyoutW - 8
-            end
-
-            local targetY = math.clamp(rowY - 2, 15, screenH - 45)
+            local targetX = math.clamp(rowX + rowW + 10, 8, math.max(8, screenW - flyoutW - 8))
+            local targetY = math.clamp(rowY - 2, 15, math.max(15, screenH - 45))
             KeybindFlyout.Position = UDim2.fromOffset(targetX, targetY)
         end
     end
@@ -2166,8 +2222,12 @@ local function CreateNexaraCustomUI(ctx)
             if DD.List then
                 local listH = DD.GetMetrics()
                 local listY = targetY + flyoutH + 4
-                if listH > 0 and (listY + listH > screenH - 12) and (targetY - listH - 4 >= 12) then
-                    listY = targetY - listH - 4
+                if listH > 0 and (listY + listH > screenH - 12) then
+                    if targetY - listH - 4 >= 12 then
+                        listY = targetY - listH - 4
+                    else
+                        listY = math.max(12, screenH - listH - 12)
+                    end
                 end
                 DD.List.Position = UDim2.fromOffset(targetX, listY)
             end
@@ -3152,6 +3212,7 @@ local function CreateNexaraCustomUI(ctx)
         if pageScroll then
             pageScroll.CanvasPosition = Vector2.new(0, 0)
         end
+        task.defer(Theme._refreshScaledLayouts)
 
         BreadcrumbLabel.TextTransparency = 0.75
         if subName then
@@ -3354,21 +3415,23 @@ local function CreateNexaraCustomUI(ctx)
                 ColFull.BackgroundTransparency = 1
                 ColFull.Parent = ColContainer
 
+                local function updateSubPageCanvas()
+                    local leftLayout = ColLeft:FindFirstChildOfClass("UIListLayout")
+                    local rightLayout = ColRight:FindFirstChildOfClass("UIListLayout")
+                    local fullLayout = ColFull:FindFirstChildOfClass("UIListLayout")
+                    local leftH = leftLayout and leftLayout.AbsoluteContentSize.Y or 0
+                    local rightH = rightLayout and rightLayout.AbsoluteContentSize.Y or 0
+                    local fullH = fullLayout and fullLayout.AbsoluteContentSize.Y or 0
+                    local maxH = math.ceil(math.max(leftH, rightH, fullH) / Theme._getMainScale())
+                    PageFrame.CanvasSize = UDim2.new(0, 0, 0, maxH + 30)
+                end
+                table.insert(Theme._layoutRefreshers, updateSubPageCanvas)
                 local function setupColLayout(col)
                     local layout = Instance.new("UIListLayout")
                     layout.SortOrder = Enum.SortOrder.LayoutOrder
                     layout.Padding = UDim.new(0, 12)
                     layout.Parent = col
-                    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-                        local leftLayout = ColLeft:FindFirstChildOfClass("UIListLayout")
-                        local rightLayout = ColRight:FindFirstChildOfClass("UIListLayout")
-                        local fullLayout = ColFull:FindFirstChildOfClass("UIListLayout")
-                        local leftH = leftLayout and leftLayout.AbsoluteContentSize.Y or 0
-                        local rightH = rightLayout and rightLayout.AbsoluteContentSize.Y or 0
-                        local fullH = fullLayout and fullLayout.AbsoluteContentSize.Y or 0
-                        local maxH = math.max(leftH, rightH, fullH)
-                        PageFrame.CanvasSize = UDim2.new(0, 0, 0, maxH + 30)
-                    end)
+                    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateSubPageCanvas)
                 end
                 setupColLayout(ColLeft)
                 setupColLayout(ColRight)
@@ -3458,21 +3521,23 @@ local function CreateNexaraCustomUI(ctx)
             ColFull.BackgroundTransparency = 1
             ColFull.Parent = ColContainer
 
+            local function updateMainPageCanvas()
+                local leftLayout = ColLeft:FindFirstChildOfClass("UIListLayout")
+                local rightLayout = ColRight:FindFirstChildOfClass("UIListLayout")
+                local fullLayout = ColFull:FindFirstChildOfClass("UIListLayout")
+                local leftH = leftLayout and leftLayout.AbsoluteContentSize.Y or 0
+                local rightH = rightLayout and rightLayout.AbsoluteContentSize.Y or 0
+                local fullH = fullLayout and fullLayout.AbsoluteContentSize.Y or 0
+                local maxH = math.ceil(math.max(leftH, rightH, fullH) / Theme._getMainScale())
+                PageFrame.CanvasSize = UDim2.new(0, 0, 0, maxH + 30)
+            end
+            table.insert(Theme._layoutRefreshers, updateMainPageCanvas)
             local function setupColLayout(col)
                 local layout = Instance.new("UIListLayout")
                 layout.SortOrder = Enum.SortOrder.LayoutOrder
                 layout.Padding = UDim.new(0, 12)
                 layout.Parent = col
-                layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-                    local leftLayout = ColLeft:FindFirstChildOfClass("UIListLayout")
-                    local rightLayout = ColRight:FindFirstChildOfClass("UIListLayout")
-                    local fullLayout = ColFull:FindFirstChildOfClass("UIListLayout")
-                    local leftH = leftLayout and leftLayout.AbsoluteContentSize.Y or 0
-                    local rightH = rightLayout and rightLayout.AbsoluteContentSize.Y or 0
-                    local fullH = fullLayout and fullLayout.AbsoluteContentSize.Y or 0
-                    local maxH = math.max(leftH, rightH, fullH)
-                    PageFrame.CanvasSize = UDim2.new(0, 0, 0, maxH + 30)
-                end)
+                layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateMainPageCanvas)
             end
             setupColLayout(ColLeft)
             setupColLayout(ColRight)
@@ -3606,9 +3671,12 @@ local function CreateNexaraCustomUI(ctx)
         Header.LayoutOrder = 0
         Header.Parent = Card
 
-        CardList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-            Card.Size = UDim2.new(1, 0, 0, CardList.AbsoluteContentSize.Y + 22)
-        end)
+        local function updateCardSize()
+            Card.Size = UDim2.new(1, 0, 0, math.ceil(CardList.AbsoluteContentSize.Y / Theme._getMainScale()) + 22)
+        end
+        table.insert(Theme._layoutRefreshers, updateCardSize)
+        CardList:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateCardSize)
+        task.defer(updateCardSize)
 
         Card.MouseEnter:Connect(function()
             TweenService:Create(CardStroke, TweenInfo.new(0.2), { Color = Color3.fromRGB(56, 56, 72) }):Play()
@@ -4659,9 +4727,11 @@ local function CreateNexaraCustomUI(ctx)
             Grid.CellPadding = UDim2.fromOffset(8, 8)
             Grid.Parent = GridContainer
 
-            Grid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-                GridContainer.Size = UDim2.new(1, 0, 0, Grid.AbsoluteContentSize.Y)
-            end)
+            local function updateGridSize()
+                GridContainer.Size = UDim2.new(1, 0, 0, math.ceil(Grid.AbsoluteContentSize.Y / Theme._getMainScale()))
+            end
+            table.insert(Theme._layoutRefreshers, updateGridSize)
+            Grid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateGridSize)
 
             local currentSelected = initialSelected
             local tileStrokes = {}
@@ -4871,7 +4941,7 @@ local function CreateNexaraCustomUI(ctx)
             end
 
             task.defer(function()
-                GridContainer.Size = UDim2.new(1, 0, 0, Grid.AbsoluteContentSize.Y)
+                GridContainer.Size = UDim2.new(1, 0, 0, math.ceil(Grid.AbsoluteContentSize.Y / Theme._getMainScale()))
             end)
 
             ConfigSys.SyncWorldPresetVisual = function(selId)
@@ -5345,15 +5415,19 @@ local function CreateNexaraCustomUI(ctx)
                 local count = math.min(#options, 6)
                 local popHeight = (count * 28) + 8
                 local cam = workspace.CurrentCamera
+                local screenW = cam and cam.ViewportSize.X or 1920
                 local screenH = cam and cam.ViewportSize.Y or 1080
+                local popW = math.max(absSize.X, 40)
+                local popX = math.clamp(absPos.X, 8, math.max(8, screenW - popW - 8))
                 local openUp = (absPos.Y + absSize.Y + 4 + popHeight > screenH - 8) and (absPos.Y - popHeight - 4 > 8)
 
                 if openUp then
                     Popup.AnchorPoint = Vector2.new(0, 1)
-                    Popup.Position = UDim2.fromOffset(absPos.X, absPos.Y - 4)
+                    Popup.Position = UDim2.fromOffset(popX, math.clamp(absPos.Y - 4, popHeight + 8, math.max(popHeight + 8, screenH - 8)))
                 else
                     Popup.AnchorPoint = Vector2.new(0, 0)
-                    Popup.Position = UDim2.fromOffset(absPos.X, absPos.Y + absSize.Y + 4)
+                    local popY = math.clamp(absPos.Y + absSize.Y + 4, 8, math.max(8, screenH - popHeight - 8))
+                    Popup.Position = UDim2.fromOffset(popX, popY)
                 end
 
                 PopScroll.CanvasSize = UDim2.new(0, 0, 0, (#options * 28) + 8)
@@ -7990,7 +8064,8 @@ local function CreateNexaraCustomUI(ctx)
         UpdateResponsiveScale()
         task.defer(function()
             UpdateResponsiveScale()
-            local openTargetPos = UIState.SavedPos or UDim2.new(0.5, 0, 0.5, 0)
+            local openTargetPos = Theme._clampMainPos(UIState.SavedPos or UDim2.new(0.5, 0, 0.5, 0), UIState.BaseScale or 1.0)
+            UIState.SavedPos = openTargetPos
             local openStartPos = UDim2.new(openTargetPos.X.Scale, openTargetPos.X.Offset, openTargetPos.Y.Scale, openTargetPos.Y.Offset + 18)
             MainFrame.Position = openStartPos
             MainScale.Scale = (UIState.BaseScale or 1.0) * 0.90
@@ -8004,6 +8079,12 @@ local function CreateNexaraCustomUI(ctx)
             TweenService:Create(MainScale, TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
                 Scale = UIState.BaseScale or 1.0
             }):Play()
+            task.delay(0.28, function()
+                if UIState.Visible and not UIState.Animating then
+                    MainScale.Scale = UIState.BaseScale or 1.0
+                    Theme._refreshScaledLayouts()
+                end
+            end)
         end)
     end
 
