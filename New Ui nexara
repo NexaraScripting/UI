@@ -67,7 +67,7 @@ local function CreateNexaraCustomUI(ctx)
             return v
         end
         function ConfigSys.NormalizeConfig()
-            for _, p in ipairs({ "Tof_Aim", "Veil_Aim", "AutoParry_", "SelfHeal_" }) do
+            for _, p in ipairs({ "Tof_Aim", "Veil_Aim", "AutoParry_" }) do
                 local kc = ConfigSys.ResolveKey(Config[p .. "KeyCode"], Config[p .. "KeyName"])
                 Config[p .. "KeyCode"] = kc
                 if kc then
@@ -5948,6 +5948,15 @@ local function CreateNexaraCustomUI(ctx)
             end
         end
     )
+    W.stretched = PlayerCam:AddCheckboxWithSlider("Stretched Screen", Config.StretchedEnabled, 100, 200, math.floor(Config.StretchedAmount or 133), "%", "Stretch",
+        function(v)
+            Config.StretchedEnabled = v
+            if not v and ctx and ctx.RestoreCameraStretch then pcall(ctx.RestoreCameraStretch) end
+        end,
+        function(v)
+            Config.StretchedAmount = v
+        end
+    )
 
     local MovementMod = WindowObj:CreateModule("Miscellaneous_General", "Right", "Movement", "")
     W.spdEn = MovementMod:AddCheckbox("Speed Hack", Config.Speed_Enabled or Config.SpeedHack, nil, function(v)
@@ -5990,19 +5999,6 @@ local function CreateNexaraCustomUI(ctx)
         Config.AlwaysFastVault = v
         _G.__Nexara_AlwaysFastVault = v
     end)
-
-    local SelfHealMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Self Heal", "")
-    W.selfHeal = SelfHealMod:AddCheckboxWithKeybind("Self Heal", Config.SelfHeal_Enabled, Config.SelfHeal_KeyCode, function(v)
-        Config.SelfHeal_Enabled = v
-        if ctx.SetSelfHealEnabled then pcall(ctx.SetSelfHealEnabled, v) end
-        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
-    end, function(key)
-        Config.SelfHeal_KeyCode = key
-        Config.SelfHeal_KeyName = ConfigSys.FormatKey(key)
-        Config.SelfHeal_KeyType = key and ((key.EnumType == Enum.UserInputType) and "Mouse" or "Keyboard") or "None"
-        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
-    end, { key = "SelfHeal_Mob", title = "Self Heal", order = 4 })
-    ConfigSys.KeyedWidgets.SelfHeal_Enabled = W.selfHeal
 
     local AutoSkillMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Auto Skill Check", "")
     W.scGen = AutoSkillMod:AddCheckbox("Generator Skill Check", Config.AutoSkillCheck, nil, function(v)
@@ -6446,13 +6442,13 @@ local function CreateNexaraCustomUI(ctx)
     table.insert(ConfigSys.SyncHandlers, function()
         W.fov.Set((Config.CustomFOVEnabled == true or Config.CustomFOV == true), true)
         W.fov.SetSlider(Config.FOV or Config.FOVValue or 80, true)
+        if W.stretched then
+            W.stretched.Set(Config.StretchedEnabled == true, true)
+            W.stretched.SetSlider(Config.StretchedAmount or 133, true)
+        end
         W.spdEn.Set((Config.Speed_Enabled == true or Config.SpeedHack == true), true)
         W.spdVal.Set(Config.Speed_Value or Config.SpeedValue or 26, true)
         W.fv.Set(Config.AlwaysFastVault == true, true)
-        if W.selfHeal then
-            W.selfHeal.Set(Config.SelfHeal_Enabled == true, true)
-            W.selfHeal.SetKey(Config.SelfHeal_KeyCode, true)
-        end
         W.scGen.Set(Config.AutoSkillCheck == true, true)
         W.scTrap.Set(Config.AutoSkillCheck_Trap == true, true)
         W.blind.Set(Config.BlindProgressEnabled == true, true)
@@ -7868,9 +7864,11 @@ local function CreateNexaraCustomUI(ctx)
             pcall(ctx.ApplyWorldCustomNow)
         end
         _G.__Nexara_AlwaysFastVault = (Config.AlwaysFastVault == true)
-        if ctx.SetSelfHealEnabled then pcall(ctx.SetSelfHealEnabled, Config.SelfHeal_Enabled == true) end
         if Config.CustomFOVEnabled then
             pcall(function() workspace.CurrentCamera.FieldOfView = Config.FOV or 80 end)
+        end
+        if not Config.StretchedEnabled and ctx and ctx.RestoreCameraStretch then
+            pcall(ctx.RestoreCameraStretch)
         end
         if Config.Speed_Enabled then
             pcall(function()
