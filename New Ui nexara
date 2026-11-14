@@ -4023,7 +4023,7 @@ local function CreateNexaraCustomUI(ctx)
             local Grid = Instance.new("UIGridLayout")
             Grid.Name = "GridLayout"
             Grid.SortOrder = Enum.SortOrder.LayoutOrder
-            Grid.CellSize = UDim2.new(0.3333, -6, 0, 96)
+            Grid.CellSize = UDim2.new(0.3333, -6, 0, 144)
             Grid.CellPadding = UDim2.fromOffset(8, 8)
             Grid.Parent = GridContainer
 
@@ -4062,9 +4062,9 @@ local function CreateNexaraCustomUI(ctx)
 
                 local previewBox = Instance.new("Frame")
                 previewBox.Name = "PreviewBox"
-                previewBox.Size = UDim2.new(1, -8, 0, 58)
+                previewBox.Size = UDim2.new(1, -8, 0, 110)
                 previewBox.Position = UDim2.new(0, 4, 0, 4)
-                previewBox.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+                previewBox.BackgroundColor3 = (preset.Colors and preset.Colors.Mid) or Color3.fromRGB(18, 18, 24)
                 previewBox.BorderSizePixel = 0
                 previewBox.ClipsDescendants = true
                 previewBox.Parent = tileBtn
@@ -4081,6 +4081,72 @@ local function CreateNexaraCustomUI(ctx)
                     previewImg.Image = preset.Image
                     previewImg.ScaleType = Enum.ScaleType.Crop
                     previewImg.Parent = previewBox
+                    local imgCorner = Instance.new("UICorner")
+                    imgCorner.CornerRadius = UDim.new(0, 4)
+                    imgCorner.Parent = previewImg
+                elseif preset.Colors then
+                    previewBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                    local grad = Instance.new("UIGradient")
+                    grad.Name = "SkyGrad"
+                    grad.Rotation = 90
+                    grad.Color = ColorSequence.new({
+                        ColorSequenceKeypoint.new(0, preset.Colors.Top),
+                        ColorSequenceKeypoint.new(0.55, preset.Colors.Mid or preset.Colors.Top),
+                        ColorSequenceKeypoint.new(1, preset.Colors.Bottom)
+                    })
+                    grad.Parent = previewBox
+
+                    local halo = Instance.new("Frame")
+                    halo.Name = "OrbHalo"
+                    halo.Size = UDim2.fromOffset(30, 30)
+                    halo.Position = UDim2.new(0.75, -15, 0.34, -15)
+                    halo.BackgroundColor3 = preset.Colors.Orb or Color3.fromRGB(255, 255, 255)
+                    halo.BackgroundTransparency = 0.72
+                    halo.BorderSizePixel = 0
+                    halo.ZIndex = 2
+                    halo.Parent = previewBox
+                    local haloCorner = Instance.new("UICorner")
+                    haloCorner.CornerRadius = UDim.new(1, 0)
+                    haloCorner.Parent = halo
+
+                    local orb = Instance.new("Frame")
+                    orb.Name = "OrbCore"
+                    orb.Size = UDim2.fromOffset(16, 16)
+                    orb.Position = UDim2.new(0.5, -8, 0.5, -8)
+                    orb.BackgroundColor3 = preset.Colors.Orb or Color3.fromRGB(255, 255, 255)
+                    orb.BackgroundTransparency = 0.05
+                    orb.BorderSizePixel = 0
+                    orb.ZIndex = 3
+                    orb.Parent = halo
+                    local orbCorner = Instance.new("UICorner")
+                    orbCorner.CornerRadius = UDim.new(1, 0)
+                    orbCorner.Parent = orb
+
+                    local hillBack = Instance.new("Frame")
+                    hillBack.Name = "HillBack"
+                    hillBack.Size = UDim2.new(0.85, 0, 0, 34)
+                    hillBack.Position = UDim2.new(-0.1, 0, 1, -18)
+                    hillBack.BackgroundColor3 = Color3.fromRGB(12, 12, 20)
+                    hillBack.BackgroundTransparency = 0.45
+                    hillBack.BorderSizePixel = 0
+                    hillBack.ZIndex = 4
+                    hillBack.Parent = previewBox
+                    local hillBackCorner = Instance.new("UICorner")
+                    hillBackCorner.CornerRadius = UDim.new(1, 0)
+                    hillBackCorner.Parent = hillBack
+
+                    local hillFront = Instance.new("Frame")
+                    hillFront.Name = "HillFront"
+                    hillFront.Size = UDim2.new(0.95, 0, 0, 30)
+                    hillFront.Position = UDim2.new(0.25, 0, 1, -14)
+                    hillFront.BackgroundColor3 = Color3.fromRGB(9, 10, 16)
+                    hillFront.BackgroundTransparency = 0.18
+                    hillFront.BorderSizePixel = 0
+                    hillFront.ZIndex = 5
+                    hillFront.Parent = previewBox
+                    local hillFrontCorner = Instance.new("UICorner")
+                    hillFrontCorner.CornerRadius = UDim.new(1, 0)
+                    hillFrontCorner.Parent = hillFront
                 else
                     local qMark = Instance.new("TextLabel")
                     qMark.Name = "QuestionMark"
@@ -4093,13 +4159,37 @@ local function CreateNexaraCustomUI(ctx)
                     qMark.Parent = previewBox
                 end
 
+                if preset.Tag and preset.Tag ~= "" then
+                    local badge = Instance.new("TextLabel")
+                    badge.Name = "TagBadge"
+                    badge.AutomaticSize = Enum.AutomaticSize.X
+                    badge.Size = UDim2.fromOffset(0, 15)
+                    badge.Position = UDim2.fromOffset(6, 6)
+                    badge.BackgroundColor3 = Color3.fromRGB(10, 10, 16)
+                    badge.BackgroundTransparency = 0.35
+                    badge.BorderSizePixel = 0
+                    badge.Font = Enum.Font.GothamBold
+                    badge.TextSize = 9
+                    badge.TextColor3 = Color3.fromRGB(240, 240, 250)
+                    badge.Text = preset.Tag
+                    badge.ZIndex = 6
+                    badge.Parent = previewBox
+                    local bPad = Instance.new("UIPadding")
+                    bPad.PaddingLeft = UDim.new(0, 6)
+                    bPad.PaddingRight = UDim.new(0, 6)
+                    bPad.Parent = badge
+                    local bCor = Instance.new("UICorner")
+                    bCor.CornerRadius = UDim.new(0, 4)
+                    bCor.Parent = badge
+                end
+
                 local titleLbl = Instance.new("TextLabel")
                 titleLbl.Name = "TitleLabel"
-                titleLbl.Size = UDim2.new(1, -6, 0, 30)
-                titleLbl.Position = UDim2.new(0, 3, 0, 64)
+                titleLbl.Size = UDim2.new(1, -8, 0, 24)
+                titleLbl.Position = UDim2.new(0, 4, 0, 117)
                 titleLbl.BackgroundTransparency = 1
                 titleLbl.Font = Enum.Font.GothamMedium
-                titleLbl.TextSize = 10
+                titleLbl.TextSize = 11
                 titleLbl.TextColor3 = isSel and Theme.Text or Theme.TextMuted
                 titleLbl.TextWrapped = true
                 titleLbl.TextTruncate = Enum.TextTruncate.AtEnd
@@ -5358,27 +5448,377 @@ local function CreateNexaraCustomUI(ctx)
     end)
 
     local WorldPresets = {
-        { Id = "DreadMode", Name = "DreadMode", Image = "" },
-        { Id = "DreadMode_Lantern", Name = "DreadMode Lantern", Image = "" },
-        { Id = "Garden_of_Joy", Name = "Garden of Joy", Image = "" },
-        { Id = "RPD", Name = "Raccoon City Police Station", Image = "" },
-        { Id = "Badham", Name = "Badham Preschool I", Image = "" },
-        { Id = "The_Game", Name = "The Game", Image = "" },
-        { Id = "Ormond", Name = "Mount Ormond Resort", Image = "" },
-        { Id = "Dead_Dawg", Name = "Dead Dawg Saloon", Image = "" },
-        { Id = "Eyrie_of_Crows", Name = "Eyrie of Crows", Image = "" },
+        {
+            Id = "Blood_Moon",
+            Name = "Blood Moon",
+            Tag = "BLOOD • ASH",
+            Image = "rbxassetid://108294493401822",
+            Colors = { Top = Color3.fromRGB(22, 8, 16), Mid = Color3.fromRGB(108, 18, 34), Bottom = Color3.fromRGB(225, 56, 78), Orb = Color3.fromRGB(255, 115, 130) }
+        },
+        {
+            Id = "Golden_Sunset",
+            Name = "Golden Sunset",
+            Tag = "DUSK • EMBERS",
+            Image = "rbxassetid://101265983783115",
+            Colors = { Top = Color3.fromRGB(48, 24, 72), Mid = Color3.fromRGB(182, 68, 52), Bottom = Color3.fromRGB(248, 174, 58), Orb = Color3.fromRGB(255, 224, 125) }
+        },
+        {
+            Id = "Sakura_Dawn",
+            Name = "Sakura Dawn",
+            Tag = "DAWN • SAKURA",
+            Image = "rbxassetid://97583154222868",
+            Colors = { Top = Color3.fromRGB(74, 28, 72), Mid = Color3.fromRGB(214, 72, 136), Bottom = Color3.fromRGB(252, 196, 224), Orb = Color3.fromRGB(255, 230, 242) }
+        },
+        {
+            Id = "Cyber_Violet",
+            Name = "Cyber Violet",
+            Tag = "NEON • RAIN",
+            Image = "rbxassetid://96585988801206",
+            Colors = { Top = Color3.fromRGB(20, 12, 46), Mid = Color3.fromRGB(96, 36, 178), Bottom = Color3.fromRGB(208, 108, 250), Orb = Color3.fromRGB(236, 176, 255) }
+        },
+        {
+            Id = "Midnight_Aurora",
+            Name = "Midnight Aurora",
+            Tag = "NIGHT • FIREFLY",
+            Image = "rbxassetid://80327350892229",
+            Colors = { Top = Color3.fromRGB(10, 18, 44), Mid = Color3.fromRGB(18, 78, 96), Bottom = Color3.fromRGB(45, 198, 224), Orb = Color3.fromRGB(165, 243, 252) }
+        },
+        {
+            Id = "Crystal_Frost",
+            Name = "Crystal Frost",
+            Tag = "ICE • SNOW",
+            Image = "rbxassetid://140381743024362",
+            Colors = { Top = Color3.fromRGB(28, 62, 138), Mid = Color3.fromRGB(90, 165, 245), Bottom = Color3.fromRGB(212, 240, 255), Orb = Color3.fromRGB(240, 250, 255) }
+        },
     }
 
+    local syncWorldCustomUI
     LightingMod:AddPresetGrid(WorldPresets, Config.SelectedWorldPreset, function(selected)
         if selected then
             Config.SelectedWorldPreset = selected.Id
+            Config.WorldCustom_Lighting = false
+            Config.WorldCustom_Fog = false
+            Config.WorldCustom_Sky = false
+            Config.WorldCustom_PostFX = false
         else
             Config.SelectedWorldPreset = nil
         end
-        if ctx.ApplyWorldPreset then
+        if ctx.ApplyWorldPresetEffects then
+            pcall(ctx.ApplyWorldPresetEffects, Config.SelectedWorldPreset)
+        end
+        if syncWorldCustomUI then syncWorldCustomUI() end
+        if ctx.RefreshWorldCustomLighting then
+            pcall(ctx.RefreshWorldCustomLighting)
+        elseif ctx.ApplyWorldPreset then
             pcall(ctx.ApplyWorldPreset, Config.SelectedWorldPreset)
         end
     end)
+
+    syncWorldCustomUI = function()
+        if W.wcLight then W.wcLight.Set(Config.WorldCustom_Lighting == true, true) end
+        if W.wcClock then W.wcClock.Set(math.floor(Config.WorldCustom_ClockTime or 14), true) end
+        if W.wcBright then W.wcBright.Set(math.floor(Config.WorldCustom_Brightness or 200), true) end
+        if W.wcExp then W.wcExp.Set(math.floor(Config.WorldCustom_Exposure or 0), true) end
+        if W.wcDiff then W.wcDiff.Set(math.floor(Config.WorldCustom_Diffuse or 100), true) end
+        if W.wcSpec then W.wcSpec.Set(math.floor(Config.WorldCustom_Specular or 100), true) end
+        if W.wcNoShad then W.wcNoShad.Set(Config.WorldCustom_NoShadows == true, true) end
+        if W.wcAmb then W.wcAmb.Set(Config.WorldCustom_Ambient or Color3.fromRGB(90, 95, 115)) end
+        if W.wcOutAmb then W.wcOutAmb.Set(Config.WorldCustom_OutdoorAmbient or Color3.fromRGB(130, 138, 160)) end
+
+        if W.wcFog then W.wcFog.Set(Config.WorldCustom_Fog == true, true) end
+        if W.wcFogDist then W.wcFogDist.Set(math.floor(Config.WorldCustom_FogDist or 1200), true) end
+        if W.wcAtmoDens then W.wcAtmoDens.Set(math.floor(Config.WorldCustom_AtmoDensity or 25), true) end
+        if W.wcAtmoHaze then W.wcAtmoHaze.Set(math.floor(Config.WorldCustom_AtmoHaze or 10), true) end
+        if W.wcAtmoGlare then W.wcAtmoGlare.Set(math.floor(Config.WorldCustom_AtmoGlare or 0), true) end
+        if W.wcFogCol then W.wcFogCol.Set(Config.WorldCustom_FogColor or Color3.fromRGB(145, 155, 180)) end
+        if W.wcAtmoCol then W.wcAtmoCol.Set(Config.WorldCustom_AtmoColor or Color3.fromRGB(165, 175, 200)) end
+        if W.wcAtmoDec then W.wcAtmoDec.Set(Config.WorldCustom_AtmoDecay or Color3.fromRGB(95, 105, 130)) end
+
+        if W.wcSky then W.wcSky.Set(Config.WorldCustom_Sky == true, true) end
+        if W.wcSkyPreset then W.wcSkyPreset.Set(Config.WorldCustom_SkyPreset or "Night Stars", true) end
+        if W.wcSkyId then W.wcSkyId.Set(tostring(Config.WorldCustom_SkyCustomId or "")) end
+        if W.wcStars then W.wcStars.Set(math.floor(Config.WorldCustom_Stars or 3000), true) end
+        if W.wcCel then W.wcCel.Set(Config.WorldCustom_Celestials ~= false, true) end
+        if W.wcClouds then W.wcClouds.Set(Config.WorldCustom_Clouds == true, true) end
+        if W.wcCloudCov then W.wcCloudCov.Set(math.floor(Config.WorldCustom_CloudCover or 60), true) end
+        if W.wcCloudDen then W.wcCloudDen.Set(math.floor(Config.WorldCustom_CloudDensity or 70), true) end
+        if W.wcCloudCol then W.wcCloudCol.Set(Config.WorldCustom_CloudColor or Color3.fromRGB(230, 235, 245)) end
+
+        if W.wcPost then W.wcPost.Set(Config.WorldCustom_PostFX == true, true) end
+        if W.wcTintCol then W.wcTintCol.Set(Config.WorldCustom_TintColor or Color3.fromRGB(255, 255, 255)) end
+        if W.wcContrast then W.wcContrast.Set(math.floor(Config.WorldCustom_Contrast or 0), true) end
+        if W.wcSat then W.wcSat.Set(math.floor(Config.WorldCustom_Saturation or 0), true) end
+        if W.wcTintBr then W.wcTintBr.Set(math.floor(Config.WorldCustom_TintBrightness or 0), true) end
+        if W.wcNoBlur then W.wcNoBlur.Set(Config.WorldCustom_NoBlur == true, true) end
+        if W.wcNoBloom then W.wcNoBloom.Set(Config.WorldCustom_NoBloom == true, true) end
+        if W.wcNoSun then W.wcNoSun.Set(Config.WorldCustom_NoSunRays == true, true) end
+
+        if W.wcSmooth then W.wcSmooth.Set(Config.WorldCustom_SmoothWorld == true, true) end
+        if W.wcNoPart then W.wcNoPart.Set(Config.WorldCustom_NoParticles == true, true) end
+        if W.wcWater then W.wcWater.Set(Config.WorldCustom_Water == true, true) end
+        if W.wcWaterCol then W.wcWaterCol.Set(Config.WorldCustom_WaterColor or Color3.fromRGB(25, 145, 195)) end
+        if W.wcWaterTr then W.wcWaterTr.Set(math.floor(Config.WorldCustom_WaterTrans or 30), true) end
+        if W.wcWaveSize then W.wcWaveSize.Set(math.floor(Config.WorldCustom_WaterWaveSize or 15), true) end
+        if W.wcWaveSpeed then W.wcWaveSpeed.Set(math.floor(Config.WorldCustom_WaterWaveSpeed or 10), true) end
+
+        if W.wcWeather then W.wcWeather.Set(Config.WorldCustom_Weather or "None", true) end
+        if W.wcWeatherInt then W.wcWeatherInt.Set(math.floor(Config.WorldCustom_WeatherInt or 100), true) end
+        if W.wcLightning then W.wcLightning.Set(Config.WorldCustom_Lightning == true, true) end
+        if W.wcVig then
+            W.wcVig.Set(Config.WorldCustom_Vignette == true, true)
+            W.wcVig.SetColor(Config.WorldCustom_VignetteColor or Color3.fromRGB(10, 10, 18))
+        end
+        if W.wcBloom then W.wcBloom.Set(Config.WorldCustom_Bloom == true, true) end
+        if W.wcBloomInt then W.wcBloomInt.Set(math.floor(Config.WorldCustom_BloomInt or 120), true) end
+        if W.wcSunRays then W.wcSunRays.Set(Config.WorldCustom_SunRays == true, true) end
+        if W.wcSunRaysInt then W.wcSunRaysInt.Set(math.floor(Config.WorldCustom_SunRaysInt or 40), true) end
+        if W.wcLantern then
+            W.wcLantern.Set(Config.WorldCustom_Lantern == true, true)
+            W.wcLantern.SetColor(Config.WorldCustom_LanternColor or Color3.fromRGB(255, 220, 165))
+        end
+        if W.wcLanternRng then W.wcLanternRng.Set(math.floor(Config.WorldCustom_LanternRange or 35), true) end
+    end
+
+    do
+        local function applyWC()
+            if ctx.ApplyWorldCustomNow then pcall(ctx.ApplyWorldCustomNow) end
+        end
+        local function refreshWC()
+            if ctx.RefreshWorldCustomLighting then
+                pcall(ctx.RefreshWorldCustomLighting)
+            else
+                applyWC()
+            end
+        end
+
+        local WCLightMod = WindowObj:CreateModule("Miscellaneous_World Custom", "Left", "Time & Lighting", "")
+        W.wcLight = WCLightMod:AddCheckbox("Enable Time & Lighting", Config.WorldCustom_Lighting, nil, function(v)
+            Config.WorldCustom_Lighting = v
+            if not v then refreshWC() else applyWC() end
+        end)
+        W.wcClock = WCLightMod:AddSlider("Clock Time", 0, 24, math.floor(Config.WorldCustom_ClockTime or 14), " h", function(v)
+            Config.WorldCustom_ClockTime = v
+            applyWC()
+        end)
+        W.wcBright = WCLightMod:AddSlider("Brightness", 0, 500, math.floor(Config.WorldCustom_Brightness or 200), "%", function(v)
+            Config.WorldCustom_Brightness = v
+            applyWC()
+        end)
+        W.wcExp = WCLightMod:AddSlider("Exposure", -300, 300, math.floor(Config.WorldCustom_Exposure or 0), "%", function(v)
+            Config.WorldCustom_Exposure = v
+            applyWC()
+        end)
+        W.wcDiff = WCLightMod:AddSlider("Diffuse Scale", 0, 100, math.floor(Config.WorldCustom_Diffuse or 100), "%", function(v)
+            Config.WorldCustom_Diffuse = v
+            applyWC()
+        end)
+        W.wcSpec = WCLightMod:AddSlider("Specular Scale", 0, 100, math.floor(Config.WorldCustom_Specular or 100), "%", function(v)
+            Config.WorldCustom_Specular = v
+            applyWC()
+        end)
+        W.wcNoShad = WCLightMod:AddCheckbox("Disable Shadows", Config.WorldCustom_NoShadows, nil, function(v)
+            Config.WorldCustom_NoShadows = v
+            applyWC()
+        end)
+        W.wcAmb = WCLightMod:AddColorRow("Ambient", Config.WorldCustom_Ambient or Color3.fromRGB(90, 95, 115), function(c)
+            Config.WorldCustom_Ambient = c
+            applyWC()
+        end)
+        W.wcOutAmb = WCLightMod:AddColorRow("Outdoor Ambient", Config.WorldCustom_OutdoorAmbient or Color3.fromRGB(130, 138, 160), function(c)
+            Config.WorldCustom_OutdoorAmbient = c
+            applyWC()
+        end)
+
+        local WCFogMod = WindowObj:CreateModule("Miscellaneous_World Custom", "Left", "Fog & Atmosphere", "")
+        W.wcFog = WCFogMod:AddCheckbox("Enable Fog & Atmosphere", Config.WorldCustom_Fog, nil, function(v)
+            Config.WorldCustom_Fog = v
+            if not v then refreshWC() else applyWC() end
+        end)
+        W.wcFogDist = WCFogMod:AddSlider("Fog Distance", 50, 5000, math.floor(Config.WorldCustom_FogDist or 1200), " studs", function(v)
+            Config.WorldCustom_FogDist = v
+            applyWC()
+        end)
+        W.wcAtmoDens = WCFogMod:AddSlider("Fog Density", 0, 100, math.floor(Config.WorldCustom_AtmoDensity or 25), "%", function(v)
+            Config.WorldCustom_AtmoDensity = v
+            applyWC()
+        end)
+        W.wcAtmoHaze = WCFogMod:AddSlider("Atmo Haze", 0, 100, math.floor(Config.WorldCustom_AtmoHaze or 10), "%", function(v)
+            Config.WorldCustom_AtmoHaze = v
+            applyWC()
+        end)
+        W.wcAtmoGlare = WCFogMod:AddSlider("Atmo Glare", 0, 100, math.floor(Config.WorldCustom_AtmoGlare or 0), "%", function(v)
+            Config.WorldCustom_AtmoGlare = v
+            applyWC()
+        end)
+        W.wcFogCol = WCFogMod:AddColorRow("Fog Color", Config.WorldCustom_FogColor or Color3.fromRGB(145, 155, 180), function(c)
+            Config.WorldCustom_FogColor = c
+            applyWC()
+        end)
+        W.wcAtmoCol = WCFogMod:AddColorRow("Atmosphere Color", Config.WorldCustom_AtmoColor or Color3.fromRGB(165, 175, 200), function(c)
+            Config.WorldCustom_AtmoColor = c
+            applyWC()
+        end)
+        W.wcAtmoDec = WCFogMod:AddColorRow("Atmosphere Decay", Config.WorldCustom_AtmoDecay or Color3.fromRGB(95, 105, 130), function(c)
+            Config.WorldCustom_AtmoDecay = c
+            applyWC()
+        end)
+
+        local WCSkyMod = WindowObj:CreateModule("Miscellaneous_World Custom", "Right", "Sky & Clouds", "")
+        W.wcSky = WCSkyMod:AddCheckbox("Enable Custom Skybox", Config.WorldCustom_Sky, nil, function(v)
+            Config.WorldCustom_Sky = v
+            applyWC()
+        end)
+        W.wcSkyPreset = WCSkyMod:AddDropdown("Skybox Preset", { "Game Default", "Night Stars", "Butcher", "Crimson", "Masked", "Stalker", "Cure", "Halloween", "Christmas", "Custom ID" }, Config.WorldCustom_SkyPreset or "Night Stars", function(opt)
+            Config.WorldCustom_SkyPreset = opt
+            applyWC()
+        end)
+        W.wcSkyId = WCSkyMod:AddInput("Custom Sky Asset ID (e.g. 123456)", Config.WorldCustom_SkyCustomId or "", function(txt)
+            Config.WorldCustom_SkyCustomId = txt
+            applyWC()
+        end)
+        W.wcStars = WCSkyMod:AddSlider("Star Count", 0, 5000, math.floor(Config.WorldCustom_Stars or 3000), "", function(v)
+            Config.WorldCustom_Stars = v
+            applyWC()
+        end)
+        W.wcCel = WCSkyMod:AddCheckbox("Show Sun & Moon", Config.WorldCustom_Celestials ~= false, nil, function(v)
+            Config.WorldCustom_Celestials = v
+            applyWC()
+        end)
+        W.wcClouds = WCSkyMod:AddCheckbox("Enable Clouds", Config.WorldCustom_Clouds, nil, function(v)
+            Config.WorldCustom_Clouds = v
+            applyWC()
+        end)
+        W.wcCloudCov = WCSkyMod:AddSlider("Cloud Cover", 0, 100, math.floor(Config.WorldCustom_CloudCover or 60), "%", function(v)
+            Config.WorldCustom_CloudCover = v
+            applyWC()
+        end)
+        W.wcCloudDen = WCSkyMod:AddSlider("Cloud Density", 0, 100, math.floor(Config.WorldCustom_CloudDensity or 70), "%", function(v)
+            Config.WorldCustom_CloudDensity = v
+            applyWC()
+        end)
+        W.wcCloudCol = WCSkyMod:AddColorRow("Cloud Color", Config.WorldCustom_CloudColor or Color3.fromRGB(230, 235, 245), function(c)
+            Config.WorldCustom_CloudColor = c
+            applyWC()
+        end)
+
+        local WCPostMod = WindowObj:CreateModule("Miscellaneous_World Custom", "Right", "Post-Processing", "")
+        W.wcPost = WCPostMod:AddCheckbox("Enable Color Grading", Config.WorldCustom_PostFX, nil, function(v)
+            Config.WorldCustom_PostFX = v
+            applyWC()
+        end)
+        W.wcTintCol = WCPostMod:AddColorRow("Tint Color", Config.WorldCustom_TintColor or Color3.fromRGB(255, 255, 255), function(c)
+            Config.WorldCustom_TintColor = c
+            applyWC()
+        end)
+        W.wcContrast = WCPostMod:AddSlider("Contrast", -100, 100, math.floor(Config.WorldCustom_Contrast or 0), "%", function(v)
+            Config.WorldCustom_Contrast = v
+            applyWC()
+        end)
+        W.wcSat = WCPostMod:AddSlider("Saturation", -100, 100, math.floor(Config.WorldCustom_Saturation or 0), "%", function(v)
+            Config.WorldCustom_Saturation = v
+            applyWC()
+        end)
+        W.wcTintBr = WCPostMod:AddSlider("Tint Brightness", -50, 50, math.floor(Config.WorldCustom_TintBrightness or 0), "%", function(v)
+            Config.WorldCustom_TintBrightness = v
+            applyWC()
+        end)
+        W.wcNoBlur = WCPostMod:AddCheckbox("Disable Blur & DoF", Config.WorldCustom_NoBlur, nil, function(v)
+            Config.WorldCustom_NoBlur = v
+            applyWC()
+        end)
+        W.wcNoBloom = WCPostMod:AddCheckbox("Disable Bloom", Config.WorldCustom_NoBloom, nil, function(v)
+            Config.WorldCustom_NoBloom = v
+            applyWC()
+        end)
+        W.wcNoSun = WCPostMod:AddCheckbox("Disable SunRays", Config.WorldCustom_NoSunRays, nil, function(v)
+            Config.WorldCustom_NoSunRays = v
+            applyWC()
+        end)
+
+        local WCWorldMod = WindowObj:CreateModule("Miscellaneous_World Custom", "Right", "World Surfaces & Terrain", "")
+        W.wcSmooth = WCWorldMod:AddCheckbox("Smooth World (FPS Boost)", Config.WorldCustom_SmoothWorld, nil, function(v)
+            Config.WorldCustom_SmoothWorld = v
+            applyWC()
+        end)
+        W.wcNoPart = WCWorldMod:AddCheckbox("Hide Scene Particles", Config.WorldCustom_NoParticles, nil, function(v)
+            Config.WorldCustom_NoParticles = v
+            applyWC()
+        end)
+        W.wcWater = WCWorldMod:AddCheckbox("Custom Water", Config.WorldCustom_Water, nil, function(v)
+            Config.WorldCustom_Water = v
+            applyWC()
+        end)
+        W.wcWaterCol = WCWorldMod:AddColorRow("Water Color", Config.WorldCustom_WaterColor or Color3.fromRGB(25, 145, 195), function(c)
+            Config.WorldCustom_WaterColor = c
+            applyWC()
+        end)
+        W.wcWaterTr = WCWorldMod:AddSlider("Water Transparency", 0, 100, math.floor(Config.WorldCustom_WaterTrans or 30), "%", function(v)
+            Config.WorldCustom_WaterTrans = v
+            applyWC()
+        end)
+        W.wcWaveSize = WCWorldMod:AddSlider("Water Wave Size", 0, 100, math.floor(Config.WorldCustom_WaterWaveSize or 15), "%", function(v)
+            Config.WorldCustom_WaterWaveSize = v
+            applyWC()
+        end)
+        W.wcWaveSpeed = WCWorldMod:AddSlider("Water Wave Speed", 0, 50, math.floor(Config.WorldCustom_WaterWaveSpeed or 10), "", function(v)
+            Config.WorldCustom_WaterWaveSpeed = v
+            applyWC()
+        end)
+        WCWorldMod:AddButton("Reset World Custom", function()
+            if ctx.ResetWorldCustomNow then
+                pcall(ctx.ResetWorldCustomNow, false)
+            end
+            syncWorldCustomUI()
+        end, Color3.fromRGB(255, 110, 110))
+
+        local WCMapFxMod = WindowObj:CreateModule("Miscellaneous_World Custom", "Left", "Map Effects", "")
+        W.wcWeather = WCMapFxMod:AddDropdown("Weather Mode", { "None", "Rain", "Snow", "Sakura", "Embers", "Fireflies", "Ash" }, Config.WorldCustom_Weather or "None", function(v)
+            Config.WorldCustom_Weather = v
+            applyWC()
+        end)
+        W.wcWeatherInt = WCMapFxMod:AddSlider("Weather Intensity", 10, 200, math.floor(Config.WorldCustom_WeatherInt or 100), "%", function(v)
+            Config.WorldCustom_WeatherInt = v
+            applyWC()
+        end)
+        W.wcLightning = WCMapFxMod:AddCheckbox("Lightning Flash", Config.WorldCustom_Lightning, nil, function(v)
+            Config.WorldCustom_Lightning = v
+            applyWC()
+        end)
+        W.wcVig = WCMapFxMod:AddCheckbox("Screen Vignette", Config.WorldCustom_Vignette, Config.WorldCustom_VignetteColor or Color3.fromRGB(10, 10, 18), function(v)
+            Config.WorldCustom_Vignette = v
+            applyWC()
+        end, function(c)
+            Config.WorldCustom_VignetteColor = c
+            applyWC()
+        end)
+        W.wcBloom = WCMapFxMod:AddCheckbox("Custom Bloom", Config.WorldCustom_Bloom, nil, function(v)
+            Config.WorldCustom_Bloom = v
+            applyWC()
+        end)
+        W.wcBloomInt = WCMapFxMod:AddSlider("Bloom Intensity", 0, 300, math.floor(Config.WorldCustom_BloomInt or 120), "%", function(v)
+            Config.WorldCustom_BloomInt = v
+            applyWC()
+        end)
+        W.wcSunRays = WCMapFxMod:AddCheckbox("SunRays Boost", Config.WorldCustom_SunRays, nil, function(v)
+            Config.WorldCustom_SunRays = v
+            applyWC()
+        end)
+        W.wcSunRaysInt = WCMapFxMod:AddSlider("SunRays Intensity", 0, 100, math.floor(Config.WorldCustom_SunRaysInt or 40), "%", function(v)
+            Config.WorldCustom_SunRaysInt = v
+            applyWC()
+        end)
+        W.wcLantern = WCMapFxMod:AddCheckbox("Personal Lantern", Config.WorldCustom_Lantern, Config.WorldCustom_LanternColor or Color3.fromRGB(255, 220, 165), function(v)
+            Config.WorldCustom_Lantern = v
+            applyWC()
+        end, function(c)
+            Config.WorldCustom_LanternColor = c
+            applyWC()
+        end)
+        W.wcLanternRng = WCMapFxMod:AddSlider("Lantern Range", 10, 80, math.floor(Config.WorldCustom_LanternRange or 35), " studs", function(v)
+            Config.WorldCustom_LanternRange = v
+            applyWC()
+        end)
+    end
 
     table.insert(ConfigSys.SyncHandlers, function()
         W.fov.Set((Config.CustomFOVEnabled == true or Config.CustomFOV == true), true)
@@ -5392,6 +5832,7 @@ local function CreateNexaraCustomUI(ctx)
         W.fb.Set(Config.Fullbright == true, true)
         W.nf.Set((Config.NoFog == true or Config.RemoveFog == true), true)
         if ConfigSys.SyncWorldPresetVisual then ConfigSys.SyncWorldPresetVisual(Config.SelectedWorldPreset) end
+        syncWorldCustomUI()
     end)
 
     end
@@ -5716,6 +6157,23 @@ local function CreateNexaraCustomUI(ctx)
             return false
         end
 
+        local KillerPortraitAssets = {
+            stalker = "rbxassetid://103152126428958",
+            killer = "rbxassetid://109871953202785",
+            hidden = "rbxassetid://78670711745259",
+            abysswalker = "rbxassetid://130732938373805",
+            veil = "rbxassetid://125641063412260",
+            slasher = "rbxassetid://75973524824374",
+            masked = "rbxassetid://114014915014265",
+            cure = "rbxassetid://77234835930882",
+            butcher = "rbxassetid://85041751089925",
+        }
+
+        local function ResolveKillerPortraitAsset(kType)
+            local key = tostring(kType or ""):lower():gsub("^%s*the%s+", ""):gsub("[%s_%-]", "")
+            return KillerPortraitAssets[key]
+        end
+
         local function ResolveKillerType(p)
             if not p then return "Killer" end
             if ctx.ResolveKillerType then
@@ -5724,15 +6182,17 @@ local function CreateNexaraCustomUI(ctx)
             end
             local char = p.Character
             if char then
+                local morph = tostring(char:GetAttribute("MorphedKiller") or ""):lower()
+                if morph ~= "" and morph ~= "nil" and morph ~= "none" then return morph end
                 local kAttr = char:GetAttribute("Killer") or char:GetAttribute("SelectedKiller") or p:GetAttribute("SelectedKiller")
                 if kAttr and tostring(kAttr) ~= "" then return tostring(kAttr) end
-                for _, modelName in ipairs({"Slasher", "Stalker", "Butcher", "Vampire", "Phantom", "Masked", "Jester"}) do
+                for _, modelName in ipairs({"Slasher", "Stalker", "Butcher", "Hidden", "Veil", "Cure", "Abysswalker", "Masked", "Killer"}) do
                     if char:FindFirstChild(modelName) or (workspace:FindFirstChild("Killers") and workspace.Killers:FindFirstChild(modelName)) then
                         return modelName
                     end
                 end
             end
-            return tostring(p:GetAttribute("SelectedKiller") or "The Killer")
+            return tostring(p:GetAttribute("SelectedKiller") or "Killer")
         end
 
         local function GetItemDisplay(plr, isK)
@@ -5763,6 +6223,21 @@ local function CreateNexaraCustomUI(ctx)
             return "No Item", "---", Theme.TextMuted
         end
 
+        local function FindPerkIconInFolder(perksRoot, clean)
+            if not perksRoot then return nil end
+            for _, f in ipairs(perksRoot:GetChildren()) do
+                if f.Name:lower():gsub("%s+", ""):gsub("[^%a]", "") == clean then
+                    for _, t in ipairs({"3", "2", "1"}) do
+                        local tObj = f:FindFirstChild(t)
+                        if tObj and (tObj:IsA("ImageLabel") or tObj:IsA("ImageButton")) and tObj.Image ~= "" then
+                            return tObj.Image
+                        end
+                    end
+                end
+            end
+            return nil
+        end
+
         local function GetPerkIconAsset(pName)
             if not pName or pName == "" or pName == "---" then return nil end
             if ctx.GetPerkIcon then
@@ -5771,20 +6246,68 @@ local function CreateNexaraCustomUI(ctx)
             end
             local clean = pName:lower():gsub("%s+", ""):gsub("[^%a]", "")
             local rs = game:GetService("ReplicatedStorage")
-            local pFolder = rs:FindFirstChild("Perks")
-            if pFolder then
-                for _, f in ipairs(pFolder:GetChildren()) do
-                    if f.Name:lower():gsub("%s+", ""):gsub("[^%a]", "") == clean then
-                        for _, t in ipairs({"3", "2", "1"}) do
-                            local tObj = f:FindFirstChild(t)
-                            if tObj and (tObj:IsA("ImageLabel") or tObj:IsA("ImageButton")) and tObj.Image ~= "" then
-                                return tObj.Image
-                            end
-                        end
-                    end
+            local found = FindPerkIconInFolder(rs:FindFirstChild("Perks"), clean)
+            if found then return found end
+            local kRoot = rs:FindFirstChild("Killers")
+            if kRoot then
+                for _, kFolder in ipairs(kRoot:GetChildren()) do
+                    found = FindPerkIconInFolder(kFolder:FindFirstChild("Perks"), clean)
+                    if found then return found end
                 end
             end
             return nil
+        end
+
+        local standaloneLocalPerkKey, standaloneLocalPerkClock, standaloneLocalPerks = nil, 0, nil
+        local function ResolveStandalonePerks(plr, isK)
+            local list = {}
+            local rs = game:GetService("ReplicatedStorage")
+            if plr == LocalPlayer then
+                local kType = tostring(plr:GetAttribute("SelectedKiller") or "Veil")
+                local roleKey = isK and ("K_" .. kType) or "S"
+                local now = os.clock()
+                if standaloneLocalPerkKey == roleKey and (now - standaloneLocalPerkClock) < 2.5 and standaloneLocalPerks then
+                    return standaloneLocalPerks
+                end
+                local rem = rs:FindFirstChild("Remotes")
+                local ok, res = false, nil
+                if isK then
+                    local rf = rem and rem:FindFirstChild("ShopKillers") and rem.ShopKillers:FindFirstChild("GetEquippedKillerPerks")
+                    if rf then ok, res = pcall(function() return rf:InvokeServer(kType) end) end
+                else
+                    local rf = rem and rem:FindFirstChild("Shop") and rem.Shop:FindFirstChild("GetEquippedPerks")
+                    if rf then ok, res = pcall(function() return rf:InvokeServer() end) end
+                end
+                if ok and type(res) == "table" then
+                    for i = 1, 3 do
+                        local e = res[i]
+                        local n = type(e) == "table" and (e.name or e.Name) or (type(e) == "string" and e)
+                        if type(n) == "string" and n ~= "" and not table.find(list, n) then table.insert(list, n) end
+                    end
+                    for _, slot in ipairs({"perk1", "perk2", "perk3", "Perk1", "Perk2", "Perk3"}) do
+                        local e = res[slot]
+                        local n = type(e) == "table" and (e.name or e.Name) or (type(e) == "string" and e)
+                        if type(n) == "string" and n ~= "" and not table.find(list, n) and #list < 3 then table.insert(list, n) end
+                    end
+                end
+                standaloneLocalPerkKey = roleKey
+                standaloneLocalPerkClock = now
+                standaloneLocalPerks = list
+                return list
+            end
+            local mr = rs:FindFirstChild("MatchResults")
+            local entry = mr and mr:FindFirstChild(tostring(plr.UserId))
+            local raw = entry and entry:GetAttribute("Perks")
+            if type(raw) == "string" and raw ~= "" then
+                local ok, dec = pcall(function() return game:GetService("HttpService"):JSONDecode(raw) end)
+                if ok and type(dec) == "table" then
+                    for _, e in ipairs(dec) do
+                        local n = type(e) == "table" and e.name
+                        if type(n) == "string" and n ~= "" and not table.find(list, n) and #list < 3 then table.insert(list, n) end
+                    end
+                end
+            end
+            return list
         end
 
         local function GetItemIconAsset(iName)
@@ -6207,6 +6730,7 @@ local function CreateNexaraCustomUI(ctx)
                         row.UserLabel.Text = "@" .. plr.Name
                     end
 
+                    local targetAvatar = "rbxthumb://type=AvatarHeadShot&id=" .. plr.UserId .. "&w=150&h=150"
                     if isK then
                         local kCol = Color3.fromRGB(245, 65, 85)
                         row.AccentBar.BackgroundColor3 = kCol
@@ -6216,6 +6740,10 @@ local function CreateNexaraCustomUI(ctx)
                         local kType = ResolveKillerType(plr)
                         local cleanK = tostring(kType or "Killer"):gsub("^The%s+", "")
                         local kLevel = tonumber(plr:GetAttribute("KillerLevel") or plr:GetAttribute("Level")) or plrLevel
+                        local kPortrait = ResolveKillerPortraitAsset(cleanK)
+                        if kPortrait then
+                            targetAvatar = kPortrait
+                        end
 
                         row.LvlBadge.BackgroundColor3 = Color3.fromRGB(36, 10, 15)
                         row.LvlStroke.Color = kCol
@@ -6239,7 +6767,7 @@ local function CreateNexaraCustomUI(ctx)
                         row.LvlText.Text = tostring(plrLevel)
                         row.LvlText.TextColor3 = Color3.fromRGB(240, 248, 255)
 
-                        local isLobby = (ctx.IsInLobby and ctx.IsInLobby()) or (ctx.IsPlayerInLobby and ctx.IsPlayerInLobby(plr))
+                        local isLobby = (ctx.IsInLobby and ctx.IsInLobby()) or (ctx.IsPlayerInLobby and ctx.IsPlayerInLobby(plr)) or (not ctx.IsInLobby and plr.Team ~= nil and (plr.Team.Name == "Spectator" or plr.Team.Name == "Lobby"))
                         row.RoleText.Text = isLobby and "Lobby" or "Survivor"
                         row.RoleText.TextColor3 = Color3.fromRGB(80, 210, 255)
 
@@ -6248,10 +6776,17 @@ local function CreateNexaraCustomUI(ctx)
                         row.ItemSection.Visible = true
                         row.ItemStroke.Color = Color3.fromRGB(220, 160, 40)
                     end
+                    if row.AvatarImg.Image ~= targetAvatar then
+                        row.AvatarImg.Image = targetAvatar
+                    end
 
                     -- Perks populate
                     local perks = {}
-                    if ctx.GetPlayerPerks then pcall(function() perks = ctx.GetPlayerPerks(plr) or {} end) end
+                    if ctx.GetPlayerPerks then
+                        pcall(function() perks = ctx.GetPlayerPerks(plr) or {} end)
+                    else
+                        pcall(function() perks = ResolveStandalonePerks(plr, isK) or {} end)
+                    end
                     for i = 1, 3 do
                         local pb = row.PerkBoxes[i]
                         local pImg = row.PerkImgs[i]
@@ -6693,6 +7228,11 @@ local function CreateNexaraCustomUI(ctx)
         end
         if ApplyCustomRedStainNow then
             pcall(ApplyCustomRedStainNow)
+        end
+        if ctx.RefreshWorldCustomLighting then
+            pcall(ctx.RefreshWorldCustomLighting)
+        elseif ctx.ApplyWorldCustomNow then
+            pcall(ctx.ApplyWorldCustomNow)
         end
         _G.__Nexara_AlwaysFastVault = (Config.AlwaysFastVault == true)
         if Config.CustomFOVEnabled then
