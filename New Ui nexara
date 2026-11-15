@@ -116,6 +116,10 @@ local function CreateNexaraCustomUI(ctx)
                 Config.ESP_SurvivorCooldown = sc
             end
             if Config.ConfigAutoSaveEnabled == nil then Config.ConfigAutoSaveEnabled = true end
+            if Config.AvatarCopy_Enabled == nil then Config.AvatarCopy_Enabled = false end
+            if Config.AvatarCopy_Username == nil then Config.AvatarCopy_Username = "" end
+            if Config.AvatarCopy_BlurName == nil then Config.AvatarCopy_BlurName = false end
+            if type(Config.AvatarCopy_SavedNames) ~= "table" then Config.AvatarCopy_SavedNames = {} end
         end
         function ConfigSys.GetAutoloadPaths()
             local uid = LocalPlayer and tostring(LocalPlayer.UserId) or "0"
@@ -212,6 +216,152 @@ local function CreateNexaraCustomUI(ctx)
             end
         end)
     end
+
+    local function ApplyNexaraNameBlur(guiObj, enabled)
+        if not guiObj then return end
+        local isTextObj = false
+        pcall(function()
+            isTextObj = guiObj:IsA("TextLabel") or guiObj:IsA("TextBox") or guiObj:IsA("TextButton")
+        end)
+        if not isTextObj then return end
+        local txt = tostring(guiObj.Text or "")
+        local shouldBlur = (enabled == true) and (txt ~= "") and (txt ~= "None")
+        if shouldBlur then
+            if guiObj:GetAttribute("Nexara_OrigTextTrans") == nil then
+                guiObj:SetAttribute("Nexara_OrigTextTrans", guiObj.TextTransparency)
+            end
+            if guiObj:GetAttribute("Nexara_OrigStrokeTrans") == nil then
+                guiObj:SetAttribute("Nexara_OrigStrokeTrans", guiObj.TextStrokeTransparency)
+            end
+            guiObj.TextTransparency = 1
+            guiObj.TextStrokeTransparency = 1
+            local blurFrame = guiObj:FindFirstChild("Nexara_NameBlur")
+            local tSize = tonumber(guiObj.TextSize) or 12
+            local charCount = math.clamp(#txt, 4, 20)
+            local tbW = 0
+            pcall(function()
+                if guiObj.TextBounds and guiObj.TextBounds.X > 4 then
+                    tbW = guiObj.TextBounds.X
+                end
+            end)
+            local estW = math.floor(charCount * math.max(6.2, tSize * 0.54))
+            local w = math.clamp((tbW > 0 and math.ceil(tbW) or estW), 44, 160)
+            local h = math.clamp(math.floor(tSize + 4), 12, 20)
+            if not blurFrame then
+                blurFrame = Instance.new("Frame")
+                blurFrame.Name = "Nexara_NameBlur"
+                blurFrame.BackgroundTransparency = 1
+                blurFrame.BorderSizePixel = 0
+                local blurCol = Color3.fromRGB(220, 225, 235)
+                local outerHalo = Instance.new("Frame")
+                outerHalo.Name = "OuterHalo"
+                outerHalo.Size = UDim2.new(1, 16, 1, 10)
+                outerHalo.Position = UDim2.fromOffset(-8, -5)
+                outerHalo.BackgroundColor3 = blurCol
+                outerHalo.BackgroundTransparency = 0.85
+                outerHalo.BorderSizePixel = 0
+                outerHalo.Parent = blurFrame
+                local ohCorner = Instance.new("UICorner")
+                ohCorner.CornerRadius = UDim.new(1, 0)
+                ohCorner.Parent = outerHalo
+                local ohGrad = Instance.new("UIGradient")
+                ohGrad.Transparency = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 1),
+                    NumberSequenceKeypoint.new(0.14, 0.2),
+                    NumberSequenceKeypoint.new(0.86, 0.2),
+                    NumberSequenceKeypoint.new(1, 1),
+                })
+                ohGrad.Parent = outerHalo
+                local midHalo = Instance.new("Frame")
+                midHalo.Name = "MidHalo"
+                midHalo.Size = UDim2.new(1, 8, 1, 6)
+                midHalo.Position = UDim2.fromOffset(-4, -3)
+                midHalo.BackgroundColor3 = blurCol
+                midHalo.BackgroundTransparency = 0.70
+                midHalo.BorderSizePixel = 0
+                midHalo.Parent = blurFrame
+                local mhCorner = Instance.new("UICorner")
+                mhCorner.CornerRadius = UDim.new(1, 0)
+                mhCorner.Parent = midHalo
+                local mhGrad = Instance.new("UIGradient")
+                mhGrad.Transparency = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 1),
+                    NumberSequenceKeypoint.new(0.10, 0.1),
+                    NumberSequenceKeypoint.new(0.90, 0.1),
+                    NumberSequenceKeypoint.new(1, 1),
+                })
+                mhGrad.Parent = midHalo
+                local coreBar = Instance.new("Frame")
+                coreBar.Name = "CoreBar"
+                coreBar.Size = UDim2.new(1, 0, 0.76, 0)
+                coreBar.Position = UDim2.new(0, 0, 0.12, 0)
+                coreBar.BackgroundColor3 = blurCol
+                coreBar.BackgroundTransparency = 0.48
+                coreBar.BorderSizePixel = 0
+                coreBar.Parent = blurFrame
+                local cbCorner = Instance.new("UICorner")
+                cbCorner.CornerRadius = UDim.new(1, 0)
+                cbCorner.Parent = coreBar
+                local cbGrad = Instance.new("UIGradient")
+                cbGrad.Transparency = NumberSequence.new({
+                    NumberSequenceKeypoint.new(0, 0.9),
+                    NumberSequenceKeypoint.new(0.08, 0),
+                    NumberSequenceKeypoint.new(0.48, 0.18),
+                    NumberSequenceKeypoint.new(0.76, 0),
+                    NumberSequenceKeypoint.new(0.92, 0.12),
+                    NumberSequenceKeypoint.new(1, 0.9),
+                })
+                cbGrad.Parent = coreBar
+                for idx, spec in ipairs({
+                    { Name = "Blob1", Pos = UDim2.new(0.05, 0, 0.2, 0), Size = UDim2.new(0.32, 0, 0.6, 0) },
+                    { Name = "Blob2", Pos = UDim2.new(0.36, 0, 0.18, 0), Size = UDim2.new(0.34, 0, 0.64, 0) },
+                    { Name = "Blob3", Pos = UDim2.new(0.69, 0, 0.22, 0), Size = UDim2.new(0.25, 0, 0.56, 0) },
+                }) do
+                    local blob = Instance.new("Frame")
+                    blob.Name = spec.Name
+                    blob.Position = spec.Pos
+                    blob.Size = spec.Size
+                    blob.BackgroundColor3 = blurCol
+                    blob.BackgroundTransparency = 0.36
+                    blob.BorderSizePixel = 0
+                    blob.Parent = blurFrame
+                    local bCorner = Instance.new("UICorner")
+                    bCorner.CornerRadius = UDim.new(1, 0)
+                    bCorner.Parent = blob
+                end
+                blurFrame.Parent = guiObj
+            end
+            if guiObj.TextXAlignment == Enum.TextXAlignment.Left then
+                blurFrame.AnchorPoint = Vector2.new(0, 0.5)
+                blurFrame.Position = UDim2.new(0, 2, 0.5, 0)
+            elseif guiObj.TextXAlignment == Enum.TextXAlignment.Right then
+                blurFrame.AnchorPoint = Vector2.new(1, 0.5)
+                blurFrame.Position = UDim2.new(1, -2, 0.5, 0)
+            else
+                blurFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+                blurFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+            end
+            blurFrame.Size = UDim2.fromOffset(w, h)
+            blurFrame.ZIndex = (guiObj.ZIndex or 1) + 2
+            blurFrame.Visible = true
+        else
+            local blurFrame = guiObj:FindFirstChild("Nexara_NameBlur")
+            if blurFrame then
+                blurFrame.Visible = false
+            end
+            local origT = guiObj:GetAttribute("Nexara_OrigTextTrans")
+            if origT ~= nil then
+                guiObj.TextTransparency = origT
+                guiObj:SetAttribute("Nexara_OrigTextTrans", nil)
+            end
+            local origS = guiObj:GetAttribute("Nexara_OrigStrokeTrans")
+            if origS ~= nil then
+                guiObj.TextStrokeTransparency = origS
+                guiObj:SetAttribute("Nexara_OrigStrokeTrans", nil)
+            end
+        end
+    end
+    _G.Nexara_ApplyNameBlur = ApplyNexaraNameBlur
 
     local UserInputService = game:GetService("UserInputService")
     local TweenService = game:GetService("TweenService")
@@ -5463,6 +5613,7 @@ local function CreateNexaraCustomUI(ctx)
                 close = ClosePopup,
             })
 
+            local onRebuildCb = nil
             local function RebuildItems()
                 for _, ch in ipairs(PopScroll:GetChildren()) do
                     if ch:IsA("TextButton") then ch:Destroy() end
@@ -5511,6 +5662,7 @@ local function CreateNexaraCustomUI(ctx)
                         ConfigSys.ScheduleAutoSave()
                     end)
                 end
+                if onRebuildCb then pcall(onRebuildCb) end
             end
 
             RebuildItems()
@@ -5532,7 +5684,14 @@ local function CreateNexaraCustomUI(ctx)
                     if newSel then curSelected = newSel end
                     ValText.Text = tostring(curSelected)
                     RebuildItems()
-                end
+                end,
+                ValLabel = ValText,
+                Popup = Popup,
+                PopScroll = PopScroll,
+                SetOnRebuild = function(fn)
+                    onRebuildCb = fn
+                    if fn then pcall(fn) end
+                end,
             }
         end
 
@@ -5671,10 +5830,6 @@ local function CreateNexaraCustomUI(ctx)
         function(v) Config.ESP_SurvivorBoxes = v end,
         function(c) Config.Color_SurvivorBox = c end
     )
-    W.sChams = SurvESP:AddCheckbox("Chams", Config.ESP_SurvivorChams, Config.Color_SurvivorChams or Color3.fromRGB(255, 255, 255),
-        function(v) Config.ESP_SurvivorChams = v end,
-        function(c) Config.Color_SurvivorChams = c end
-    )
     W.sNames = SurvESP:AddCheckbox("Name", Config.ESP_SurvivorNames, Config.Color_SurvivorNames or Color3.fromRGB(80, 255, 120),
         function(v)
             Config.ESP_SurvivorNames = v
@@ -5708,6 +5863,11 @@ local function CreateNexaraCustomUI(ctx)
     W.sSkelCol = SurvSkel:AddColorRow("Color", Config.Color_SurvivorSkeleton or Color3.fromRGB(255, 255, 255), function(c)
         Config.Color_SurvivorSkeleton = c
     end)
+
+    local SurvAura = WindowObj:CreateModule("Player ESP_Survivor", "Right", "Chams", "")
+    W.sChams = SurvAura:AddCheckbox("Enabled", Config.ESP_SurvivorChams, nil, function(v) Config.ESP_SurvivorChams = v end)
+    W.sChamsCol = SurvAura:AddColorRow("Color", Config.Color_SurvivorChams or Color3.fromRGB(255, 255, 255), function(c) Config.Color_SurvivorChams = c end)
+    W.sChamsFill = SurvAura:AddSlider("Fill Opacity", 0, 100, math.floor(Config.SurvivorChamsFill or 0), "%", function(v) Config.SurvivorChamsFill = v end)
 
     local SurvCooldown = WindowObj:CreateModule("Player ESP_Survivor", "Right", "Cooldowns", "")
     W.sSkills = SurvCooldown:AddCheckbox("Cooldowns", Config.ESP_SurvivorSkills or Config.ESP_SurvivorCooldown, nil, function(v)
@@ -5743,6 +5903,7 @@ local function CreateNexaraCustomUI(ctx)
     local KillerAura = WindowObj:CreateModule("Player ESP_Killer", "Right", "Chams", "")
     W.kChams = KillerAura:AddCheckbox("Enabled", Config.ESP_KillerChams, nil, function(v) Config.ESP_KillerChams = v end)
     W.kChamsCol = KillerAura:AddColorRow("Color", Config.Color_KillerChams or Color3.fromRGB(255, 60, 60), function(c) Config.Color_KillerChams = c end)
+    W.kChamsFill = KillerAura:AddSlider("Fill Opacity", 0, 100, math.floor(Config.KillerChamsFill or 0), "%", function(v) Config.KillerChamsFill = v end)
 
     local KillerSkills = WindowObj:CreateModule("Player ESP_Killer", "Right", "Skills & Alerts", "")
     W.kMask = KillerSkills:AddCheckbox("Mask Alert", Config.Alert_MaskChange, nil, function(v)
@@ -5769,7 +5930,9 @@ local function CreateNexaraCustomUI(ctx)
     table.insert(ConfigSys.SyncHandlers, function()
         W.sEn.Set(Config.ESP_SurvivorEnabled == true, true)
         W.sBox.Set(Config.ESP_SurvivorBoxes == true, true); W.sBox.SetColor(Config.Color_SurvivorBox)
-        W.sChams.Set(Config.ESP_SurvivorChams == true, true); W.sChams.SetColor(Config.Color_SurvivorChams)
+        W.sChams.Set(Config.ESP_SurvivorChams == true, true)
+        W.sChamsCol.Set(Config.Color_SurvivorChams)
+        W.sChamsFill.Set(math.floor(Config.SurvivorChamsFill or 0), true)
         W.sNames.Set(Config.ESP_SurvivorNames == true, true); W.sNames.SetColor(Config.Color_SurvivorNames)
         W.sDist.Set(Config.ESP_SurvivorDistance == true, true); W.sDist.SetColor(Config.Color_SurvivorDistance)
         W.sStatus.Set(Config.ESP_SurvivorStatus == true, true)
@@ -5791,6 +5954,7 @@ local function CreateNexaraCustomUI(ctx)
         W.kSkelCol.Set(Config.Color_KillerSkeleton)
         W.kChams.Set(Config.ESP_KillerChams == true, true)
         W.kChamsCol.Set(Config.Color_KillerChams)
+        W.kChamsFill.Set(math.floor(Config.KillerChamsFill or 0), true)
         W.kMask.Set(Config.Alert_MaskChange == true, true)
         W.kSkills.Set(Config.ESP_KillerSkills == true, true); W.kSkills.SetColor(Config.Color_KillerSkills)
         Config.ESP_KillerPerks = false
@@ -6107,6 +6271,271 @@ local function CreateNexaraCustomUI(ctx)
         Config.AlwaysFastVault = v
         _G.__Nexara_AlwaysFastVault = v
     end)
+
+    local AutoDodgeMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Auto Dodge", "")
+    W.abyssCrouch = AutoDodgeMod:AddCheckbox("Auto Crouch (Abyss Slash)", Config.AutoCrouch_Abyss, nil, function(v)
+        Config.AutoCrouch_Abyss = v
+        if not v and _G.Nexara_StopAbyssAutoCrouch then
+            pcall(_G.Nexara_StopAbyssAutoCrouch)
+        end
+    end)
+
+    local AvatarCopyMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Avatar Copier", "")
+    local AVATAR_SAVE_DIR = "Nexara/ViolenceDistrict"
+    local AVATAR_SAVE_PATH = AVATAR_SAVE_DIR .. "/SavedAvatars.json"
+    local _avHttp = game:GetService("HttpService")
+
+    local function CleanSavedAvatarList(rawList)
+        local out, seen = {}, {}
+        if type(rawList) == "table" then
+            for _, entry in ipairs(rawList) do
+                if type(entry) == "string" then
+                    local trimmed = entry:gsub("^%s+", ""):gsub("%s+$", "")
+                    local key = trimmed:lower()
+                    if trimmed ~= "" and trimmed ~= "None" and not seen[key] then
+                        seen[key] = true
+                        table.insert(out, trimmed)
+                    end
+                end
+            end
+        end
+        return out
+    end
+
+    local function LoadSavedAvatarNames()
+        local merged = {}
+        local seen = {}
+        local function addList(lst)
+            for _, item in ipairs(CleanSavedAvatarList(lst)) do
+                local key = item:lower()
+                if not seen[key] then
+                    seen[key] = true
+                    table.insert(merged, item)
+                end
+            end
+        end
+        pcall(function()
+            if readfile and isfile and isfile(AVATAR_SAVE_PATH) then
+                local okDec, dec = pcall(function() return _avHttp:JSONDecode(readfile(AVATAR_SAVE_PATH)) end)
+                if okDec and type(dec) == "table" then
+                    addList(dec)
+                end
+            end
+        end)
+        addList(Config.AvatarCopy_SavedNames)
+        Config.AvatarCopy_SavedNames = merged
+        return merged
+    end
+
+    local function SaveSavedAvatarNames(list)
+        local clean = CleanSavedAvatarList(list)
+        Config.AvatarCopy_SavedNames = clean
+        pcall(function()
+            if makefolder and isfolder then
+                if not isfolder("Nexara") then makefolder("Nexara") end
+                if not isfolder(AVATAR_SAVE_DIR) then makefolder(AVATAR_SAVE_DIR) end
+            end
+            if writefile then
+                writefile(AVATAR_SAVE_PATH, _avHttp:JSONEncode(clean))
+            end
+        end)
+        return clean
+    end
+
+    local function GetSavedAvatarOptions()
+        local opts = { "None" }
+        for _, name in ipairs(CleanSavedAvatarList(Config.AvatarCopy_SavedNames)) do
+            table.insert(opts, name)
+        end
+        return opts
+    end
+
+    LoadSavedAvatarNames()
+
+    local function refreshAvatarBlurControls()
+        local blurOn = (Config.AvatarCopy_BlurName == true)
+        if W.avInput and W.avInput.Box then
+            local focused = false
+            pcall(function() focused = W.avInput.Box:IsFocused() end)
+            ApplyNexaraNameBlur(W.avInput.Box, blurOn and not focused)
+        end
+        if W.avSavedDrop then
+            if W.avSavedDrop.ValLabel then
+                ApplyNexaraNameBlur(W.avSavedDrop.ValLabel, blurOn)
+            end
+            if W.avSavedDrop.PopScroll then
+                for _, ch in ipairs(W.avSavedDrop.PopScroll:GetChildren()) do
+                    if ch:IsA("TextButton") then
+                        ApplyNexaraNameBlur(ch, blurOn)
+                    end
+                end
+            end
+        end
+    end
+
+    local function triggerCopyAvatar(name)
+        local target = tostring(name or ""):gsub("^%s+", ""):gsub("%s+$", "")
+        if target == "" or target == "None" then return end
+        if ctx.CopyAvatarByName then
+            pcall(ctx.CopyAvatarByName, target)
+        elseif _G.Nexara_AvatarManager and _G.Nexara_AvatarManager.CopyByName then
+            pcall(_G.Nexara_AvatarManager.CopyByName, target)
+        end
+        if Theme._refreshPlayerList then pcall(Theme._refreshPlayerList) end
+    end
+
+    local function triggerResetAvatar()
+        if ctx.ResetAvatar then
+            pcall(ctx.ResetAvatar)
+        elseif _G.Nexara_AvatarManager and _G.Nexara_AvatarManager.Reset then
+            pcall(_G.Nexara_AvatarManager.Reset)
+        end
+        if Theme._refreshPlayerList then pcall(Theme._refreshPlayerList) end
+    end
+
+    W.avCopyEn = AvatarCopyMod:AddCheckbox("Enable Copy Avatar", Config.AvatarCopy_Enabled == true, nil, function(v)
+        Config.AvatarCopy_Enabled = (v == true)
+        if Config.AvatarCopy_Enabled then
+            triggerCopyAvatar((W.avInput and W.avInput.Get()) or Config.AvatarCopy_Username)
+        else
+            triggerResetAvatar()
+        end
+    end)
+
+    W.avBlurName = AvatarCopyMod:AddCheckbox("Blur Name", Config.AvatarCopy_BlurName == true, nil, function(v)
+        Config.AvatarCopy_BlurName = (v == true)
+        refreshAvatarBlurControls()
+        if ctx.SetBlurName then
+            pcall(ctx.SetBlurName, Config.AvatarCopy_BlurName)
+        elseif _G.Nexara_SetBlurName then
+            pcall(_G.Nexara_SetBlurName, Config.AvatarCopy_BlurName)
+        end
+        if Theme._refreshPlayerList then pcall(Theme._refreshPlayerList) end
+    end)
+
+    W.avInput = AvatarCopyMod:AddInput("Enter Username...", Config.AvatarCopy_Username or "", function(txt)
+        local trimmed = tostring(txt or ""):gsub("^%s+", ""):gsub("%s+$", "")
+        Config.AvatarCopy_Username = trimmed
+        refreshAvatarBlurControls()
+        ConfigSys.ScheduleAutoSave()
+    end)
+    if W.avInput and W.avInput.Box then
+        W.avInput.Box.Focused:Connect(function()
+            ApplyNexaraNameBlur(W.avInput.Box, false)
+        end)
+        W.avInput.Box.FocusLost:Connect(function()
+            refreshAvatarBlurControls()
+        end)
+        W.avInput.Box:GetPropertyChangedSignal("Text"):Connect(function()
+            local focused = false
+            pcall(function() focused = W.avInput.Box:IsFocused() end)
+            if not focused then
+                refreshAvatarBlurControls()
+            end
+        end)
+    end
+
+    local initOpts = GetSavedAvatarOptions()
+    local initDropVal = "None"
+    local initUser = tostring(Config.AvatarCopy_Username or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if initUser ~= "" then
+        for _, opt in ipairs(initOpts) do
+            if opt ~= "None" and opt:lower() == initUser:lower() then
+                initDropVal = opt
+                break
+            end
+        end
+    end
+
+    W.avSavedDrop = AvatarCopyMod:AddDropdown("Saved Usernames", initOpts, initDropVal, function(selected)
+        if selected and selected ~= "None" then
+            Config.AvatarCopy_Username = selected
+            if W.avInput then W.avInput.Set(selected) end
+            refreshAvatarBlurControls()
+            if Config.AvatarCopy_Enabled then
+                triggerCopyAvatar(selected)
+            end
+        else
+            refreshAvatarBlurControls()
+        end
+    end)
+    if W.avSavedDrop and W.avSavedDrop.SetOnRebuild then
+        W.avSavedDrop.SetOnRebuild(refreshAvatarBlurControls)
+    end
+    refreshAvatarBlurControls()
+
+    AvatarCopyMod:AddButtonRow(
+        {
+            Name = "Copy Avatar",
+            Callback = function()
+                local raw = (W.avInput and W.avInput.Get()) or Config.AvatarCopy_Username or ""
+                local name = tostring(raw):gsub("^%s+", ""):gsub("%s+$", "")
+                if name == "" or name == "None" then return end
+                Config.AvatarCopy_Username = name
+                Config.AvatarCopy_Enabled = true
+                if W.avCopyEn then W.avCopyEn.Set(true, true) end
+                ConfigSys.ScheduleAutoSave()
+                triggerCopyAvatar(name)
+            end,
+        },
+        {
+            Name = "Reset Avatar",
+            Callback = function()
+                Config.AvatarCopy_Enabled = false
+                if W.avCopyEn then W.avCopyEn.Set(false, true) end
+                ConfigSys.ScheduleAutoSave()
+                triggerResetAvatar()
+            end,
+        }
+    )
+
+    AvatarCopyMod:AddButtonRow(
+        {
+            Name = "Save Name",
+            Callback = function()
+                local raw = (W.avInput and W.avInput.Get()) or Config.AvatarCopy_Username or ""
+                local name = tostring(raw):gsub("^%s+", ""):gsub("%s+$", "")
+                if name == "" or name == "None" then return end
+                Config.AvatarCopy_Username = name
+                local list = LoadSavedAvatarNames()
+                local found = false
+                for _, item in ipairs(list) do
+                    if item:lower() == name:lower() then
+                        found = true
+                        name = item
+                        break
+                    end
+                end
+                if not found then
+                    table.insert(list, name)
+                end
+                SaveSavedAvatarNames(list)
+                if W.avSavedDrop then W.avSavedDrop.Refresh(GetSavedAvatarOptions(), name) end
+                refreshAvatarBlurControls()
+                ConfigSys.ScheduleAutoSave()
+            end,
+        },
+        {
+            Name = "Delete Name",
+            TextColor3 = Color3.fromRGB(240, 80, 80),
+            Callback = function()
+                local sel = W.avSavedDrop and W.avSavedDrop.Get()
+                local raw = (sel and sel ~= "None") and sel or ((W.avInput and W.avInput.Get()) or Config.AvatarCopy_Username or "")
+                local target = tostring(raw):gsub("^%s+", ""):gsub("%s+$", "")
+                if target == "" or target == "None" then return end
+                local list = LoadSavedAvatarNames()
+                local nextList = {}
+                for _, item in ipairs(list) do
+                    if item:lower() ~= target:lower() then
+                        table.insert(nextList, item)
+                    end
+                end
+                SaveSavedAvatarNames(nextList)
+                if W.avSavedDrop then W.avSavedDrop.Refresh(GetSavedAvatarOptions(), "None") end
+                refreshAvatarBlurControls()
+            end,
+        }
+    )
 
     local AutoSkillMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Auto Skill Check", "")
     W.scGen = AutoSkillMod:AddCheckbox("Generator Skill Check", Config.AutoSkillCheck, nil, function(v)
@@ -6557,6 +6986,20 @@ local function CreateNexaraCustomUI(ctx)
         W.spdEn.Set((Config.Speed_Enabled == true or Config.SpeedHack == true), true)
         W.spdVal.Set(Config.Speed_Value or Config.SpeedValue or 26, true)
         W.fv.Set(Config.AlwaysFastVault == true, true)
+        if W.abyssCrouch then W.abyssCrouch.Set(Config.AutoCrouch_Abyss == true, true) end
+        if W.avCopyEn then W.avCopyEn.Set(Config.AvatarCopy_Enabled == true, true) end
+        if W.avBlurName then W.avBlurName.Set(Config.AvatarCopy_BlurName == true, true) end
+        if W.avInput then W.avInput.Set(Config.AvatarCopy_Username or "") end
+        if W.avSavedDrop then
+            local opts = GetSavedAvatarOptions()
+            local matchOpt = "None"
+            local curU = tostring(Config.AvatarCopy_Username or ""):gsub("^%s+", ""):gsub("%s+$", "")
+            for _, o in ipairs(opts) do
+                if o ~= "None" and o:lower() == curU:lower() then matchOpt = o; break end
+            end
+            W.avSavedDrop.Refresh(opts, matchOpt)
+        end
+        refreshAvatarBlurControls()
         W.scGen.Set(Config.AutoSkillCheck == true, true)
         W.scTrap.Set(Config.AutoSkillCheck_Trap == true, true)
         W.blind.Set(Config.BlindProgressEnabled == true, true)
@@ -6651,10 +7094,12 @@ local function CreateNexaraCustomUI(ctx)
 
     do
         local VeilCombat = WindowObj:CreateModule("Legit_Veil", "Left", "Combat", "")
-        W.veilSilent = VeilCombat:AddCheckbox("Silent Aim", Config.Veil_SilentAim, nil, function(v)
+        W.veilSilent = VeilCombat:AddCheckboxWithDropdown("Silent Aim", Config.Veil_SilentAim, { "Random", "Closest Part", "Torso", "Head", "Arms", "Legs" }, Config.Veil_Hitbox or "Random", function(v)
             Config.Veil_SilentAim = v
             if v and TofCombat and TofCombat.EnsureVeilHooks then TofCombat.EnsureVeilHooks() end
-        end)
+        end, function(mode)
+            Config.Veil_Hitbox = mode
+        end, "Hitbox")
         W.veilAim = VeilCombat:AddCheckboxWithKeybind("Aimbot", Config.Veil_Aimbot, Config.Veil_AimKeyCode, function(v)
             Config.Veil_Aimbot = v
             if v and TofCombat and TofCombat.EnsureVeilHooks then TofCombat.EnsureVeilHooks() end
@@ -6689,6 +7134,10 @@ local function CreateNexaraCustomUI(ctx)
         W.veilTarget = VeilSettings:AddCheckbox("Target Name", Config.Veil_ShowTargetName ~= false, nil, function(v)
             Config.Veil_ShowTargetName = v
         end)
+        W.veilFovEn = VeilSettings:AddCheckbox("FOV Circle", Config.Veil_ShowFOV ~= false, Config.Color_Veil_FOV or Color3.fromRGB(235, 245, 255),
+            function(v) Config.Veil_ShowFOV = v end,
+            function(c) Config.Color_Veil_FOV = c end
+        )
         W.veilFov = VeilSettings:AddSlider("FOV Radius", 50, 800, math.floor(Config.Veil_FOV or 350), "", function(v)
             Config.Veil_FOV = v
         end)
@@ -6770,7 +7219,7 @@ local function CreateNexaraCustomUI(ctx)
         W.tofHmMode.Set(Config.HitmarkerMode or "On Killer", true)
         W.tofHmSound.Set(Config.HitmarkerSound or "CoD", true)
         W.tofHmVol.Set(math.floor((Config.HitmarkerVolume or 1.0) * 100), true)
-        W.veilSilent.Set(Config.Veil_SilentAim == true, true)
+        W.veilSilent.Set(Config.Veil_SilentAim == true, true); W.veilSilent.SetOption(Config.Veil_Hitbox or "Random", true)
         W.veilAim.Set(Config.Veil_Aimbot == true, true); W.veilAim.SetKey(Config.Veil_AimKeyCode, true)
         W.veilLineup.Set(Config.Veil_ThrowLineup == true, true); W.veilLineup.SetColor(Config.Color_Veil_Lineup)
         W.veilLaser.Set(Config.Veil_Laser == true, true); W.veilLaser.SetColor(Config.Color_Veil_Laser)
@@ -6778,6 +7227,7 @@ local function CreateNexaraCustomUI(ctx)
         W.veilCh.Set(Config.Veil_Crosshair == true, true); W.veilCh.SetColor(Config.Color_Veil_Crosshair)
         W.veilChSz.Set(Config.Veil_CrosshairSize or 8, true)
         W.veilTarget.Set(Config.Veil_ShowTargetName ~= false, true)
+        if W.veilFovEn then W.veilFovEn.Set(Config.Veil_ShowFOV ~= false, true); W.veilFovEn.SetColor(Config.Color_Veil_FOV) end
         W.veilFov.Set(Config.Veil_FOV or 350, true)
         W.veilSmooth.Set(Config.Veil_AimbotSmooth or 10, true)
         W.veilHm.Set(Config.Veil_Hitmarker ~= false, true); W.veilHm.SetColor(Config.Color_Veil_Hitmarker)
@@ -7070,7 +7520,7 @@ local function CreateNexaraCustomUI(ctx)
         local function CreatePlayerRow(plr)
             local card = Instance.new("Frame")
             card.Name = "PlayerCard_" .. plr.Name
-            card.Size = UDim2.new(1, 0, 0, 96)
+            card.Size = UDim2.new(1, 0, 0, 102)
             card.BackgroundColor3 = Theme.Card
             card.BorderSizePixel = 0
             card.Parent = RosterListContainer
@@ -7233,17 +7683,17 @@ local function CreateNexaraCustomUI(ctx)
             roleText.LayoutOrder = 2
             roleText.Parent = topRightContainer
 
-            -- Bottom Row (Starts at Y = 31): Perks and Item
+            -- Bottom Row (Starts at Y = 30): Perks, Item and Rank
             local bottomRow = Instance.new("Frame")
-            bottomRow.Size = UDim2.new(1, -104, 0, 58)
-            bottomRow.Position = UDim2.fromOffset(90, 31)
+            bottomRow.Size = UDim2.new(1, -104, 0, 64)
+            bottomRow.Position = UDim2.fromOffset(90, 30)
             bottomRow.BackgroundTransparency = 1
             bottomRow.Parent = card
             local bLayout = Instance.new("UIListLayout")
             bLayout.FillDirection = Enum.FillDirection.Horizontal
-            bLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+            bLayout.VerticalAlignment = Enum.VerticalAlignment.Top
             bLayout.SortOrder = Enum.SortOrder.LayoutOrder
-            bLayout.Padding = UDim.new(0, 24)
+            bLayout.Padding = UDim.new(0, 14)
             bLayout.Parent = bottomRow
 
             -- 1. Perks Section
@@ -7375,6 +7825,96 @@ local function CreateNexaraCustomUI(ctx)
             itPlaceholder.Visible = true
             itPlaceholder.Parent = itemBox
 
+            local rankSection = Instance.new("Frame")
+            rankSection.Name = "RankSection"
+            rankSection.Size = UDim2.new(0, 268, 0, 64)
+            rankSection.BackgroundTransparency = 1
+            rankSection.LayoutOrder = 3
+            rankSection.Parent = bottomRow
+
+            local rankHeader = Instance.new("TextLabel")
+            rankHeader.Size = UDim2.new(1, 0, 0, 11)
+            rankHeader.BackgroundTransparency = 1
+            rankHeader.Text = "Rank / Elo"
+            rankHeader.TextColor3 = Theme.TextMuted
+            rankHeader.TextSize = 9.5
+            rankHeader.TextXAlignment = Enum.TextXAlignment.Left
+            rankHeader.Font = Enum.Font.GothamBold
+            rankHeader.Parent = rankSection
+
+            local rankBox = Instance.new("Frame")
+            rankBox.Name = "RankBox"
+            rankBox.Size = UDim2.new(1, 0, 0, 50)
+            rankBox.Position = UDim2.fromOffset(0, 13)
+            rankBox.BackgroundColor3 = Theme.Input
+            rankBox.BorderSizePixel = 0
+            rankBox.ClipsDescendants = true
+            rankBox.Parent = rankSection
+            local rbCorner = Instance.new("UICorner")
+            rbCorner.CornerRadius = UDim.new(0, 6)
+            rbCorner.Parent = rankBox
+            local rankStroke = Instance.new("UIStroke")
+            rankStroke.Color = Theme.CardStroke
+            rankStroke.Thickness = 1
+            rankStroke.Parent = rankBox
+
+            local crestFrame = Instance.new("Frame")
+            crestFrame.Name = "CrestFrame"
+            crestFrame.Size = UDim2.fromOffset(46, 46)
+            crestFrame.Position = UDim2.fromOffset(5, 2)
+            crestFrame.BackgroundTransparency = 1
+            crestFrame.ClipsDescendants = true
+            crestFrame.Parent = rankBox
+
+            local rankCrest = Instance.new("ImageLabel")
+            rankCrest.Name = "RankCrest"
+            rankCrest.AnchorPoint = Vector2.new(0.5, 0.5)
+            rankCrest.Position = UDim2.fromScale(0.5, 0.5)
+            rankCrest.Size = UDim2.fromScale(1.28, 1.28)
+            rankCrest.BackgroundTransparency = 1
+            rankCrest.ScaleType = Enum.ScaleType.Stretch
+            rankCrest.Visible = false
+            rankCrest.Parent = crestFrame
+
+            local rankTierLabel = Instance.new("TextLabel")
+            rankTierLabel.Name = "RankTierLabel"
+            rankTierLabel.Position = UDim2.fromOffset(56, 4)
+            rankTierLabel.Size = UDim2.new(1, -64, 0, 16)
+            rankTierLabel.BackgroundTransparency = 1
+            rankTierLabel.Text = "NO RANK"
+            rankTierLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+            rankTierLabel.TextSize = 13
+            rankTierLabel.TextXAlignment = Enum.TextXAlignment.Left
+            rankTierLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            rankTierLabel.Font = Enum.Font.GothamBold
+            rankTierLabel.Parent = rankBox
+
+            local rankEloLabel = Instance.new("TextLabel")
+            rankEloLabel.Name = "RankEloLabel"
+            rankEloLabel.Position = UDim2.fromOffset(56, 20)
+            rankEloLabel.Size = UDim2.new(1, -64, 0, 14)
+            rankEloLabel.BackgroundTransparency = 1
+            rankEloLabel.Text = "---"
+            rankEloLabel.TextColor3 = Theme.Text
+            rankEloLabel.TextSize = 10.5
+            rankEloLabel.TextXAlignment = Enum.TextXAlignment.Left
+            rankEloLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            rankEloLabel.Font = Enum.Font.GothamBold
+            rankEloLabel.Parent = rankBox
+
+            local rankAltLabel = Instance.new("TextLabel")
+            rankAltLabel.Name = "RankAltLabel"
+            rankAltLabel.Position = UDim2.fromOffset(56, 34)
+            rankAltLabel.Size = UDim2.new(1, -64, 0, 12)
+            rankAltLabel.BackgroundTransparency = 1
+            rankAltLabel.Text = ""
+            rankAltLabel.TextColor3 = Theme.TextMuted
+            rankAltLabel.TextSize = 9.5
+            rankAltLabel.TextXAlignment = Enum.TextXAlignment.Left
+            rankAltLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            rankAltLabel.Font = Enum.Font.Gotham
+            rankAltLabel.Parent = rankBox
+
             local rowObj = {
                 Card = card,
                 AccentBar = accentBar,
@@ -7399,9 +7939,185 @@ local function CreateNexaraCustomUI(ctx)
                 ItemStroke = itemStroke,
                 ItemImg = itImg,
                 ItemPlaceholder = itPlaceholder,
+                RankSection = rankSection,
+                RankHeader = rankHeader,
+                RankBox = rankBox,
+                RankStroke = rankStroke,
+                RankCrest = rankCrest,
+                RankTierLabel = rankTierLabel,
+                RankEloLabel = rankEloLabel,
+                RankAltLabel = rankAltLabel,
             }
             cachedRosterRows[plr] = rowObj
             return rowObj
+        end
+
+        local RANK_TIERS = {
+            { name = "Pebble",    elo = 0,    crest = "rbxassetid://85007191697175",  color = Color3.fromRGB(184, 171, 157) },
+            { name = "Hollow",    elo = 300,  crest = "rbxassetid://127962422435341", color = Color3.fromRGB(112, 128, 182) },
+            { name = "Mortal",    elo = 600,  crest = "rbxassetid://135108634235277", color = Color3.fromRGB(170, 170, 20) },
+            { name = "Graven",    elo = 900,  crest = "rbxassetid://102394445781049", color = Color3.fromRGB(12, 208, 208) },
+            { name = "Awakened",  elo = 1200, crest = "rbxassetid://128269362852644", color = Color3.fromRGB(206, 131, 10) },
+            { name = "Unholy",    elo = 1500, crest = "rbxassetid://108078047560206", color = Color3.fromRGB(150, 112, 208) },
+            { name = "Celestial", elo = 1800, crest = "rbxassetid://129726415843258", color = Color3.fromRGB(156, 191, 176) },
+        }
+        local RANK_ETERNAL = { name = "Eternal", crest = "rbxassetid://125760853919334", color = Color3.fromRGB(214, 44, 48) }
+        local RANK_UNRANKED = { name = "Unranked", color = Color3.fromRGB(150, 150, 150) }
+        local RANK_ROMAN = { "I", "II", "III" }
+        local _HttpSvc = game:GetService("HttpService")
+
+        local function ResolveTierFromStats(elo, games, boardPos, placementReq)
+            if type(elo) ~= "number" or elo ~= elo then
+                return nil, nil
+            end
+            if type(games) == "number" and games < (placementReq or 5) then
+                return RANK_UNRANKED, nil
+            end
+            if elo >= 2100 and type(boardPos) == "number" and boardPos > 0 and boardPos <= 100 then
+                return RANK_ETERNAL, nil
+            end
+            local chosen = RANK_TIERS[1]
+            for _, t in ipairs(RANK_TIERS) do
+                if t.elo <= elo then
+                    chosen = t
+                end
+            end
+            local div = math.clamp(math.floor((elo - chosen.elo) / 100) + 1, 1, 3)
+            return chosen, RANK_ROMAN[div]
+        end
+
+        local function DecodeKillerEloMap(plr)
+            local raw = plr and plr:GetAttribute("KillerElo")
+            if type(raw) ~= "string" or raw == "" or raw == "[]" then
+                return {}
+            end
+            local ok, dec = pcall(function() return _HttpSvc:JSONDecode(raw) end)
+            return (ok and type(dec) == "table") and dec or {}
+        end
+
+        local function LookupKillerMapElo(kMap, name)
+            if type(kMap) ~= "table" or not name or name == "" then return nil end
+            local direct = tonumber(kMap[name])
+            if direct then return direct end
+            local targetLower = name:lower():gsub("^the%s+", "")
+            for k, v in pairs(kMap) do
+                if type(k) == "string" and k:lower():gsub("^the%s+", "") == targetLower then
+                    local num = tonumber(v)
+                    if num then return num end
+                end
+            end
+            return nil
+        end
+
+        local function ResolvePlayerRankInfo(plr, isK, cleanK, isLobby)
+            local placementReq = tonumber(plr:GetAttribute("RankedPlacementMatches")) or 5
+            local lobbyRole = tostring(plr:GetAttribute("LobbyRole") or "")
+
+            local sElo = tonumber(plr:GetAttribute("SurvivorElo"))
+            local sGames = tonumber(plr:GetAttribute("SurvivorGames"))
+            local sPos = tonumber(plr:GetAttribute("SurvivorBoardPosition"))
+
+            local rawSelK = plr:GetAttribute("SelectedKiller")
+            local selK = (type(rawSelK) == "string" and rawSelK ~= "") and rawSelK:gsub("^The%s+", "") or nil
+            local targetK = (isK and cleanK and cleanK ~= "") and cleanK or selK
+            local kMap = DecodeKillerEloMap(plr)
+
+            local kElo, kGames, kPos = nil, nil, nil
+            if targetK and selK and targetK:lower() == selK:lower() then
+                kElo = tonumber(plr:GetAttribute("SelectedKillerElo"))
+                kGames = tonumber(plr:GetAttribute("SelectedKillerGames"))
+                kPos = tonumber(plr:GetAttribute("SelectedKillerBoardPosition"))
+            elseif not targetK then
+                kElo = tonumber(plr:GetAttribute("SelectedKillerElo"))
+                kGames = tonumber(plr:GetAttribute("SelectedKillerGames"))
+                kPos = tonumber(plr:GetAttribute("SelectedKillerBoardPosition"))
+            end
+            local mappedElo = LookupKillerMapElo(kMap, targetK)
+            if kElo == nil and mappedElo ~= nil then
+                kElo = mappedElo
+            end
+
+            local bestMapK, bestMapElo = nil, nil
+            for k, v in pairs(kMap) do
+                local num = tonumber(v)
+                if type(k) == "string" and num and (not bestMapElo or num > bestMapElo) then
+                    bestMapK, bestMapElo = k:gsub("^The%s+", ""), num
+                end
+            end
+
+            local useKiller = false
+            if isK then
+                useKiller = true
+            elseif isLobby then
+                if lobbyRole == "Killer" then
+                    useKiller = true
+                elseif lobbyRole == "Survivor" then
+                    useKiller = false
+                else
+                    local sRanked = (type(sGames) == "number" and sGames >= placementReq)
+                    local kRanked = (type(kGames) == "number" and kGames >= placementReq)
+                    if sRanked ~= kRanked then
+                        useKiller = kRanked
+                    elseif sElo == nil and (kElo ~= nil or bestMapElo ~= nil) then
+                        useKiller = true
+                    end
+                end
+            end
+
+            local pElo = useKiller and (kElo or bestMapElo) or sElo
+            local pGames = useKiller and kGames or sGames
+            local pPos = useKiller and kPos or sPos
+            local pRoleTag = useKiller and (targetK or bestMapK or "Killer") or "Surv"
+
+            local pTier, pDiv = ResolveTierFromStats(pElo, pGames, pPos, placementReq)
+            local crest = pTier and pTier.crest or nil
+            local tierColor = (pTier and pTier.color) or Color3.fromRGB(150, 150, 150)
+            local tierText = "NO RANK"
+            if pTier then
+                tierText = pTier.name:upper() .. (pDiv and (" " .. pDiv) or "")
+                if pTier ~= RANK_UNRANKED and type(pPos) == "number" and pPos > 0 and pPos <= 1000 then
+                    tierText = tierText .. " #" .. tostring(pPos)
+                end
+            end
+
+            local eloText = "---"
+            if type(pElo) == "number" then
+                local rElo = math.floor(pElo + 0.5)
+                if pTier == RANK_UNRANKED and type(pGames) == "number" then
+                    eloText = tostring(rElo) .. " ELO (" .. tostring(pGames) .. "/" .. tostring(placementReq) .. ")"
+                else
+                    eloText = tostring(rElo) .. " ELO • " .. pRoleTag
+                end
+            end
+
+            local altText = ""
+            if useKiller then
+                if type(sElo) == "number" then
+                    local sTier, sDiv = ResolveTierFromStats(sElo, sGames, sPos, placementReq)
+                    local sDesc = (sTier and sTier ~= RANK_UNRANKED) and (sTier.name .. (sDiv and (" " .. sDiv) or "")) or ((type(sGames) == "number" and sGames < placementReq) and (tostring(sGames) .. "/" .. tostring(placementReq)) or "")
+                    altText = "Surv: " .. tostring(math.floor(sElo + 0.5)) .. (sDesc ~= "" and (" • " .. sDesc) or "")
+                end
+            else
+                local altKName = (kElo ~= nil and (type(kGames) ~= "number" or kGames >= placementReq)) and (targetK or "Killer") or (bestMapK or targetK)
+                local altKElo = (kElo ~= nil and (type(kGames) ~= "number" or kGames >= placementReq)) and kElo or (bestMapElo or kElo)
+                local altKGames = (altKName and selK and altKName:lower() == selK:lower()) and kGames or nil
+                local altKPos = (altKName and selK and altKName:lower() == selK:lower()) and kPos or nil
+                if type(altKElo) == "number" then
+                    local kTier, kDiv = ResolveTierFromStats(altKElo, altKGames, altKPos, placementReq)
+                    local kDesc = (kTier and kTier ~= RANK_UNRANKED) and (kTier.name .. (kDiv and (" " .. kDiv) or "")) or ((type(altKGames) == "number" and altKGames < placementReq) and (tostring(altKGames) .. "/" .. tostring(placementReq)) or "")
+                    altText = (altKName or "Killer") .. ": " .. tostring(math.floor(altKElo + 0.5)) .. (kDesc ~= "" and (" • " .. kDesc) or "")
+                end
+            end
+
+            return {
+                TierText = tierText,
+                TierColor = tierColor,
+                Crest = crest,
+                EloText = eloText,
+                AltText = altText,
+                LobbyRole = lobbyRole,
+                SelectedKiller = selK,
+            }
         end
 
         local function UpdateRoster(force)
@@ -7454,15 +8170,37 @@ local function CreateNexaraCustomUI(ctx)
                         row.PlatIcon.Image = "rbxassetid://10734896881" -- PC Monitor
                     end
 
-                    if plr == LocalPlayer and Config.StreamerMode then
-                        row.NameLabel.Text = "★ NexaraScript"
-                        row.UserLabel.Text = "@NexaraScript"
+                    if plr == LocalPlayer then
+                        if Config.AvatarCopy_BlurName == true then
+                            row.NameLabel.Text = "★ " .. plr.DisplayName
+                            row.UserLabel.Text = "@" .. plr.Name
+                            ApplyNexaraNameBlur(row.NameLabel, true)
+                            ApplyNexaraNameBlur(row.UserLabel, true)
+                        else
+                            ApplyNexaraNameBlur(row.NameLabel, false)
+                            ApplyNexaraNameBlur(row.UserLabel, false)
+                            if Config.StreamerMode then
+                                row.NameLabel.Text = "★ NexaraScript"
+                                row.UserLabel.Text = "@NexaraScript"
+                            else
+                                row.NameLabel.Text = "★ " .. plr.DisplayName
+                                row.UserLabel.Text = "@" .. plr.Name
+                            end
+                        end
                     else
-                        row.NameLabel.Text = (plr == LocalPlayer and "★ " or "") .. plr.DisplayName
+                        ApplyNexaraNameBlur(row.NameLabel, false)
+                        ApplyNexaraNameBlur(row.UserLabel, false)
+                        row.NameLabel.Text = plr.DisplayName
                         row.UserLabel.Text = "@" .. plr.Name
                     end
 
-                    local targetAvatar = "rbxthumb://type=AvatarHeadShot&id=" .. plr.UserId .. "&w=150&h=150"
+                    local avatarUid = plr.UserId
+                    if plr == LocalPlayer and Config.AvatarCopy_Enabled and _G.Nexara_AvatarManager and _G.Nexara_AvatarManager.ActiveUserId then
+                        avatarUid = _G.Nexara_AvatarManager.ActiveUserId
+                    end
+                    local targetAvatar = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(avatarUid) .. "&w=150&h=150"
+                    local isLobby = (ctx.IsInLobby and ctx.IsInLobby()) or (ctx.IsPlayerInLobby and ctx.IsPlayerInLobby(plr)) or (not ctx.IsInLobby and plr.Team ~= nil and (plr.Team.Name == "Spectator" or plr.Team.Name == "Lobby"))
+                    local cleanK = nil
                     if isK then
                         local kCol = Color3.fromRGB(245, 65, 85)
                         row.AccentBar.BackgroundColor3 = kCol
@@ -7470,7 +8208,7 @@ local function CreateNexaraCustomUI(ctx)
                         row.AvatarBox.BackgroundColor3 = Color3.fromRGB(38, 14, 18)
 
                         local kType = ResolveKillerType(plr)
-                        local cleanK = tostring(kType or "Killer"):gsub("^The%s+", "")
+                        cleanK = tostring(kType or "Killer"):gsub("^The%s+", "")
                         local kLevel = tonumber(plr:GetAttribute("KillerLevel") or plr:GetAttribute("Level")) or plrLevel
                         local kPortrait = ResolveKillerPortraitAsset(cleanK)
                         if kPortrait then
@@ -7499,14 +8237,50 @@ local function CreateNexaraCustomUI(ctx)
                         row.LvlText.Text = tostring(plrLevel)
                         row.LvlText.TextColor3 = Color3.fromRGB(240, 248, 255)
 
-                        local isLobby = (ctx.IsInLobby and ctx.IsInLobby()) or (ctx.IsPlayerInLobby and ctx.IsPlayerInLobby(plr)) or (not ctx.IsInLobby and plr.Team ~= nil and (plr.Team.Name == "Spectator" or plr.Team.Name == "Lobby"))
-                        row.RoleText.Text = isLobby and "Lobby" or "Survivor"
-                        row.RoleText.TextColor3 = Color3.fromRGB(80, 210, 255)
+                        local lobbyRoleAttr = tostring(plr:GetAttribute("LobbyRole") or "")
+                        if isLobby and lobbyRoleAttr == "Killer" then
+                            local selKName = tostring(plr:GetAttribute("SelectedKiller") or "Killer"):gsub("^The%s+", "")
+                            row.RoleText.Text = "Lobby • " .. selKName
+                            row.RoleText.TextColor3 = Color3.fromRGB(255, 130, 145)
+                        elseif isLobby and lobbyRoleAttr == "Survivor" then
+                            row.RoleText.Text = "Lobby • Surv"
+                            row.RoleText.TextColor3 = Color3.fromRGB(80, 210, 255)
+                        else
+                            row.RoleText.Text = isLobby and "Lobby" or "Survivor"
+                            row.RoleText.TextColor3 = Color3.fromRGB(80, 210, 255)
+                        end
 
                         row.PerksHeader.Text = "Perks"
                         -- SURVIVOR HAS ITEM!
                         row.ItemSection.Visible = true
                         row.ItemStroke.Color = Color3.fromRGB(220, 160, 40)
+                    end
+
+                    local rInfo = ResolvePlayerRankInfo(plr, isK, cleanK, isLobby)
+                    row.RankHeader.Text = (plr:GetAttribute("RankedSeasonNumber") and ("Rank • S" .. tostring(plr:GetAttribute("RankedSeasonNumber")))) or "Rank / Elo"
+                    row.RankTierLabel.Text = rInfo.TierText
+                    row.RankTierLabel.TextColor3 = rInfo.TierColor
+                    row.RankEloLabel.Text = rInfo.EloText
+                    row.RankAltLabel.Text = rInfo.AltText
+                    row.RankAltLabel.Visible = rInfo.AltText ~= ""
+                    row.RankStroke.Color = (rInfo.TierText ~= "NO RANK") and rInfo.TierColor or Theme.CardStroke
+                    if rInfo.Crest then
+                        row.RankCrest.Image = rInfo.Crest
+                        row.RankCrest.Visible = true
+                        row.RankTierLabel.Position = UDim2.fromOffset(56, rInfo.AltText ~= "" and 4 or 7)
+                        row.RankTierLabel.Size = UDim2.new(1, -64, 0, 16)
+                        row.RankEloLabel.Position = UDim2.fromOffset(56, rInfo.AltText ~= "" and 20 or 25)
+                        row.RankEloLabel.Size = UDim2.new(1, -64, 0, 14)
+                        row.RankAltLabel.Position = UDim2.fromOffset(56, 34)
+                        row.RankAltLabel.Size = UDim2.new(1, -64, 0, 12)
+                    else
+                        row.RankCrest.Visible = false
+                        row.RankTierLabel.Position = UDim2.fromOffset(10, rInfo.AltText ~= "" and 4 or 7)
+                        row.RankTierLabel.Size = UDim2.new(1, -18, 0, 16)
+                        row.RankEloLabel.Position = UDim2.fromOffset(10, rInfo.AltText ~= "" and 20 or 25)
+                        row.RankEloLabel.Size = UDim2.new(1, -18, 0, 14)
+                        row.RankAltLabel.Position = UDim2.fromOffset(10, 34)
+                        row.RankAltLabel.Size = UDim2.new(1, -18, 0, 12)
                     end
                     if row.AvatarImg.Image ~= targetAvatar then
                         row.AvatarImg.Image = targetAvatar
@@ -7571,6 +8345,8 @@ local function CreateNexaraCustomUI(ctx)
             end
         end
 
+        Theme._refreshPlayerList = UpdateRoster
+        _G.Nexara_RefreshPlayerList = UpdateRoster
         ConnectUI(PlayerlistTab.Btn.MouseButton1Click, function()
             task.spawn(function()
                 task.wait(0.04)
@@ -8011,6 +8787,13 @@ local function CreateNexaraCustomUI(ctx)
         local kbVis = (Config.ShowKeybindsList ~= false) and (Config.PlatformMode ~= "Mobile")
         if ctx.SetKeybindsVisible then pcall(ctx.SetKeybindsVisible, kbVis) end
         if ctx.SetStreamerMode then pcall(ctx.SetStreamerMode, Config.StreamerMode == true) end
+        if ctx.SetBlurName then pcall(ctx.SetBlurName, Config.AvatarCopy_BlurName == true) end
+        if Config.AvatarCopy_Enabled and Config.AvatarCopy_Username and Config.AvatarCopy_Username ~= "" and ctx.CopyAvatarByName then
+            pcall(ctx.CopyAvatarByName, Config.AvatarCopy_Username)
+        elseif not Config.AvatarCopy_Enabled and _G.Nexara_AvatarManager and _G.Nexara_AvatarManager.ActiveUserId and ctx.ResetAvatar then
+            pcall(ctx.ResetAvatar)
+        end
+        if Theme._refreshPlayerList then pcall(Theme._refreshPlayerList) end
         if ctx.ApplyAntiAfkState then pcall(ctx.ApplyAntiAfkState, Config.AntiAFK == true) end
         if _G.Nexara_VD_HitLogContainer then _G.Nexara_VD_HitLogContainer.Visible = (Config.HitLog == true) end
         if (Config.Tof_Aimbot or Config.Tof_SilentAim) and TofCombat and TofCombat.EnsureHooksActive then
