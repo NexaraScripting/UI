@@ -761,7 +761,7 @@ local function CreateNexaraCustomUI(ctx)
     end
 
     local UIState = {
-        _adaptiveMobileV2 = true,
+        _adaptiveMobileV4 = true,
         Animating = false,
         Capturing = false,
         Token = 0,
@@ -807,12 +807,15 @@ local function CreateNexaraCustomUI(ctx)
         local isMobile = (Config.PlatformMode == "Mobile") or (UIState.Touch and Config.PlatformMode ~= "PC") or (UIState.Touch and not UIState.UserSetPlatform)
 
         if isMobile then
-            -- Adapt both scale and logical aspect to fit any phone/tablet without shrinking fonts to unreadable sizes.
-            local availW = math.max(280, math.min(vp.X - 18, vp.X * 0.92))
-            local availH = math.max(220, math.min(vp.Y - 14, vp.Y * 0.90))
-            local s = math.clamp(math.min(availW / 860, availH / 390), 0.72, 1.0)
-            local fw = math.min(900, math.max(340, math.floor(availW / s)))
-            local fh = math.min(560, math.max(220, math.floor(availH / s)))
+            -- Keep compact ~65-74% phone footprint while preserving readable 0.58-0.74 UIScale text/tap sizes.
+            local isPhone = (vp.Y < 600) or (vp.X < 920)
+            local availW = isPhone and math.max(260, math.min(vp.X - 28, vp.X * 0.68)) or math.max(420, math.min(vp.X - 48, vp.X * 0.72))
+            local availH = isPhone and math.max(200, math.min(vp.Y - 20, vp.Y * 0.74)) or math.max(300, math.min(vp.Y - 48, vp.Y * 0.70))
+            local s = isPhone
+                and math.clamp(math.min(availW / 780, availH / 390), 0.58, 0.74)
+                or math.clamp(math.min(availW / 900, availH / 560), 0.62, 0.85)
+            local fw = math.min(900, math.max(360, math.floor(availW / s)))
+            local fh = math.min(560, math.max(240, math.floor(availH / s)))
             local sw = (fw >= 840) and 205 or ((fw >= 660) and 178 or 155)
             UIState.BaseScale = s
             UIState.FrameW = fw
