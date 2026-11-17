@@ -42,17 +42,31 @@ local function CreateNexaraCustomUI(ctx)
             if ok and typeof(res) == "EnumItem" then return res end
             return nil
         end
+        local function serializeVal(v)
+            local tv = typeof(v)
+            if tv == "Color3" then
+                return { __type = "Color3", R = v.R, G = v.G, B = v.B }
+            elseif tv == "EnumItem" then
+                return { __type = "EnumItem", EnumType = tostring(v.EnumType), Name = v.Name }
+            elseif tv == "boolean" or tv == "number" or tv == "string" then
+                return v
+            elseif tv == "table" and v.__type == nil then
+                local sub = {}
+                for sk, sv in pairs(v) do
+                    if type(sk) == "string" or type(sk) == "number" then
+                        local ser = serializeVal(sv)
+                        if ser ~= nil then sub[sk] = ser end
+                    end
+                end
+                return sub
+            end
+            return nil
+        end
         function ConfigSys.Serialize(tbl)
             local out = {}
             for k, v in pairs(tbl) do
-                local tv = typeof(v)
-                if tv == "Color3" then
-                    out[k] = { __type = "Color3", R = v.R, G = v.G, B = v.B }
-                elseif tv == "EnumItem" then
-                    out[k] = { __type = "EnumItem", EnumType = tostring(v.EnumType), Name = v.Name }
-                elseif tv == "boolean" or tv == "number" or tv == "string" then
-                    out[k] = v
-                end
+                local ser = serializeVal(v)
+                if ser ~= nil then out[k] = ser end
             end
             return out
         end
@@ -63,6 +77,12 @@ local function CreateNexaraCustomUI(ctx)
                 local enumName = tostring(v.EnumType):gsub("^Enum%.", "")
                 local ok, res = pcall(function() return Enum[enumName][v.Name] end)
                 if ok and res then return res end
+            elseif type(v) == "table" then
+                local sub = {}
+                for sk, sv in pairs(v) do
+                    sub[sk] = ConfigSys.Deserialize(sv)
+                end
+                return sub
             end
             return v
         end
