@@ -115,16 +115,6 @@ local function CreateNexaraCustomUI(ctx)
                 Config.FOV = fv
                 Config.FOVValue = fv
             end
-            if Config.Speed_Enabled ~= nil or Config.SpeedHack ~= nil then
-                local se = (Config.Speed_Enabled == true or Config.SpeedHack == true)
-                Config.Speed_Enabled = se
-                Config.SpeedHack = se
-            end
-            if Config.Speed_Value ~= nil or Config.SpeedValue ~= nil then
-                local sv = Config.Speed_Value or Config.SpeedValue or 26
-                Config.Speed_Value = sv
-                Config.SpeedValue = sv
-            end
             if Config.ESP_WindowAura ~= nil or Config.ESP_WindowChams ~= nil then
                 local wc = (Config.ESP_WindowAura == true or Config.ESP_WindowChams == true)
                 Config.ESP_WindowAura = wc
@@ -6284,42 +6274,6 @@ local function CreateNexaraCustomUI(ctx)
         end
     )
 
-    local MovementMod = WindowObj:CreateModule("Miscellaneous_General", "Right", "Movement", "")
-    W.spdEn = MovementMod:AddCheckbox("Speed Hack", Config.Speed_Enabled or Config.SpeedHack, nil, function(v)
-        Config.Speed_Enabled = v
-        Config.SpeedHack = v
-        if not v then
-            pcall(function()
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum.WalkSpeed = (char:GetAttribute("Speed") or 17) * (char:GetAttribute("speedboost") or 1)
-                end
-            end)
-        else
-            pcall(function()
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum.WalkSpeed = Config.Speed_Value or Config.SpeedValue or 26
-                end
-            end)
-        end
-    end)
-    W.spdVal = MovementMod:AddSlider("Speed Value", 17, 45, math.floor(Config.Speed_Value or Config.SpeedValue or 26), " spd", function(v)
-        Config.Speed_Value = v
-        Config.SpeedValue = v
-        if Config.Speed_Enabled or Config.SpeedHack then
-            pcall(function()
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum.WalkSpeed = v
-                end
-            end)
-        end
-    end)
-
     local FastVaultMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Fast Vault", "")
     W.fv = FastVaultMod:AddCheckbox("Always Fast Vault", Config.AlwaysFastVault, nil, function(v)
         Config.AlwaysFastVault = v
@@ -7132,8 +7086,6 @@ local function CreateNexaraCustomUI(ctx)
             W.stretched.Set(Config.StretchedEnabled == true, true)
             W.stretched.SetSlider(Config.StretchedAmount or 133, true)
         end
-        W.spdEn.Set((Config.Speed_Enabled == true or Config.SpeedHack == true), true)
-        W.spdVal.Set(Config.Speed_Value or Config.SpeedValue or 26, true)
         W.fv.Set(Config.AlwaysFastVault == true, true)
         if W.abyssCrouch then W.abyssCrouch.Set(Config.AutoCrouch_Abyss == true, true) end
         if W.avCopyEn then W.avCopyEn.Set(Config.AvatarCopy_Enabled == true, true) end
@@ -8913,13 +8865,6 @@ local function CreateNexaraCustomUI(ctx)
         end
         if not Config.StretchedEnabled and ctx and ctx.RestoreCameraStretch then
             pcall(ctx.RestoreCameraStretch)
-        end
-        if Config.Speed_Enabled then
-            pcall(function()
-                local c = LocalPlayer and LocalPlayer.Character
-                local h = c and c:FindFirstChildOfClass("Humanoid")
-                if h then h.WalkSpeed = Config.Speed_Value or 26 end
-            end)
         end
         if UIState.Touch and not UIState.UserSetPlatform and Config.PlatformMode ~= "Mobile" then
             Config.PlatformMode = "Mobile"
