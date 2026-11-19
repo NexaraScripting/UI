@@ -679,6 +679,7 @@ local function CreateNexaraCustomUI(ctx)
     MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
     MainFrame.BackgroundColor3 = Theme.Background
     MainFrame.BorderSizePixel = 0
+    MainFrame.Active = true
     MainFrame.GroupTransparency = 0
     MainFrame.Parent = ScreenGui
 
@@ -6287,6 +6288,12 @@ local function CreateNexaraCustomUI(ctx)
             pcall(_G.Nexara_StopAbyssAutoCrouch)
         end
     end)
+    W.veilDodge = AutoDodgeMod:AddCheckbox("Auto Dodge (Veil Spear)", Config.AutoDodge_Veil, nil, function(v)
+        Config.AutoDodge_Veil = v
+        if not v and _G.Nexara_StopVeilAutoDodge then
+            pcall(_G.Nexara_StopVeilAutoDodge)
+        end
+    end)
 
     local AvatarCopyMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Avatar Copier", "")
     local AVATAR_SAVE_DIR = "Nexara/ViolenceDistrict"
@@ -6558,6 +6565,21 @@ local function CreateNexaraCustomUI(ctx)
         Config.BlindProgressEnabled = v
     end)
 
+    local FakeLookMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Fake Look", "")
+    W.survFakeLook = FakeLookMod:AddCheckboxWithKeybind("Backwards Look", Config.Surv_FakeBackLook, Config.Surv_FakeBackLookKeyCode, function(v)
+        Config.Surv_FakeBackLook = v
+        if not v and AutoParry and AutoParry.StopSurvFakeLook then
+            pcall(AutoParry.StopSurvFakeLook)
+        end
+        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
+    end, function(key)
+        Config.Surv_FakeBackLookKeyCode = key
+        Config.Surv_FakeBackLookKeyName = ConfigSys.FormatKey(key)
+        Config.Surv_FakeBackLookKeyType = key and ((key.EnumType == Enum.UserInputType) and "Mouse" or "Keyboard") or "None"
+        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
+    end)
+    ConfigSys.KeyedWidgets.Surv_FakeBackLook = W.survFakeLook
+
     local KillerButcherMod = WindowObj:CreateModule("Miscellaneous_Killer", "Left", "Butcher", "")
     W.butcherHookSilent = KillerButcherMod:AddCheckbox("Hook Butcher", Config.Butcher_HookSilentAim, nil, function(v)
         Config.Butcher_HookSilentAim = v
@@ -6566,6 +6588,30 @@ local function CreateNexaraCustomUI(ctx)
         elseif not v and TofCombat and TofCombat.HideButcherDrawings then
             pcall(TofCombat.HideButcherDrawings)
         end
+    end)
+
+    local KillerHiddenMod = WindowObj:CreateModule("Miscellaneous_Killer", "Left", "Hidden", "")
+    W.hiddenDashLock = KillerHiddenMod:AddCheckboxWithSlider("Dash Lock", Config.Hidden_DashLock, 10, 30, math.floor(Config.Hidden_LockSmooth or 22), "", "Smooth", function(v)
+        Config.Hidden_DashLock = v
+        if v and TofCombat and TofCombat.EnsureHiddenHooks then
+            pcall(TofCombat.EnsureHiddenHooks)
+        elseif not v and TofCombat and TofCombat.ClearHiddenLock then
+            pcall(TofCombat.ClearHiddenLock)
+        end
+    end, function(s)
+        Config.Hidden_LockSmooth = s
+    end)
+
+    local KillerCombatMod = WindowObj:CreateModule("Miscellaneous_Killer", "Right", "Combat", "")
+    W.killerLungeLock = KillerCombatMod:AddCheckboxWithSlider("Lunge Lock", Config.Killer_LungeLock, 5, 30, math.floor(Config.Killer_LungeLockSmooth or 18), "", "Smooth", function(v)
+        Config.Killer_LungeLock = v
+        if v and TofCombat and TofCombat.EnsureKillerLungeHooks then
+            pcall(TofCombat.EnsureKillerLungeHooks)
+        elseif not v and TofCombat and TofCombat.ClearKillerLungeLock then
+            pcall(TofCombat.ClearKillerLungeLock)
+        end
+    end, function(s)
+        Config.Killer_LungeLockSmooth = s
     end)
 
     local LightingMod = WindowObj:CreateModule("Miscellaneous_Lightings", "Full", "Lighting", "")
@@ -7088,6 +7134,7 @@ local function CreateNexaraCustomUI(ctx)
         end
         W.fv.Set(Config.AlwaysFastVault == true, true)
         if W.abyssCrouch then W.abyssCrouch.Set(Config.AutoCrouch_Abyss == true, true) end
+        if W.veilDodge then W.veilDodge.Set(Config.AutoDodge_Veil == true, true) end
         if W.avCopyEn then W.avCopyEn.Set(Config.AvatarCopy_Enabled == true, true) end
         if W.avBlurName then W.avBlurName.Set(Config.AvatarCopy_BlurName == true, true) end
         if W.avInput then W.avInput.Set(Config.AvatarCopy_Username or "") end
@@ -7104,7 +7151,19 @@ local function CreateNexaraCustomUI(ctx)
         W.scGen.Set(Config.AutoSkillCheck == true, true)
         W.scTrap.Set(Config.AutoSkillCheck_Trap == true, true)
         W.blind.Set(Config.BlindProgressEnabled == true, true)
+        if W.survFakeLook then
+            W.survFakeLook.Set(Config.Surv_FakeBackLook == true, true)
+            W.survFakeLook.SetKey(Config.Surv_FakeBackLookKeyCode, true)
+        end
         if W.butcherHookSilent then W.butcherHookSilent.Set(Config.Butcher_HookSilentAim == true, true) end
+        if W.hiddenDashLock then
+            W.hiddenDashLock.Set(Config.Hidden_DashLock == true, true)
+            W.hiddenDashLock.SetSlider(math.floor(Config.Hidden_LockSmooth or 22), true)
+        end
+        if W.killerLungeLock then
+            W.killerLungeLock.Set(Config.Killer_LungeLock == true, true)
+            W.killerLungeLock.SetSlider(math.floor(Config.Killer_LungeLockSmooth or 18), true)
+        end
         W.fb.Set(Config.Fullbright == true, true)
         W.nf.Set((Config.NoFog == true or Config.RemoveFog == true), true)
         if ConfigSys.SyncWorldPresetVisual then ConfigSys.SyncWorldPresetVisual(Config.SelectedWorldPreset) end
