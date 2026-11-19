@@ -1235,6 +1235,286 @@ local function CreateNexaraCustomUI(ctx)
     SearchInput.ClearTextOnFocus = false
     SearchInput.Parent = SearchFrame
 
+    do
+    local LangBtn = Instance.new("TextButton")
+    LangBtn.Name = "Nexara_LangBtn"
+    LangBtn.Text = (Config.UI_Language == "TH") and "TH" or "EN"
+    LangBtn.Font = Enum.Font.GothamBold
+    LangBtn.TextSize = 11.5
+    LangBtn.TextColor3 = Theme.TextDim
+    LangBtn.BackgroundColor3 = Theme.Input
+    LangBtn.Size = UDim2.fromOffset(38, 32)
+    LangBtn.Position = UDim2.new(1, -122, 0.5, -16)
+    LangBtn.BorderSizePixel = 0
+    LangBtn.AutoButtonColor = false
+    LangBtn.ZIndex = 16
+    LangBtn.Parent = TopBar
+    local LangCorner = Instance.new("UICorner")
+    LangCorner.CornerRadius = UDim.new(0, 6)
+    LangCorner.Parent = LangBtn
+    local LangStroke = Instance.new("UIStroke")
+    LangStroke.Color = Theme.CardStroke
+    LangStroke.Thickness = 1
+    LangStroke.Parent = LangBtn
+
+    local TH_MAP = {
+        ["Search features..."] = "ค้นหาฟีเจอร์...",
+        ["Player ESP"] = "มองผู้เล่น",
+        ["Survivor"] = "ผู้รอดชีวิต",
+        ["Killer"] = "ฆาตกร",
+        ["Objects ESP"] = "มองของในแมพ",
+        ["Miscellaneous"] = "ทั่วไป",
+        ["General"] = "ทั่วไป",
+        ["Players"] = "ผู้เล่น",
+        ["Lightings"] = "แสงและภาพ",
+        ["World Custom"] = "แต่งแมพ",
+        ["Cosmetics"] = "คอสเมติก",
+        ["Legit"] = "ช่วยเล่น",
+        ["Parry"] = "แพรี่",
+        ["Player list"] = "คนในห้อง",
+        ["Settings"] = "ตั้งค่า",
+        ["Survivor ESP"] = "มองผู้รอดชีวิต",
+        ["Killer ESP"] = "มองฆาตกร",
+        ["Skeleton"] = "เส้นกระดูก",
+        ["Chams"] = "ออร่า",
+        ["Cooldowns"] = "คูลดาวน์",
+        ["Skills & Alerts"] = "สกิลและแจ้งเตือน",
+        ["Effects"] = "เอฟเฟกต์",
+        ["Generators"] = "เครื่องปั่นไฟ",
+        ["Exit Gates"] = "ประตูทางออก",
+        ["Pumpkins (Event)"] = "ฟักทอง (อีเวนต์)",
+        ["Pallets & Vaults"] = "ไม้และหน้าต่าง",
+        ["Traps & Hazards"] = "กับดักและซอมบี้",
+        ["Camera"] = "กล้อง",
+        ["Fast Vault"] = "ข้ามหน้าต่างไว",
+        ["Auto Dodge"] = "หลบสกิลออโต้",
+        ["Avatar Copier"] = "ก๊อปปี้ชุด",
+        ["Auto Skill Check"] = "เช็คสกิลออโต้",
+        ["Flashlight"] = "ไฟฉาย",
+        ["Fake Look"] = "หันหลังหลอก",
+        ["Auto Pallet"] = "วาร์ปพับไม้",
+        ["Combat"] = "ต่อสู้",
+        ["Visuals"] = "การแสดงผล",
+        ["Auto Parry"] = "ออโต้แพรี่",
+        ["Killer Skills"] = "สกิลฆาตกร",
+        ["Menu"] = "เมนู",
+        ["Hit Logs"] = "ประวัติการตี",
+        ["Configs"] = "คอนฟิก",
+        ["Enabled"] = "เปิดใช้งาน",
+        ["Boxes"] = "กรอบ",
+        ["Name"] = "ชื่อ",
+        ["Distance"] = "ระยะ",
+        ["Status"] = "สถานะ",
+        ["Thickness"] = "ความหนา",
+        ["Max Distance"] = "ระยะสูงสุด",
+        ["Fill Opacity"] = "ความทึบสีด้านใน",
+        ["Name Killer"] = "ชื่อฆาตกร",
+        ["Mask Alert"] = "เตือนสลับหน้ากาก",
+        ["Skill Cooldowns"] = "คูลดาวน์สกิล",
+        ["Icon Size"] = "ขนาดไอคอน",
+        ["Custom Red Stain"] = "แต่งแสงแดงฆาตกร",
+        ["Progress"] = "เปอร์เซ็นต์",
+        ["Tracers"] = "เส้นชี้เป้า",
+        ["Pallet Chams"] = "ออร่าไม้",
+        ["Pallet Name"] = "ชื่อไม้",
+        ["Pallet Distance"] = "ระยะไม้",
+        ["Pallet Max Distance"] = "ระยะมองไม้",
+        ["Window Chams"] = "ออร่าหน้าต่าง",
+        ["Window Name"] = "ชื่อหน้าต่าง",
+        ["Window Distance"] = "ระยะหน้าต่าง",
+        ["Window Max Distance"] = "ระยะมองหน้าต่าง",
+        ["Bear Trap Chams"] = "ออร่ากับดักหมี",
+        ["Bear Trap Name"] = "ชื่อกับดักหมี",
+        ["Bear Trap Distance"] = "ระยะกับดักหมี",
+        ["Bear Trap Max Distance"] = "ระยะมองกับดักหมี",
+        ["Zombie Chams"] = "ออร่าซอมบี้",
+        ["Zombie Name"] = "ชื่อซอมบี้",
+        ["Zombie Distance"] = "ระยะซอมบี้",
+        ["Zombie Max Distance"] = "ระยะมองซอมบี้",
+        ["Field of View"] = "มุมกล้อง (FOV)",
+        ["Stretched Screen"] = "ยืดหน้าจอ",
+        ["Always Fast Vault"] = "ข้ามหน้าต่างไวตลอด",
+        ["Auto Crouch (Abyss Slash)"] = "ก้มหลบคลื่นดาบ (Abyss)",
+        ["Auto Dodge (Veil Spear)"] = "หลบหอกออโต้ (Veil)",
+        ["Enable Copy Avatar"] = "เปิดก๊อปปี้ชุด",
+        ["Blur Name"] = "เบลอชื่อ",
+        ["Saved Usernames"] = "ชื่อที่บันทึกไว้",
+        ["Copy Avatar"] = "ก๊อปปี้ชุด",
+        ["Reset Avatar"] = "คืนค่าชุดเดิม",
+        ["Generator Skill Check"] = "เช็คสกิลเครื่องปั่นไฟ",
+        ["Bear Trap Skill Check"] = "เช็คสกิลกับดักหมี",
+        ["Flashlight Blind Progress"] = "แถบส่องไฟฉาย",
+        ["Backwards Look"] = "หันหลังหลอก",
+        ["Killer Distance"] = "ระยะฆาตกร",
+        ["Hook Butcher"] = "ล็อคตะขอ (Butcher)",
+        ["Dash Lock"] = "ล็อคเป้าพุ่ง M2",
+        ["Lunge Lock"] = "ล็อคเป้าพุ่งตี",
+        ["Lighting"] = "แสงสว่าง",
+        ["Fullbright"] = "แมพสว่างทั้งฉาก",
+        ["No Fog"] = "ปิดหมอก",
+        ["Time & Lighting"] = "เวลาและแสง",
+        ["Fog & Atmosphere"] = "หมอกและบรรยากาศ",
+        ["Sky & Clouds"] = "ท้องฟ้าและเมฆ",
+        ["Post-Processing"] = "ปรับสีภาพ",
+        ["World Surfaces & Terrain"] = "พื้นผิวและน้ำ",
+        ["Map Effects"] = "เอฟเฟกต์แมพ",
+        ["Enable Time & Lighting"] = "เปิดปรับเวลาและแสง",
+        ["Clock Time"] = "เวลาในแมพ",
+        ["Brightness"] = "ความสว่าง",
+        ["Exposure"] = "ค่าแสง",
+        ["Diffuse Scale"] = "แสงสะท้อนพื้นผิว",
+        ["Specular Scale"] = "ความเงาวัตถุ",
+        ["Disable Shadows"] = "ปิดเงา",
+        ["Enable Fog & Atmosphere"] = "เปิดแต่งหมอก",
+        ["Fog Distance"] = "ระยะหมอก",
+        ["Fog Density"] = "ความหนาหมอก",
+        ["Atmo Haze"] = "หมอกบรรยากาศ",
+        ["Atmo Glare"] = "แสงสะท้อนบรรยากาศ",
+        ["Enable Custom Skybox"] = "เปลี่ยนท้องฟ้า",
+        ["Skybox Preset"] = "แบบท้องฟ้า",
+        ["Star Count"] = "จำนวนดาว",
+        ["Show Sun & Moon"] = "โชว์ดวงอาทิตย์/จันทร์",
+        ["Enable Clouds"] = "เปิดเมฆ",
+        ["Cloud Cover"] = "ปริมาณเมฆ",
+        ["Cloud Density"] = "ความหนาเมฆ",
+        ["Enable Color Grading"] = "เปิดแต่งสีภาพ",
+        ["Contrast"] = "คอนทราสต์",
+        ["Saturation"] = "ความสดสี",
+        ["Tint Brightness"] = "ความสว่างโทนสี",
+        ["Disable Blur & DoF"] = "ปิดเบลอฉากหลัง",
+        ["Disable Bloom"] = "ปิดแสงฟุ้ง",
+        ["Disable SunRays"] = "ปิดลำแสงอาทิตย์",
+        ["Smooth World (FPS Boost)"] = "ลดพื้นผิว (เพิ่ม FPS)",
+        ["Hide Scene Particles"] = "ซ่อนเอฟเฟกต์ฉาก",
+        ["Custom Water"] = "แต่งน้ำ",
+        ["Water Transparency"] = "ความใสน้ำ",
+        ["Water Wave Size"] = "ขนาดคลื่น",
+        ["Water Wave Speed"] = "ความเร็วคลื่น",
+        ["Reset World Custom"] = "รีเซ็ตแต่งแมพ",
+        ["Weather Mode"] = "สภาพอากาศ",
+        ["Weather Intensity"] = "ความแรงอากาศ",
+        ["Lightning Flash"] = "ฟ้าแลบ",
+        ["Screen Vignette"] = "ขอบจอมืด",
+        ["Custom Bloom"] = "แสงฟุ้ง",
+        ["Bloom Intensity"] = "ความแรงแสงฟุ้ง",
+        ["SunRays Boost"] = "เร่งลำแสงอาทิตย์",
+        ["SunRays Intensity"] = "ความแรงลำแสง",
+        ["Personal Lantern"] = "ตะเกียงส่วนตัว",
+        ["Lantern Range"] = "ระยะตะเกียง",
+        ["Headwear & Halo"] = "หมวกและวงแหวน",
+        ["Wings"] = "ปีก",
+        ["Magic Circle"] = "วงเวทย์ใต้เท้า",
+        ["Body & Motion FX"] = "เอฟเฟกต์ตัวละคร",
+        ["China Hat"] = "หมวกงอบ",
+        ["Floating Halo"] = "วงแหวนบนหัว",
+        ["Halo Style"] = "แบบวงแหวน",
+        ["Enable Wings"] = "เปิดปีก",
+        ["Wing Style"] = "แบบปีก",
+        ["Wing Size"] = "ขนาดปีก",
+        ["Underfoot Sigil"] = "วงเวทย์ใต้เท้า",
+        ["Sigil Style"] = "แบบวงเวทย์",
+        ["Circle Radius"] = "ขนาดวง",
+        ["Rotate Speed"] = "ความเร็วหมุน",
+        ["Orbiting Orbs"] = "ลูกแก้ววนรอบตัว",
+        ["Jump Shockwave"] = "คลื่นตอนกระโดด",
+        ["Rainbow Chroma"] = "สีรุ้ง",
+        ["Silent Aim"] = "ล็อคเป้า (Silent)",
+        ["Aimbot"] = "ช่วยเล็ง",
+        ["FOV Circle"] = "วง FOV",
+        ["FOV Radius"] = "ขนาดวง FOV",
+        ["Smoothness"] = "ความเนียน",
+        ["Laser Tracer"] = "เส้นเลเซอร์",
+        ["Laser Duration"] = "เวลาเส้นเลเซอร์",
+        ["Hitmarker"] = "เป้าแจ้งเตือนยิงโดน",
+        ["Hitmarker Position"] = "ตำแหน่ง Hitmarker",
+        ["Hitmarker Sound"] = "เสียงยิงโดน",
+        ["Hit Sound Volume"] = "ความดังเสียงยิงโดน",
+        ["Throw Lineup"] = "เส้นเล็งปาหอก",
+        ["Auto Target"] = "สลับเป้าโล่งอัตโนมัติ",
+        ["Wall Check"] = "เช็คกำแพง",
+        ["Crosshair"] = "เป้าเล็ง",
+        ["Crosshair Size"] = "ขนาดเป้าเล็ง",
+        ["Target Name"] = "ชื่อเป้าหมาย",
+        ["Parry Radius"] = "ระยะแพรี่",
+        ["Radius Circle"] = "วงระยะแพรี่",
+        ["Frenzy Slash"] = "แพรี่ Frenzy Slash",
+        ["Shadow Leap"] = "แพรี่ Shadow Leap",
+        ["Dark Severance"] = "แพรี่ Dark Severance",
+        ["Chainsaw Dash"] = "แพรี่ Chainsaw Dash",
+        ["Menu Keybind"] = "ปุ่มเปิด/ปิดเมนู",
+        ["Anti-AFK"] = "กันเด้ง AFK",
+        ["Minimize UI on Start"] = "ย่อเมนูตอนเริ่ม",
+        ["UI Font"] = "ฟอนต์เมนู",
+        ["Unload"] = "ปิดสคริปต์",
+        ["Show Keybinds List"] = "โชว์รายการคีย์ลัด",
+        ["Streamer Mode"] = "โหมดสตรีมเมอร์",
+        ["Hit Log"] = "แจ้งเตือนการตี",
+        ["Auto Save Config"] = "เซฟคอนฟิกอัตโนมัติ",
+        ["Autoload mode"] = "โหลดคอนฟิกอัตโนมัติ",
+        ["Refresh list"] = "รีเฟรชรายการ",
+        ["Save"] = "บันทึก",
+        ["Load"] = "โหลด",
+        ["Delete"] = "ลบ",
+        ["Create"] = "สร้างใหม่",
+    }
+
+    local function trText(s, lang)
+        if lang ~= "TH" then return s end
+        if TH_MAP[s] then return TH_MAP[s] end
+        local a, b = s:match("^(.-)%s+>%s+(.-)$")
+        if a and b then
+            return (TH_MAP[a] or a) .. "  >  " .. (TH_MAP[b] or b)
+        end
+        return s
+    end
+
+    local function ApplyLanguage(lang)
+        lang = (lang == "TH") and "TH" or "EN"
+        Config.UI_Language = lang
+        LangBtn.Text = lang
+        LangBtn.TextColor3 = (lang == "TH") and Color3.fromRGB(255, 255, 255) or Theme.TextDim
+        LangStroke.Color = (lang == "TH") and Theme.Accent or Theme.CardStroke
+        if SearchInput then
+            local origPh = SearchInput:GetAttribute("Nexara_OrigPh")
+            if not origPh then
+                origPh = SearchInput.PlaceholderText
+                SearchInput:SetAttribute("Nexara_OrigPh", origPh)
+            end
+            SearchInput.PlaceholderText = trText(origPh, lang)
+        end
+        for _, inst in ipairs(MainFrame:GetDescendants()) do
+            if inst ~= LangBtn and (inst:IsA("TextLabel") or inst:IsA("TextButton")) then
+                local orig = inst:GetAttribute("Nexara_OrigEN")
+                if not orig then
+                    local cur = inst.Text
+                    if type(cur) == "string" and (TH_MAP[cur] or cur:find("  >  ", 1, true)) then
+                        orig = cur
+                        inst:SetAttribute("Nexara_OrigEN", orig)
+                    end
+                end
+                if orig then
+                    inst.Text = trText(orig, lang)
+                end
+            end
+        end
+    end
+
+    LangBtn.MouseEnter:Connect(function()
+        TweenService:Create(LangBtn, TweenInfo.new(0.18), { BackgroundColor3 = Color3.fromRGB(40, 40, 52), TextColor3 = Color3.fromRGB(255, 255, 255) }):Play()
+        TweenService:Create(LangStroke, TweenInfo.new(0.18), { Color = Theme.Accent }):Play()
+    end)
+    LangBtn.MouseLeave:Connect(function()
+        local isTh = (Config.UI_Language == "TH")
+        TweenService:Create(LangBtn, TweenInfo.new(0.18), { BackgroundColor3 = Theme.Input, TextColor3 = isTh and Color3.fromRGB(255, 255, 255) or Theme.TextDim }):Play()
+        TweenService:Create(LangStroke, TweenInfo.new(0.18), { Color = isTh and Theme.Accent or Theme.CardStroke }):Play()
+    end)
+    Theme.TrText = trText
+    Theme.ApplyLanguage = ApplyLanguage
+    LangBtn.MouseButton1Click:Connect(function()
+        ApplyLanguage((Config.UI_Language == "TH") and "EN" or "TH")
+    end)
+    end
+
     local SettingsBtn = Instance.new("TextButton")
     SettingsBtn.Text = ""
     SettingsBtn.BackgroundColor3 = Theme.Input
@@ -3435,11 +3715,9 @@ local function CreateNexaraCustomUI(ctx)
         task.defer(Theme._refreshScaledLayouts)
 
         BreadcrumbLabel.TextTransparency = 0.75
-        if subName then
-            BreadcrumbLabel.Text = parentName .. "  >  " .. subName
-        else
-            BreadcrumbLabel.Text = parentName
-        end
+        local rawBc = subName and (parentName .. "  >  " .. subName) or parentName
+        BreadcrumbLabel:SetAttribute("Nexara_OrigEN", rawBc)
+        BreadcrumbLabel.Text = Theme.TrText and Theme.TrText(rawBc, Config.UI_Language) or rawBc
         local bcTween = TweenService:Create(BreadcrumbLabel, TweenInfo.new(0.38, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
             TextTransparency = 0
         })
@@ -6580,6 +6858,15 @@ local function CreateNexaraCustomUI(ctx)
     end)
     ConfigSys.KeyedWidgets.Surv_FakeBackLook = W.survFakeLook
 
+    local AutoPalletMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Auto Pallet", "")
+    W.autoPallet = AutoPalletMod:AddCheckboxWithSlider("Auto Pallet", Config.AutoPallet_Enabled, 5, 16, math.floor(Config.AutoPallet_WarpRange or 10), " studs", "Range",
+        function(v) Config.AutoPallet_Enabled = v end,
+        function(v) Config.AutoPallet_WarpRange = v end
+    )
+    W.autoPalletKillerDist = AutoPalletMod:AddSlider("Killer Distance", 3, 10, math.floor(Config.AutoPallet_KillerDist or 5), " studs", function(v)
+        Config.AutoPallet_KillerDist = v
+    end)
+
     local KillerButcherMod = WindowObj:CreateModule("Miscellaneous_Killer", "Left", "Butcher", "")
     W.butcherHookSilent = KillerButcherMod:AddCheckbox("Hook Butcher", Config.Butcher_HookSilentAim, nil, function(v)
         Config.Butcher_HookSilentAim = v
@@ -7155,6 +7442,13 @@ local function CreateNexaraCustomUI(ctx)
             W.survFakeLook.Set(Config.Surv_FakeBackLook == true, true)
             W.survFakeLook.SetKey(Config.Surv_FakeBackLookKeyCode, true)
         end
+        if W.autoPallet then
+            W.autoPallet.Set(Config.AutoPallet_Enabled == true, true)
+            W.autoPallet.SetSlider(math.floor(Config.AutoPallet_WarpRange or 10), true)
+        end
+        if W.autoPalletKillerDist then
+            W.autoPalletKillerDist.Set(math.floor(Config.AutoPallet_KillerDist or 5), true)
+        end
         if W.butcherHookSilent then W.butcherHookSilent.Set(Config.Butcher_HookSilentAim == true, true) end
         if W.hiddenDashLock then
             W.hiddenDashLock.Set(Config.Hidden_DashLock == true, true)
@@ -7283,6 +7577,9 @@ local function CreateNexaraCustomUI(ctx)
         W.veilAuto = VeilCombat:AddCheckbox("Auto Target", Config.Veil_AutoOpenTarget ~= false, nil, function(v)
             Config.Veil_AutoOpenTarget = v
         end)
+        W.veilWallCheck = VeilCombat:AddCheckbox("Wall Check", Config.Veil_WallCheck ~= false, nil, function(v)
+            Config.Veil_WallCheck = v
+        end)
 
         local VeilSettings = WindowObj:CreateModule("Legit_Veil", "Right", "Visuals", "")
         W.veilCh = VeilSettings:AddCheckbox("Crosshair", Config.Veil_Crosshair, Config.Color_Veil_Crosshair or Color3.fromRGB(235, 245, 255),
@@ -7385,6 +7682,7 @@ local function CreateNexaraCustomUI(ctx)
         W.veilLineup.Set(Config.Veil_ThrowLineup == true, true); W.veilLineup.SetColor(Config.Color_Veil_Lineup)
         W.veilLaser.Set(Config.Veil_Laser == true, true); W.veilLaser.SetColor(Config.Color_Veil_Laser)
         W.veilAuto.Set(Config.Veil_AutoOpenTarget ~= false, true)
+        if W.veilWallCheck then W.veilWallCheck.Set(Config.Veil_WallCheck ~= false, true) end
         W.veilCh.Set(Config.Veil_Crosshair == true, true); W.veilCh.SetColor(Config.Color_Veil_Crosshair)
         W.veilChSz.Set(Config.Veil_CrosshairSize or 8, true)
         W.veilTarget.Set(Config.Veil_ShowTargetName ~= false, true)
@@ -8837,11 +9135,13 @@ local function CreateNexaraCustomUI(ctx)
         W.autoSave.Set(Config.ConfigAutoSaveEnabled ~= false, true)
         W.autoloadMode.Set(Config.AutoloadMode or "All accounts", true)
         configDropdown.Refresh(GetConfigNames(), ConfigSys.CurrentProfile or "Default")
+        if Theme.ApplyLanguage then Theme.ApplyLanguage("EN") end
     end)
 
     end
 
     task.defer(function()
+        Config.UI_Language = "EN"
         local espTab = AccordionTabs["Player ESP"]
         if espTab then
             espTab.Indicator.Visible = true
