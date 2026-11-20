@@ -379,6 +379,7 @@ local function CreateNexaraCustomUI(ctx)
     local CoreGui = game:GetService("CoreGui")
 
     local function EnsureCap()
+        if _G.Nexara_SafeExecMode then return end
         pcall(function()
             local g = (type(getgenv) == "function" and getgenv()) or _G
             if setthreadidentity then
@@ -1286,6 +1287,16 @@ local function CreateNexaraCustomUI(ctx)
         ["Pallets & Vaults"] = "ไม้และหน้าต่าง",
         ["Traps & Hazards"] = "กับดักและซอมบี้",
         ["Camera"] = "กล้อง",
+        ["Custom Camera"] = "ปรับมุมกล้อง",
+        ["Camera Preset"] = "พรีเซ็ตมุมกล้อง",
+        ["Position & Angle"] = "ตำแหน่งและระยะ",
+        ["Lock Distance"] = "ล็อคระยะกล้อง",
+        ["Wall Collision"] = "กันกล้องทะลุกำแพง",
+        ["Shoulder Offset (X)"] = "เยื้องซ้าย-ขวา (X)",
+        ["Height Offset (Y)"] = "ความสูงกล้อง (Y)",
+        ["Depth Offset (Z)"] = "ระยะหน้า-หลัง (Z)",
+        ["Reset Custom Camera"] = "รีเซ็ตมุมกล้อง",
+        ["Movement Lag"] = "แรงหน่วงกล้อง (DBD)",
         ["Fast Vault"] = "ข้ามหน้าต่างไว",
         ["Auto Dodge"] = "หลบสกิลออโต้",
         ["Avatar Copier"] = "ก๊อปปี้ชุด",
@@ -1310,6 +1321,8 @@ local function CreateNexaraCustomUI(ctx)
         ["Fill Opacity"] = "ความทึบสีด้านใน",
         ["Name Killer"] = "ชื่อฆาตกร",
         ["Mask Alert"] = "เตือนสลับหน้ากาก",
+        ["Lobby"] = "ล็อบบี้",
+        ["Killer Reveal Popup"] = "แจ้งเตือนฆาตกรหน้าล็อบบี้",
         ["Skill Cooldowns"] = "คูลดาวน์สกิล",
         ["Icon Size"] = "ขนาดไอคอน",
         ["Custom Red Stain"] = "แต่งแสงแดงฆาตกร",
@@ -1344,8 +1357,13 @@ local function CreateNexaraCustomUI(ctx)
         ["Generator Skill Check"] = "เช็คสกิลเครื่องปั่นไฟ",
         ["Bear Trap Skill Check"] = "เช็คสกิลกับดักหมี",
         ["Flashlight Blind Progress"] = "แถบส่องไฟฉาย",
+        ["Flashlight Lock"] = "ล็อคไฟฉาย (หน้าฆาตกร)",
         ["Backwards Look"] = "หันหลังหลอก",
         ["Killer Distance"] = "ระยะฆาตกร",
+        ["Dead Hard"] = "พุ่งตัวสั้น (Dead Hard)",
+        ["Dash Distance"] = "ระยะพุ่ง",
+        ["Dash Cooldown"] = "คูลดาวน์พุ่ง",
+        ["Floating Button"] = "ปุ่มลอยบนหน้าจอ",
         ["Hook Butcher"] = "ล็อคตะขอ (Butcher)",
         ["Dash Lock"] = "ล็อคเป้าพุ่ง M2",
         ["Lunge Lock"] = "ล็อคเป้าพุ่งตี",
@@ -6521,7 +6539,7 @@ local function CreateNexaraCustomUI(ctx)
     end
 
     do
-    local MiscTab = WindowObj:CreateAccordionTab("Miscellaneous", "rbxassetid://7743872758", { "General", "Players", "Killer", "Lightings", "World Custom", "Cosmetics" })
+    local MiscTab = WindowObj:CreateAccordionTab("Miscellaneous", "rbxassetid://7743872758", { "General", "Custom Camera", "Players", "Killer", "Lightings", "World Custom", "Cosmetics" })
     local W = {}
 
     local PlayerCam = WindowObj:CreateModule("Miscellaneous_General", "Left", "Camera", "")
@@ -6552,6 +6570,100 @@ local function CreateNexaraCustomUI(ctx)
             Config.StretchedAmount = v
         end
     )
+
+    local LobbyMod = WindowObj:CreateModule("Miscellaneous_General", "Right", "Lobby", "")
+    W.kReveal = LobbyMod:AddCheckbox("Killer Reveal Popup", Config.Alert_KillerReveal ~= false, nil, function(v)
+        Config.Alert_KillerReveal = (v == true)
+        if v and _G.Nexara_SyncKillerReveal then
+            pcall(_G.Nexara_SyncKillerReveal, true)
+        elseif not v and _G.Nexara_HideKillerReveal then
+            pcall(_G.Nexara_HideKillerReveal)
+        end
+    end)
+
+
+    do
+        local CC_PRESETS = {
+            ["DBD Movement"] = { dist = 10, x = 0,  y = 24, z = 0, lag = 78, lockDist = true, wallClip = true },
+            ["DBD Classic"]  = { dist = 11, x = 14, y = 16, z = 0, lag = 60, lockDist = true, wallClip = true },
+            ["DBD Wide"]     = { dist = 14, x = 0,  y = 26, z = 0, lag = 70, lockDist = true, wallClip = true },
+            ["DBD Close"]    = { dist = 8,  x = 10, y = 18, z = 0, lag = 85, lockDist = true, wallClip = true },
+        }
+        local function syncCustomCamSliders()
+            if W.ccDist then W.ccDist.Set(math.floor(Config.CustomCam_Distance or 10), true) end
+            if W.ccLag then W.ccLag.Set(math.floor(Config.CustomCam_Lag or 78), true) end
+            if W.ccX then W.ccX.Set(math.floor(Config.CustomCam_OffsetX or 0), true) end
+            if W.ccY then W.ccY.Set(math.floor(Config.CustomCam_OffsetY or 24), true) end
+            if W.ccZ then W.ccZ.Set(math.floor(Config.CustomCam_OffsetZ or 0), true) end
+            if W.ccLockDist then W.ccLockDist.Set(Config.CustomCam_LockDist ~= false, true) end
+            if W.ccWallClip then W.ccWallClip.Set(Config.CustomCam_WallClip ~= false, true) end
+        end
+        local function markCustomPreset()
+            if Config.CustomCam_Preset ~= "Custom" then
+                Config.CustomCam_Preset = "Custom"
+                if W.ccPreset then W.ccPreset.Set("Custom", true) end
+            end
+        end
+        local function applyCustomCamPreset(name, silentDrop)
+            local p = CC_PRESETS[name]
+            Config.CustomCam_Preset = name
+            if p then
+                Config.CustomCam_Distance = p.dist
+                Config.CustomCam_Lag = p.lag
+                Config.CustomCam_OffsetX = p.x
+                Config.CustomCam_OffsetY = p.y
+                Config.CustomCam_OffsetZ = p.z
+                Config.CustomCam_LockDist = p.lockDist
+                Config.CustomCam_WallClip = p.wallClip
+                syncCustomCamSliders()
+            end
+            if not silentDrop and W.ccPreset then W.ccPreset.Set(name, true) end
+        end
+
+        local CCMainMod = WindowObj:CreateModule("Miscellaneous_Custom Camera", "Left", "Custom Camera", "")
+        W.ccEn = CCMainMod:AddCheckbox("Enabled", Config.CustomCam_Enabled, nil, function(v)
+            Config.CustomCam_Enabled = (v == true)
+            if not v and ctx and ctx.ResetCustomCamera then pcall(ctx.ResetCustomCamera) end
+        end)
+        W.ccPreset = CCMainMod:AddDropdown("Camera Preset", { "DBD Movement", "DBD Classic", "DBD Wide", "DBD Close", "Custom" }, Config.CustomCam_Preset or "DBD Movement", function(opt)
+            applyCustomCamPreset(opt, true)
+        end)
+        W.ccLockDist = CCMainMod:AddCheckbox("Lock Distance", Config.CustomCam_LockDist ~= false, nil, function(v)
+            Config.CustomCam_LockDist = (v == true)
+            if not v and ctx and ctx.RestoreCustomCameraZoom then pcall(ctx.RestoreCustomCameraZoom) end
+            markCustomPreset()
+        end)
+        W.ccWallClip = CCMainMod:AddCheckbox("Wall Collision", Config.CustomCam_WallClip ~= false, nil, function(v)
+            Config.CustomCam_WallClip = (v == true)
+            markCustomPreset()
+        end)
+        CCMainMod:AddButton("Reset Custom Camera", function()
+            applyCustomCamPreset("DBD Movement", false)
+            if ConfigSys and ConfigSys.ScheduleAutoSave then ConfigSys.ScheduleAutoSave() end
+        end)
+
+        local CCPosMod = WindowObj:CreateModule("Miscellaneous_Custom Camera", "Right", "Position & Angle", "")
+        W.ccDist = CCPosMod:AddSlider("Distance", 5, 25, math.floor(Config.CustomCam_Distance or 10), " studs", function(v)
+            Config.CustomCam_Distance = v
+            markCustomPreset()
+        end)
+        W.ccLag = CCPosMod:AddSlider("Movement Lag", 0, 100, math.floor(Config.CustomCam_Lag or 78), "%", function(v)
+            Config.CustomCam_Lag = v
+            markCustomPreset()
+        end)
+        W.ccX = CCPosMod:AddSlider("Shoulder Offset (X)", -40, 40, math.floor(Config.CustomCam_OffsetX or 0), "", function(v)
+            Config.CustomCam_OffsetX = v
+            markCustomPreset()
+        end)
+        W.ccY = CCPosMod:AddSlider("Height Offset (Y)", -10, 45, math.floor(Config.CustomCam_OffsetY or 24), "", function(v)
+            Config.CustomCam_OffsetY = v
+            markCustomPreset()
+        end)
+        W.ccZ = CCPosMod:AddSlider("Depth Offset (Z)", -40, 40, math.floor(Config.CustomCam_OffsetZ or 0), "", function(v)
+            Config.CustomCam_OffsetZ = v
+            markCustomPreset()
+        end)
+    end
 
     local FastVaultMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Fast Vault", "")
     W.fv = FastVaultMod:AddCheckbox("Always Fast Vault", Config.AlwaysFastVault, nil, function(v)
@@ -6842,6 +6954,11 @@ local function CreateNexaraCustomUI(ctx)
     W.blind = FlashlightMod:AddCheckbox("Flashlight Blind Progress", Config.BlindProgressEnabled, nil, function(v)
         Config.BlindProgressEnabled = v
     end)
+    W.flLock = FlashlightMod:AddCheckboxWithSlider("Flashlight Lock", Config.Surv_FlashlightLock, 5, 30, math.floor(Config.Surv_FlashlightLockSmooth or 18), "", "Smooth", function(v)
+        Config.Surv_FlashlightLock = v
+    end, function(v)
+        Config.Surv_FlashlightLockSmooth = v
+    end)
 
     local FakeLookMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Fake Look", "")
     W.survFakeLook = FakeLookMod:AddCheckboxWithKeybind("Backwards Look", Config.Surv_FakeBackLook, Config.Surv_FakeBackLookKeyCode, function(v)
@@ -6865,6 +6982,32 @@ local function CreateNexaraCustomUI(ctx)
     )
     W.autoPalletKillerDist = AutoPalletMod:AddSlider("Killer Distance", 3, 10, math.floor(Config.AutoPallet_KillerDist or 5), " studs", function(v)
         Config.AutoPallet_KillerDist = v
+    end)
+
+    local DeadHardMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Dead Hard", "")
+    W.deadHard = DeadHardMod:AddCheckboxWithKeybind("Dead Hard", Config.Surv_DeadHard, Config.Surv_DeadHardKeyCode, function(v)
+        Config.Surv_DeadHard = (v == true)
+        if not v and AutoParry and AutoParry.StopDeadHard then
+            pcall(AutoParry.StopDeadHard)
+        end
+        if AutoParry and AutoParry.UpdateDeadHardButton then pcall(AutoParry.UpdateDeadHardButton) end
+        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
+    end, function(key)
+        Config.Surv_DeadHardKeyCode = key
+        Config.Surv_DeadHardKeyName = ConfigSys.FormatKey(key)
+        Config.Surv_DeadHardKeyType = key and ((key.EnumType == Enum.UserInputType) and "Mouse" or "Keyboard") or "None"
+        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
+    end)
+    ConfigSys.KeyedWidgets.Surv_DeadHard = W.deadHard
+    W.deadHardBtn = DeadHardMod:AddCheckbox("Floating Button", Config.Surv_DeadHardBtn ~= false, nil, function(v)
+        Config.Surv_DeadHardBtn = (v == true)
+        if AutoParry and AutoParry.UpdateDeadHardButton then pcall(AutoParry.UpdateDeadHardButton) end
+    end)
+    W.deadHardDist = DeadHardMod:AddSlider("Dash Distance", 3, 16, math.floor(Config.Surv_DeadHardDist or 9), " studs", function(v)
+        Config.Surv_DeadHardDist = v
+    end)
+    W.deadHardCd = DeadHardMod:AddSlider("Dash Cooldown", 1, 40, math.floor(Config.Surv_DeadHardCd or 3), "s", function(v)
+        Config.Surv_DeadHardCd = v
     end)
 
     local KillerButcherMod = WindowObj:CreateModule("Miscellaneous_Killer", "Left", "Butcher", "")
@@ -7415,6 +7558,16 @@ local function CreateNexaraCustomUI(ctx)
     table.insert(ConfigSys.SyncHandlers, function()
         W.fov.Set((Config.CustomFOVEnabled == true or Config.CustomFOV == true), true)
         W.fov.SetSlider(Config.FOV or Config.FOVValue or 80, true)
+        if W.kReveal then W.kReveal.Set(Config.Alert_KillerReveal ~= false, true) end
+        if W.ccEn then W.ccEn.Set(Config.CustomCam_Enabled == true, true) end
+        if W.ccPreset then W.ccPreset.Set(Config.CustomCam_Preset or "DBD Movement", true) end
+        if W.ccLockDist then W.ccLockDist.Set(Config.CustomCam_LockDist ~= false, true) end
+        if W.ccWallClip then W.ccWallClip.Set(Config.CustomCam_WallClip ~= false, true) end
+        if W.ccDist then W.ccDist.Set(math.floor(Config.CustomCam_Distance or 10), true) end
+        if W.ccLag then W.ccLag.Set(math.floor(Config.CustomCam_Lag or 78), true) end
+        if W.ccX then W.ccX.Set(math.floor(Config.CustomCam_OffsetX or 0), true) end
+        if W.ccY then W.ccY.Set(math.floor(Config.CustomCam_OffsetY or 24), true) end
+        if W.ccZ then W.ccZ.Set(math.floor(Config.CustomCam_OffsetZ or 0), true) end
         if W.stretched then
             W.stretched.Set(Config.StretchedEnabled == true, true)
             W.stretched.SetSlider(Config.StretchedAmount or 133, true)
@@ -7438,6 +7591,10 @@ local function CreateNexaraCustomUI(ctx)
         W.scGen.Set(Config.AutoSkillCheck == true, true)
         W.scTrap.Set(Config.AutoSkillCheck_Trap == true, true)
         W.blind.Set(Config.BlindProgressEnabled == true, true)
+        if W.flLock then
+            W.flLock.Set(Config.Surv_FlashlightLock == true, true)
+            W.flLock.SetSlider(math.floor(Config.Surv_FlashlightLockSmooth or 18), true)
+        end
         if W.survFakeLook then
             W.survFakeLook.Set(Config.Surv_FakeBackLook == true, true)
             W.survFakeLook.SetKey(Config.Surv_FakeBackLookKeyCode, true)
@@ -7449,6 +7606,13 @@ local function CreateNexaraCustomUI(ctx)
         if W.autoPalletKillerDist then
             W.autoPalletKillerDist.Set(math.floor(Config.AutoPallet_KillerDist or 5), true)
         end
+        if W.deadHard then
+            W.deadHard.Set(Config.Surv_DeadHard == true, true)
+            W.deadHard.SetKey(Config.Surv_DeadHardKeyCode, true)
+        end
+        if W.deadHardBtn then W.deadHardBtn.Set(Config.Surv_DeadHardBtn ~= false, true) end
+        if W.deadHardDist then W.deadHardDist.Set(math.floor(Config.Surv_DeadHardDist or 9), true) end
+        if W.deadHardCd then W.deadHardCd.Set(math.floor(Config.Surv_DeadHardCd or 3), true) end
         if W.butcherHookSilent then W.butcherHookSilent.Set(Config.Butcher_HookSilentAim == true, true) end
         if W.hiddenDashLock then
             W.hiddenDashLock.Set(Config.Hidden_DashLock == true, true)
@@ -7912,12 +8076,14 @@ local function CreateNexaraCustomUI(ctx)
                 end
                 local rem = rs:FindFirstChild("Remotes")
                 local ok, res = false, nil
-                if isK then
-                    local rf = rem and rem:FindFirstChild("ShopKillers") and rem.ShopKillers:FindFirstChild("GetEquippedKillerPerks")
-                    if rf then ok, res = pcall(function() return rf:InvokeServer(kType) end) end
-                else
-                    local rf = rem and rem:FindFirstChild("Shop") and rem.Shop:FindFirstChild("GetEquippedPerks")
-                    if rf then ok, res = pcall(function() return rf:InvokeServer() end) end
+                if not _G.Nexara_SafeExecMode then
+                    if isK then
+                        local rf = rem and rem:FindFirstChild("ShopKillers") and rem.ShopKillers:FindFirstChild("GetEquippedKillerPerks")
+                        if rf then ok, res = pcall(function() return rf:InvokeServer(kType) end) end
+                    else
+                        local rf = rem and rem:FindFirstChild("Shop") and rem.Shop:FindFirstChild("GetEquippedPerks")
+                        if rf then ok, res = pcall(function() return rf:InvokeServer() end) end
+                    end
                 end
                 if ok and type(res) == "table" then
                     for i = 1, 3 do
