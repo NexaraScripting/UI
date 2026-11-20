@@ -814,6 +814,17 @@ local function CreateNexaraCustomUI(ctx)
         end
     end
 
+    local function SafeMainAccess()
+        EnsureCap()
+        if pcall(function() return MainFrame.Position end) then return true end
+        -- Re-parent ScreenGui to PlayerGui if this callback thread lacks CoreGui/gethui Plugin capability.
+        pcall(function()
+            local pg = LocalPlayer and LocalPlayer:FindFirstChildOfClass("PlayerGui")
+            if pg and ScreenGui then ScreenGui.Parent = pg end
+        end)
+        return pcall(function() return MainFrame.Position end)
+    end
+
     local function UpdateResponsiveScale()
         local vp = Theme._getGuiBounds()
         local isMobile = (Config.PlatformMode == "Mobile") or (UIState.Touch and Config.PlatformMode ~= "PC") or (UIState.Touch and not UIState.UserSetPlatform)
@@ -849,14 +860,19 @@ local function CreateNexaraCustomUI(ctx)
             UIState.SidebarW = 205
             UIState.StackCols = false
         end
+        SafeMainAccess()
         Theme._applyResponsiveGeometry()
         if not UIState.Animating then
-            MainScale.Scale = UIState.BaseScale
-            MainFrame.Position = Theme._clampMainPos(MainFrame.Position, UIState.BaseScale)
-            UIState.SavedPos = MainFrame.Position
+            pcall(function()
+                MainScale.Scale = UIState.BaseScale
+                MainFrame.Position = Theme._clampMainPos(MainFrame.Position, UIState.BaseScale)
+                UIState.SavedPos = MainFrame.Position
+            end)
         end
         if MobileToggleBtn then
-            MobileToggleBtn.Position = Theme._clampMobBtnPos(MobileToggleBtn.Position)
+            pcall(function()
+                MobileToggleBtn.Position = Theme._clampMobBtnPos(MobileToggleBtn.Position)
+            end)
         end
         task.defer(Theme._refreshScaledLayouts)
         if Theme and Theme._syncMobileButtons then
@@ -872,6 +888,7 @@ local function CreateNexaraCustomUI(ctx)
 
     local WindowObjRef
     local MobileToggleBtn
+
     local function ToggleUI(forceState)
         EnsureCap()
         local targetState = (forceState ~= nil) and forceState or (not UIState.Visible)
@@ -894,7 +911,7 @@ local function CreateNexaraCustomUI(ctx)
         elseif _G.Nexara_UpdateMouseUnlock then
             pcall(_G.Nexara_UpdateMouseUnlock)
         end
-        EnsureCap()
+        SafeMainAccess()
 
         local curBaseScale = UIState.BaseScale or 1.0
 
@@ -905,10 +922,12 @@ local function CreateNexaraCustomUI(ctx)
             UIState.SavedPos = openTargetPos
             local openStartPos = UDim2.new(openTargetPos.X.Scale, openTargetPos.X.Offset, openTargetPos.Y.Scale, openTargetPos.Y.Offset + 18)
 
-            MainFrame.Position = openStartPos
-            MainScale.Scale = curBaseScale * 0.90
-            MainFrame.GroupTransparency = 1
-            MainFrame.Visible = true
+            pcall(function()
+                MainFrame.Position = openStartPos
+                MainScale.Scale = curBaseScale * 0.90
+                MainFrame.GroupTransparency = 1
+                MainFrame.Visible = true
+            end)
 
             local tOpen = TweenService:Create(MainFrame, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
                 Position = openTargetPos,
@@ -923,18 +942,21 @@ local function CreateNexaraCustomUI(ctx)
             sOpen:Play()
 
             task.delay(0.24, function()
-                EnsureCap()
+                SafeMainAccess()
                 if myToken ~= UIState.Token then return end
                 UIState.Animating = false
-                MainFrame.Position = openTargetPos
-                MainScale.Scale = UIState.BaseScale or curBaseScale
-                MainFrame.GroupTransparency = 0
+                pcall(function()
+                    MainFrame.Position = openTargetPos
+                    MainScale.Scale = UIState.BaseScale or curBaseScale
+                    MainFrame.GroupTransparency = 0
+                end)
                 Theme._refreshScaledLayouts()
             end)
         else
             if Theme._closeAllFlyouts then pcall(Theme._closeAllFlyouts) end
 
-            UIState.SavedPos = MainFrame.Position
+            local okPos, curPos = pcall(function() return MainFrame.Position end)
+            UIState.SavedPos = (okPos and curPos) or UIState.SavedPos or UDim2.new(0.5, 0, 0.5, 0)
             local closeTargetPos = UDim2.new(UIState.SavedPos.X.Scale, UIState.SavedPos.X.Offset, UIState.SavedPos.Y.Scale, UIState.SavedPos.Y.Offset + 18)
 
             local tClose = TweenService:Create(MainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
@@ -950,14 +972,14 @@ local function CreateNexaraCustomUI(ctx)
             sClose:Play()
 
             task.delay(0.18, function()
-                EnsureCap()
+                SafeMainAccess()
                 if myToken ~= UIState.Token then return end
                 if not UIState.Visible then
-                    MainFrame.Visible = false
+                    pcall(function() MainFrame.Visible = false end)
                 end
                 UIState.Animating = false
                 if (Config.PlatformMode == "Mobile" or (UIState.Touch and Config.PlatformMode ~= "PC")) and MobileToggleBtn then
-                    MobileToggleBtn.Visible = true
+                    pcall(function() MobileToggleBtn.Visible = true end)
                 end
             end)
         end
@@ -1323,6 +1345,8 @@ local function CreateNexaraCustomUI(ctx)
         ["Mask Alert"] = "เตือนสลับหน้ากาก",
         ["Lobby"] = "ล็อบบี้",
         ["Killer Reveal Popup"] = "แจ้งเตือนฆาตกรหน้าล็อบบี้",
+        ["Collision"] = "การชนตัว",
+        ["No Killer Collision"] = "เดินทะลุฆาตกร (กันติด 720)",
         ["Skill Cooldowns"] = "คูลดาวน์สกิล",
         ["Icon Size"] = "ขนาดไอคอน",
         ["Custom Red Stain"] = "แต่งแสงแดงฆาตกร",
@@ -6583,6 +6607,14 @@ local function CreateNexaraCustomUI(ctx)
         end
     end)
 
+    local GeneralColMod = WindowObj:CreateModule("Miscellaneous_General", "Right", "Collision", "")
+    W.noKCol = GeneralColMod:AddCheckbox("No Killer Collision", Config.NoKillerCollision == true, nil, function(v)
+        Config.NoKillerCollision = (v == true)
+        if _G.Nexara_SyncNoKillerCollision then
+            pcall(_G.Nexara_SyncNoKillerCollision, not v)
+        end
+    end)
+
 
     do
         local CC_PRESETS = {
@@ -7561,6 +7593,7 @@ local function CreateNexaraCustomUI(ctx)
         W.fov.Set((Config.CustomFOVEnabled == true or Config.CustomFOV == true), true)
         W.fov.SetSlider(Config.FOV or Config.FOVValue or 80, true)
         if W.kReveal then W.kReveal.Set(Config.Alert_KillerReveal ~= false, true) end
+        if W.noKCol then W.noKCol.Set(Config.NoKillerCollision == true, true) end
         if W.ccEn then W.ccEn.Set(Config.CustomCam_Enabled == true, true) end
         if W.ccPreset then W.ccPreset.Set(Config.CustomCam_Preset or "DBD Movement", true) end
         if W.ccLockDist then W.ccLockDist.Set(Config.CustomCam_LockDist ~= false, true) end
