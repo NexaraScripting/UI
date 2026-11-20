@@ -1455,6 +1455,7 @@ local function CreateNexaraCustomUI(ctx)
         ["Target Name"] = "ชื่อเป้าหมาย",
         ["Parry Radius"] = "ระยะแพรี่",
         ["Radius Circle"] = "วงระยะแพรี่",
+        ["Legit Mode"] = "โหมดเนียน (ยกบล็อกสมจริง)",
         ["Frenzy Slash"] = "แพรี่ Frenzy Slash",
         ["Shadow Leap"] = "แพรี่ Shadow Leap",
         ["Dark Severance"] = "แพรี่ Dark Severance",
@@ -1466,6 +1467,7 @@ local function CreateNexaraCustomUI(ctx)
         ["Unload"] = "ปิดสคริปต์",
         ["Show Keybinds List"] = "โชว์รายการคีย์ลัด",
         ["Streamer Mode"] = "โหมดสตรีมเมอร์",
+        ["Spectator List"] = "รายชื่อคนดูจอ",
         ["Hit Log"] = "แจ้งเตือนการตี",
         ["Auto Save Config"] = "เซฟคอนฟิกอัตโนมัติ",
         ["Autoload mode"] = "โหลดคอนฟิกอัตโนมัติ",
@@ -7813,6 +7815,9 @@ local function CreateNexaraCustomUI(ctx)
                 if ap and ap.UpdateCircle then ap.LastCircleUpdateClock = nil; ap.UpdateCircle() end
             end
         )
+        W.pLegit = ParryAuto:AddCheckbox("Legit Mode", Config.AutoParry_LegitMode == true, nil, function(v)
+            Config.AutoParry_LegitMode = (v == true)
+        end)
 
         local ParrySkills = WindowObj:CreateModule("Legit_Parry", "Right", "Killer Skills", "")
         W.pFrenzy = ParrySkills:AddCheckbox("Frenzy Slash", Config.AutoParry_Skill_Frenzy, nil, function(v)
@@ -7859,6 +7864,7 @@ local function CreateNexaraCustomUI(ctx)
         W.parry.Set(Config.AutoParry_Enabled == true, true); W.parry.SetKey(Config.AutoParry_KeyCode, true)
         W.pRad.Set(Config.AutoParry_Radius or 12, true)
         W.pShowRad.Set(Config.AutoParry_ShowRadius ~= false, true); W.pShowRad.SetColor(Config.Color_AutoParry_Radius)
+        if W.pLegit then W.pLegit.Set(Config.AutoParry_LegitMode == true, true) end
         W.pFrenzy.Set(Config.AutoParry_Skill_Frenzy == true, true)
         W.pShadow.Set(Config.AutoParry_Skill_ShadowLeap == true, true)
         W.pDark.Set(Config.AutoParry_Skill_DarkSeverance == true, true)
@@ -8693,6 +8699,31 @@ local function CreateNexaraCustomUI(ctx)
             local pGames = useKiller and kGames or sGames
             local pPos = useKiller and kPos or sPos
             local pRoleTag = useKiller and (targetK or bestMapK or "Killer") or "Surv"
+            local rankedUnplaced = false
+
+            -- Ranked Match subplace stores rank as JSON in plr:GetAttribute("RankedRank") or MatchResults[UserId]:GetAttribute("Rank").
+            if pElo == nil then
+                local rawRR = plr:GetAttribute("RankedRank")
+                if type(rawRR) ~= "string" or rawRR == "" then
+                    local rsR = game:GetService("ReplicatedStorage")
+                    local mrR = rsR and rsR:FindFirstChild("MatchResults")
+                    local mrE = mrR and mrR:FindFirstChild(tostring(plr.UserId))
+                    rawRR = mrE and mrE:GetAttribute("Rank") or nil
+                end
+                if type(rawRR) == "string" and rawRR ~= "" then
+                    local okRR, decRR = pcall(function() return _HttpSvc:JSONDecode(rawRR) end)
+                    if okRR and type(decRR) == "table" and tonumber(decRR.elo) ~= nil then
+                        pElo = tonumber(decRR.elo)
+                        pPos = tonumber(decRR.boardPosition or decRR.pos or decRR.rank)
+                        if decRR.placed == false then
+                            pGames = 0
+                            rankedUnplaced = true
+                        else
+                            pGames = placementReq
+                        end
+                    end
+                end
+            end
 
             local pTier, pDiv = ResolveTierFromStats(pElo, pGames, pPos, placementReq)
             local crest = pTier and pTier.crest or nil
@@ -8708,7 +8739,9 @@ local function CreateNexaraCustomUI(ctx)
             local eloText = "---"
             if type(pElo) == "number" then
                 local rElo = math.floor(pElo + 0.5)
-                if pTier == RANK_UNRANKED and type(pGames) == "number" then
+                if pTier == RANK_UNRANKED and rankedUnplaced then
+                    eloText = tostring(rElo) .. " ELO (Unplaced)"
+                elseif pTier == RANK_UNRANKED and type(pGames) == "number" then
                     eloText = tostring(rElo) .. " ELO (" .. tostring(pGames) .. "/" .. tostring(placementReq) .. ")"
                 else
                     eloText = tostring(rElo) .. " ELO • " .. pRoleTag
@@ -9097,6 +9130,15 @@ local function CreateNexaraCustomUI(ctx)
         end
     end)
 
+    W.specList = MenuMod:AddCheckbox("Spectator List", Config.ShowSpectatorList == true, nil, function(v)
+        Config.ShowSpectatorList = (v == true)
+        if ctx.SetSpectatorListVisible then
+            pcall(ctx.SetSpectatorListVisible, v == true)
+        elseif _G.Nexara_SetSpectatorListVisible then
+            pcall(_G.Nexara_SetSpectatorListVisible, v == true)
+        end
+    end)
+
     local CombatLogsMod = WindowObj:CreateModule("Settings", "Left", "Hit Logs", "")
     W.hitLog = CombatLogsMod:AddCheckbox("Hit Log", Config.HitLog, nil, function(v)
         Config.HitLog = v
@@ -9297,6 +9339,7 @@ local function CreateNexaraCustomUI(ctx)
         UpdateResponsiveScale()
         W.showKb.Set(Config.ShowKeybindsList ~= false, true)
         W.streamer.Set(Config.StreamerMode == true, true)
+        if W.specList then W.specList.Set(Config.ShowSpectatorList == true, true) end
         W.hitLog.Set(Config.HitLog == true, true)
         W.autoSave.Set(Config.ConfigAutoSaveEnabled ~= false, true)
         W.autoloadMode.Set(Config.AutoloadMode or "All accounts", true)
@@ -9407,6 +9450,7 @@ local function CreateNexaraCustomUI(ctx)
         local kbVis = (Config.ShowKeybindsList ~= false) and (Config.PlatformMode ~= "Mobile")
         if ctx.SetKeybindsVisible then pcall(ctx.SetKeybindsVisible, kbVis) end
         if ctx.SetStreamerMode then pcall(ctx.SetStreamerMode, Config.StreamerMode == true) end
+        if ctx.SetSpectatorListVisible then pcall(ctx.SetSpectatorListVisible, Config.ShowSpectatorList == true) end
         if ctx.SetBlurName then pcall(ctx.SetBlurName, Config.AvatarCopy_BlurName == true) end
         if Config.AvatarCopy_Enabled and Config.AvatarCopy_Username and Config.AvatarCopy_Username ~= "" and ctx.CopyAvatarByName then
             pcall(ctx.CopyAvatarByName, Config.AvatarCopy_Username)
