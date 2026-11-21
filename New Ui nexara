@@ -7292,7 +7292,7 @@ local function CreateNexaraCustomUI(ctx)
         end)
         W.wcNoShad = WCLightMod:AddCheckbox("Disable Shadows", Config.WorldCustom_NoShadows, nil, function(v)
             Config.WorldCustom_NoShadows = v
-            applyWC()
+            if not v then refreshWC() else applyWC() end
         end)
         W.wcAmb = WCLightMod:AddColorRow("Ambient", Config.WorldCustom_Ambient or Color3.fromRGB(90, 95, 115), function(c)
             Config.WorldCustom_Ambient = c
@@ -7701,6 +7701,9 @@ local function CreateNexaraCustomUI(ctx)
             if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
         end, { key = "Tof_AimMob", title = "Twist Aimbot", order = 1 })
         ConfigSys.KeyedWidgets.Tof_Aimbot = W.tofAim
+        W.tofWallCheck = TwistCombat:AddCheckbox("Wall Check", Config.Tof_WallCheck ~= false, nil, function(v)
+            Config.Tof_WallCheck = v
+        end)
 
         local TwistSettings = WindowObj:CreateModule("Legit_Twist of Fate", "Right", "Settings", "")
         W.tofFovEn = TwistSettings:AddCheckbox("FOV Circle", Config.Tof_ShowFOV, Config.Color_Tof_FOV or Color3.fromRGB(80, 220, 255),
@@ -7870,6 +7873,7 @@ local function CreateNexaraCustomUI(ctx)
     table.insert(ConfigSys.SyncHandlers, function()
         W.tofSilent.Set(Config.Tof_SilentAim == true, true); W.tofSilent.SetOption(Config.Tof_ShootMode or "Legit", true)
         W.tofAim.Set(Config.Tof_Aimbot == true, true); W.tofAim.SetKey(Config.Tof_AimKeyCode, true)
+        if W.tofWallCheck then W.tofWallCheck.Set(Config.Tof_WallCheck ~= false, true) end
         W.tofFovEn.Set(Config.Tof_ShowFOV == true, true); W.tofFovEn.SetColor(Config.Color_Tof_FOV)
         W.tofFovRad.Set(Config.Tof_FOV or 220, true)
         W.tofSmooth.Set(Config.Tof_AimbotSmooth or 10, true)
