@@ -18,6 +18,8 @@ local function CreateNexaraCustomUI(ctx)
         AutoloadProfile = "none",
         Restoring = false,
         SaveToken = 0,
+        PendingSave = false,
+        Defaults = nil,
         SyncHandlers = {},
         KeyedWidgets = {},
     }
@@ -136,6 +138,8 @@ local function CreateNexaraCustomUI(ctx)
             return ConfigSys.Folder .. "/autoload_" .. uid .. ".txt", ConfigSys.Folder .. "/autoload.txt"
         end
         function ConfigSys.SaveProfile(name)
+            ConfigSys.PendingSave = false
+            ConfigSys.SaveToken = ConfigSys.SaveToken + 1
             local ok = false
             pcall(function()
                 if makefolder and isfolder and not isfolder(ConfigSys.Folder) then
@@ -150,25 +154,63 @@ local function CreateNexaraCustomUI(ctx)
             end)
             return ok
         end
+        local function CloneDefaultVal(v)
+            if type(v) ~= "table" then return v end
+            local out = {}
+            for k, item in pairs(v) do
+                out[k] = CloneDefaultVal(item)
+            end
+            return out
+        end
+        function ConfigSys.CaptureDefaults(onlyNew)
+            if type(Config) ~= "table" then return end
+            if not ConfigSys.Defaults then ConfigSys.Defaults = {} end
+            for k, v in pairs(Config) do
+                if not onlyNew or ConfigSys.Defaults[k] == nil then
+                    ConfigSys.Defaults[k] = CloneDefaultVal(v)
+                end
+            end
+        end
+        function ConfigSys.FlushAutoSave()
+            ConfigSys.SaveToken = ConfigSys.SaveToken + 1
+            if not ConfigSys.PendingSave then return end
+            ConfigSys.PendingSave = false
+            if ConfigSys.Restoring or Config.ConfigAutoSaveEnabled == false then return end
+            ConfigSys.SaveProfile(ConfigSys.CurrentProfile or "Default")
+        end
         function ConfigSys.ScheduleAutoSave()
             if ConfigSys.Restoring or Config.ConfigAutoSaveEnabled == false then return end
+            ConfigSys.PendingSave = true
             ConfigSys.SaveToken = ConfigSys.SaveToken + 1
             local tok = ConfigSys.SaveToken
             task.delay(0.15, function()
                 if tok ~= ConfigSys.SaveToken or ConfigSys.Restoring or Config.ConfigAutoSaveEnabled == false then return end
+                ConfigSys.PendingSave = false
                 ConfigSys.SaveProfile(ConfigSys.CurrentProfile or "Default")
             end)
         end
+        if type(Config) == "table" and Config.LockGUI == nil then Config.LockGUI = false end
+        ConfigSys.CaptureDefaults()
+        _G.Nexara_CaptureDefaults = ConfigSys.CaptureDefaults
         _G.Nexara_ScheduleAutoSave = ConfigSys.ScheduleAutoSave
+        _G.Nexara_FlushAutoSave = ConfigSys.FlushAutoSave
+        _G.Nexara_SafeCfgV2 = true
         function ConfigSys.LoadProfile(name, isStartup)
             local loaded = false
             local prof = (name and name ~= "" and name) or "Default"
             local path = ConfigSys.Folder .. "/" .. prof .. ".json"
             if not (readfile and isfile and isfile(path)) then return false end
+            ConfigSys.SaveToken = ConfigSys.SaveToken + 1
+            ConfigSys.PendingSave = false
             ConfigSys.Restoring = true
             pcall(function()
                 local data = HttpService:JSONDecode(readfile(path))
                 if type(data) == "table" then
+                    if ConfigSys.Defaults then
+                        for k, v in pairs(ConfigSys.Defaults) do
+                            Config[k] = CloneDefaultVal(v)
+                        end
+                    end
                     if not isStartup then
                         Config.SelectedWorldPreset = nil
                     end
@@ -189,6 +231,311 @@ local function CreateNexaraCustomUI(ctx)
             end
             ConfigSys.Restoring = false
             return loaded
+        end
+        do
+            local B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+            local B64_INV = {}
+            for i = 1, 64 do B64_INV[B64_CHARS:byte(i)] = i - 1 end
+            local function b64Encode(s)
+                local out = {}
+                local n = #s
+                local i = 1
+                while i <= n do
+                    local a = s:byte(i) or 0
+                    local b = (i + 1 <= n) and s:byte(i + 1) or nil
+                    local c = (i + 2 <= n) and s:byte(i + 2) or nil
+                    local triple = bit32.lshift(a, 16) + bit32.lshift(b or 0, 8) + (c or 0)
+                    out[#out + 1] = B64_CHARS:sub(bit32.band(bit32.rshift(triple, 18), 63) + 1, bit32.band(bit32.rshift(triple, 18), 63) + 1)
+                    out[#out + 1] = B64_CHARS:sub(bit32.band(bit32.rshift(triple, 12), 63) + 1, bit32.band(bit32.rshift(triple, 12), 63) + 1)
+                    out[#out + 1] = b and B64_CHARS:sub(bit32.band(bit32.rshift(triple, 6), 63) + 1, bit32.band(bit32.rshift(triple, 6), 63) + 1) or "="
+                    out[#out + 1] = c and B64_CHARS:sub(bit32.band(triple, 63) + 1, bit32.band(triple, 63) + 1) or "="
+                    i = i + 3
+                end
+                return table.concat(out)
+            end
+            local function b64Decode(s)
+                local out = {}
+                local n = #s
+                local i = 1
+                while i <= n do
+                    local c1 = B64_INV[s:byte(i)]
+                    local c2 = B64_INV[s:byte(i + 1)]
+                    if not c1 or not c2 then return nil end
+                    local b3 = s:byte(i + 2)
+                    local b4 = s:byte(i + 3)
+                    local c3 = (b3 and b3 ~= 61) and B64_INV[b3] or nil
+                    local c4 = (b4 and b4 ~= 61) and B64_INV[b4] or nil
+                    local triple = bit32.lshift(c1, 18) + bit32.lshift(c2, 12) + bit32.lshift(c3 or 0, 6) + (c4 or 0)
+                    out[#out + 1] = string.char(bit32.band(bit32.rshift(triple, 16), 255))
+                    if c3 then out[#out + 1] = string.char(bit32.band(bit32.rshift(triple, 8), 255)) end
+                    if c4 then out[#out + 1] = string.char(bit32.band(triple, 255)) end
+                    i = i + 4
+                end
+                return table.concat(out)
+            end
+            local function checksum4(s)
+                local h = 21661
+                for i = 1, #s do
+                    h = (h * 33 + s:byte(i)) % 65536
+                end
+                return string.format("%04X", h)
+            end
+            local SHARE_PRIVATE_KEYS = {
+                AvatarCopy_Enabled = true, AvatarCopy_Username = true, AvatarCopy_BlurName = true, AvatarCopy_SavedNames = true,
+                StreamerMode = true, PlatformMode = true, LockGUI = true, MinimizeUIOnStart = true,
+                ConfigAutoSaveEnabled = true, AutoloadMode = true, UI_Language = true,
+            }
+            local function shareValEqual(a, b)
+                local ta, tb = typeof(a), typeof(b)
+                if ta ~= tb then return false end
+                if ta == "Color3" then
+                    return math.abs(a.R - b.R) < 0.004 and math.abs(a.G - b.G) < 0.004 and math.abs(a.B - b.B) < 0.004
+                elseif ta == "EnumItem" then
+                    return a == b
+                elseif ta == "table" then
+                    local ca, cb = 0, 0
+                    for k, v in pairs(a) do ca = ca + 1; if not shareValEqual(v, b[k]) then return false end end
+                    for _ in pairs(b) do cb = cb + 1 end
+                    return ca == cb
+                end
+                return a == b
+            end
+            local function compactVal(v)
+                local tv = typeof(v)
+                if tv == "Color3" then
+                    return string.format("#%02X%02X%02X", math.clamp(math.floor(v.R * 255 + 0.5), 0, 255), math.clamp(math.floor(v.G * 255 + 0.5), 0, 255), math.clamp(math.floor(v.B * 255 + 0.5), 0, 255))
+                elseif tv == "EnumItem" then
+                    return "@" .. tostring(v.EnumType):gsub("^Enum%.", "") .. "." .. v.Name
+                elseif tv == "table" then
+                    local out = {}
+                    for k, item in pairs(v) do out[k] = compactVal(item) end
+                    return out
+                elseif tv == "boolean" or tv == "number" or tv == "string" then
+                    return v
+                end
+                return nil
+            end
+            local function expandVal(v, defVal)
+                local tv = type(v)
+                if tv == "string" then
+                    local r, g, b = v:match("^#([0-9A-Fa-f][0-9A-Fa-f])([0-9A-Fa-f][0-9A-Fa-f])([0-9A-Fa-f][0-9A-Fa-f])$")
+                    if r and g and b then
+                        return Color3.fromRGB(tonumber(r, 16), tonumber(g, 16), tonumber(b, 16))
+                    end
+                    local eType, eName = v:match("^@([%w_]+)%.([%w_]+)$")
+                    if eType and eName then
+                        local okE, resE = pcall(function() return Enum[eType][eName] end)
+                        if okE and resE then return resE end
+                        return defVal
+                    end
+                    return v
+                elseif tv == "table" then
+                    local out = {}
+                    for k, item in pairs(v) do out[k] = expandVal(item, type(defVal) == "table" and defVal[k] or nil) end
+                    return out
+                end
+                return v
+            end
+            function ConfigSys.GetProfileList()
+                local list = { "Default" }
+                pcall(function()
+                    if listfiles and isfolder and isfolder(ConfigSys.Folder) then
+                        for _, path in ipairs(listfiles(ConfigSys.Folder)) do
+                            local name = path:match("([^/\\]+)%.json$")
+                            if name and not table.find(list, name) then
+                                table.insert(list, name)
+                            end
+                        end
+                    end
+                end)
+                table.sort(list, function(a, b)
+                    if a == "Default" then return true end
+                    if b == "Default" then return false end
+                    return a:lower() < b:lower()
+                end)
+                return list
+            end
+            local B62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+            local function keyHash3(k)
+                local h = 5381
+                for i = 1, #k do h = (h * 33 + k:byte(i)) % 238328 end
+                local c1 = (h % 62) + 1; h = math.floor(h / 62)
+                local c2 = (h % 62) + 1; h = math.floor(h / 62)
+                local c3 = (h % 62) + 1
+                return B62:sub(c3, c3) .. B62:sub(c2, c2) .. B62:sub(c1, c1)
+            end
+            local function buildKeyMaps(defs)
+                local k2h, h2k, sorted = {}, {}, {}
+                for k in pairs(defs) do
+                    if type(k) == "string" and not SHARE_PRIVATE_KEYS[k] then sorted[#sorted + 1] = k end
+                end
+                table.sort(sorted)
+                for _, k in ipairs(sorted) do
+                    local tag = keyHash3(k)
+                    if h2k[tag] then
+                        k2h[k] = k
+                        h2k[k] = k
+                    else
+                        k2h[k] = tag
+                        h2k[tag] = k
+                    end
+                end
+                return k2h, h2k
+            end
+            local function encodeCompactVal(v)
+                local tv = typeof(v)
+                if tv == "boolean" then return v and "T" or "F"
+                elseif tv == "number" then
+                    local s = string.format("%.3f", v):gsub("0+$", ""):gsub("%.$", "")
+                    return "n" .. s
+                elseif tv == "Color3" then
+                    return string.format("c%02X%02X%02X", math.clamp(math.floor(v.R * 255 + 0.5), 0, 255), math.clamp(math.floor(v.G * 255 + 0.5), 0, 255), math.clamp(math.floor(v.B * 255 + 0.5), 0, 255))
+                elseif tv == "EnumItem" then
+                    return "e" .. tostring(v.EnumType):gsub("^Enum%.", "") .. "." .. v.Name
+                elseif tv == "string" then
+                    return "s" .. tostring(#v) .. ":" .. v
+                elseif tv == "table" then
+                    local okJ, js = pcall(HttpService.JSONEncode, HttpService, compactVal(v))
+                    if okJ and type(js) == "string" then return "j" .. tostring(#js) .. ":" .. js end
+                end
+                return nil
+            end
+            function ConfigSys.ExportShareCode(profileName)
+                local srcCfg = Config
+                local prof = (profileName and profileName ~= "" and profileName) or ConfigSys.CurrentProfile or "Default"
+                if prof ~= (ConfigSys.CurrentProfile or "Default") then
+                    local pth = ConfigSys.Folder .. "/" .. prof .. ".json"
+                    if readfile and isfile and isfile(pth) then
+                        local okR, raw = pcall(function() return HttpService:JSONDecode(readfile(pth)) end)
+                        if okR and type(raw) == "table" then
+                            local tmp = {}
+                            if ConfigSys.Defaults then
+                                for k, v in pairs(ConfigSys.Defaults) do tmp[k] = CloneDefaultVal(v) end
+                            end
+                            for k, v in pairs(raw) do tmp[k] = ConfigSys.Deserialize(v) end
+                            srcCfg = tmp
+                        end
+                    end
+                end
+                local defs = ConfigSys.Defaults or {}
+                local k2h = buildKeyMaps(defs)
+                local parts = {}
+                for k, v in pairs(srcCfg) do
+                    if type(k) == "string" and not SHARE_PRIVATE_KEYS[k] and defs[k] ~= nil then
+                        if not shareValEqual(v, defs[k]) then
+                            local ev = encodeCompactVal(v)
+                            if ev then parts[#parts + 1] = (k2h[k] or k) .. "=" .. ev end
+                        end
+                    end
+                end
+                local rawStream = table.concat(parts, ";")
+                local b64 = b64Encode(rawStream)
+                return "NX2:" .. checksum4(b64) .. ":" .. b64, nil
+            end
+            function ConfigSys.ImportShareCode(rawStr, targetName)
+                if type(rawStr) ~= "string" then return false, "Empty share code" end
+                local cleaned = rawStr:gsub("%s+", "")
+                local ver, chk, b64 = cleaned:match("^(NX[12]):([0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]):([A-Za-z0-9+/=]+)$")
+                if not ver or not chk or not b64 then
+                    return false, "Invalid code format (expect NX2:...)"
+                end
+                if chk:upper() ~= checksum4(b64) then
+                    return false, "Incomplete or corrupted code"
+                end
+                local decoded = b64Decode(b64)
+                if not decoded then return false, "Corrupted base64 payload" end
+                local defs = ConfigSys.Defaults or {}
+                local merged = {}
+                for k, v in pairs(defs) do
+                    if SHARE_PRIVATE_KEYS[k] and Config[k] ~= nil then
+                        merged[k] = CloneDefaultVal(Config[k])
+                    else
+                        merged[k] = CloneDefaultVal(v)
+                    end
+                end
+                if ver == "NX1" then
+                    local okD, delta = pcall(HttpService.JSONDecode, HttpService, decoded)
+                    if not okD or type(delta) ~= "table" then return false, "Invalid config payload" end
+                    for k, v in pairs(delta) do
+                        if type(k) == "string" and not SHARE_PRIVATE_KEYS[k] and defs[k] ~= nil then
+                            local expVal = expandVal(v, defs[k])
+                            if typeof(expVal) == typeof(defs[k]) then merged[k] = expVal end
+                        end
+                    end
+                else
+                    local _, h2k = buildKeyMaps(defs)
+                    local pos, len = 1, #decoded
+                    while pos <= len do
+                        local eq = decoded:find("=", pos, true)
+                        if not eq then break end
+                        local tag = decoded:sub(pos, eq - 1)
+                        local realK = h2k[tag] or (defs[tag] ~= nil and tag or nil)
+                        local kind = decoded:sub(eq + 1, eq + 1)
+                        local val, nextPos = nil, nil
+                        if kind == "T" or kind == "F" then
+                            val = (kind == "T")
+                            nextPos = eq + 3
+                        elseif kind == "s" or kind == "j" then
+                            local col = decoded:find(":", eq + 2, true)
+                            if not col then break end
+                            local slen = tonumber(decoded:sub(eq + 2, col - 1)) or 0
+                            local body = decoded:sub(col + 1, col + slen)
+                            nextPos = col + slen + 2
+                            if kind == "s" then
+                                val = body
+                            else
+                                local okJ, jt = pcall(HttpService.JSONDecode, HttpService, body)
+                                if okJ and type(jt) == "table" then val = expandVal(jt, realK and defs[realK] or nil) end
+                            end
+                        else
+                            local semi = decoded:find(";", eq + 2, true)
+                            local body = decoded:sub(eq + 2, semi and (semi - 1) or len)
+                            nextPos = semi and (semi + 1) or (len + 1)
+                            if kind == "n" then
+                                val = tonumber(body)
+                            elseif kind == "c" then
+                                local r, g, b = body:match("^([0-9A-Fa-f][0-9A-Fa-f])([0-9A-Fa-f][0-9A-Fa-f])([0-9A-Fa-f][0-9A-Fa-f])$")
+                                if r and g and b then val = Color3.fromRGB(tonumber(r, 16), tonumber(g, 16), tonumber(b, 16)) end
+                            elseif kind == "e" then
+                                local eType, eName = body:match("^([%w_]+)%.([%w_]+)$")
+                                if eType and eName then
+                                    local okE, resE = pcall(function() return Enum[eType][eName] end)
+                                    if okE and resE then val = resE end
+                                end
+                            end
+                        end
+                        if realK and not SHARE_PRIVATE_KEYS[realK] and defs[realK] ~= nil and val ~= nil and typeof(val) == typeof(defs[realK]) then
+                            merged[realK] = val
+                        end
+                        pos = nextPos or (len + 1)
+                    end
+                end
+                local prof = tostring(targetName or ""):gsub("[^%w%-%_%s]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+                if prof == "" then
+                    local existing = ConfigSys.GetProfileList()
+                    local idx = 1
+                    while table.find(existing, "Shared_" .. tostring(idx)) do idx = idx + 1 end
+                    prof = "Shared_" .. tostring(idx)
+                end
+                local okW = false
+                pcall(function()
+                    if makefolder and isfolder and not isfolder(ConfigSys.Folder) then
+                        makefolder(ConfigSys.Folder)
+                    end
+                    if writefile then
+                        writefile(ConfigSys.Folder .. "/" .. prof .. ".json", HttpService:JSONEncode(ConfigSys.Serialize(merged)))
+                        okW = true
+                    end
+                end)
+                if not okW then return false, "Could not save imported file" end
+                ConfigSys.LoadProfile(prof, false)
+                if ConfigSys.OnProfilesChanged then pcall(ConfigSys.OnProfilesChanged) end
+                if Theme and Theme.RefreshTopConfigUI then pcall(Theme.RefreshTopConfigUI) end
+                return true, prof
+            end
+            _G.Nexara_ExportShareCode = ConfigSys.ExportShareCode
+            _G.Nexara_ImportShareCode = ConfigSys.ImportShareCode
+            _G.Nexara_ShareCfgV1 = true
         end
         pcall(function()
             if makefolder and isfolder and not isfolder(ConfigSys.Folder) then
@@ -802,7 +1149,25 @@ local function CreateNexaraCustomUI(ctx)
             t.TopBar.Position = UDim2.new(0, sw, 0, 0)
         end
         if t.SearchFrame then
-            t.SearchFrame.Size = UDim2.new(0, math.clamp((fw - sw) - 150, 80, 260), 0, 32)
+            local availMid = (fw - sw) - 62 - 134
+            if t.ConfigPill then
+                if availMid < 164 then
+                    t.SearchFrame.Visible = false
+                    local pillW = math.clamp(availMid, 82, 160)
+                    t.ConfigPill.Position = UDim2.new(0, 62, 0.5, -16)
+                    t.ConfigPill.Size = UDim2.new(0, pillW, 0, 32)
+                else
+                    t.SearchFrame.Visible = true
+                    local pillW = math.clamp(math.floor(availMid * 0.36), 88, 168)
+                    local searchW = math.clamp(availMid - pillW - 10, 68, 250)
+                    t.SearchFrame.Size = UDim2.new(0, searchW, 0, 32)
+                    t.ConfigPill.Position = UDim2.new(0, 62 + searchW + 10, 0.5, -16)
+                    t.ConfigPill.Size = UDim2.new(0, pillW, 0, 32)
+                end
+            else
+                t.SearchFrame.Visible = true
+                t.SearchFrame.Size = UDim2.new(0, math.clamp((fw - sw) - 150, 80, 260), 0, 32)
+            end
         end
         if t.Breadcrumb then
             t.Breadcrumb.Size = UDim2.new(1, -(sw + 35), 0, 24)
@@ -891,8 +1256,11 @@ local function CreateNexaraCustomUI(ctx)
 
     local function ToggleUI(forceState)
         EnsureCap()
-        local targetState = (forceState ~= nil) and forceState or (not UIState.Visible)
-        if targetState == UIState.Visible and not UIState.Animating then return end
+        SafeMainAccess()
+        local okVis, realVis = pcall(function() return MainFrame.Visible and MainFrame.GroupTransparency < 0.95 end)
+        local effVisible = okVis and realVis or UIState.Visible
+        local targetState = (forceState ~= nil) and forceState or (not effVisible)
+        if targetState == effVisible and targetState == UIState.Visible and not UIState.Animating then return end
 
         UIState.Token = UIState.Token + 1
         local myToken = UIState.Token
@@ -911,7 +1279,6 @@ local function CreateNexaraCustomUI(ctx)
         elseif _G.Nexara_UpdateMouseUnlock then
             pcall(_G.Nexara_UpdateMouseUnlock)
         end
-        SafeMainAccess()
 
         local curBaseScale = UIState.BaseScale or 1.0
 
@@ -929,29 +1296,40 @@ local function CreateNexaraCustomUI(ctx)
                 MainFrame.Visible = true
             end)
 
-            local tOpen = TweenService:Create(MainFrame, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Position = openTargetPos,
-                GroupTransparency = 0
-            })
-            local sOpen = TweenService:Create(MainScale, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                Scale = curBaseScale
-            })
-            table.insert(UIState.Tweens, tOpen)
-            table.insert(UIState.Tweens, sOpen)
-            tOpen:Play()
-            sOpen:Play()
-
-            task.delay(0.24, function()
-                SafeMainAccess()
-                if myToken ~= UIState.Token then return end
+            local okTw, tOpen, sOpen = pcall(function()
+                return TweenService:Create(MainFrame, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+                    Position = openTargetPos,
+                    GroupTransparency = 0
+                }), TweenService:Create(MainScale, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                    Scale = curBaseScale
+                })
+            end)
+            if okTw and tOpen and sOpen then
+                table.insert(UIState.Tweens, tOpen)
+                table.insert(UIState.Tweens, sOpen)
+                tOpen:Play()
+                sOpen:Play()
+                task.delay(0.24, function()
+                    SafeMainAccess()
+                    if myToken ~= UIState.Token then return end
+                    UIState.Animating = false
+                    pcall(function()
+                        MainFrame.Position = openTargetPos
+                        MainScale.Scale = UIState.BaseScale or curBaseScale
+                        MainFrame.GroupTransparency = 0
+                    end)
+                    Theme._refreshScaledLayouts()
+                end)
+            else
                 UIState.Animating = false
                 pcall(function()
                     MainFrame.Position = openTargetPos
                     MainScale.Scale = UIState.BaseScale or curBaseScale
                     MainFrame.GroupTransparency = 0
+                    MainFrame.Visible = true
                 end)
                 Theme._refreshScaledLayouts()
-            end)
+            end
         else
             if Theme._closeAllFlyouts then pcall(Theme._closeAllFlyouts) end
 
@@ -959,31 +1337,62 @@ local function CreateNexaraCustomUI(ctx)
             UIState.SavedPos = (okPos and curPos) or UIState.SavedPos or UDim2.new(0.5, 0, 0.5, 0)
             local closeTargetPos = UDim2.new(UIState.SavedPos.X.Scale, UIState.SavedPos.X.Offset, UIState.SavedPos.Y.Scale, UIState.SavedPos.Y.Offset + 18)
 
-            local tClose = TweenService:Create(MainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                Position = closeTargetPos,
-                GroupTransparency = 1
-            })
-            local sClose = TweenService:Create(MainScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                Scale = curBaseScale * 0.90
-            })
-            table.insert(UIState.Tweens, tClose)
-            table.insert(UIState.Tweens, sClose)
-            tClose:Play()
-            sClose:Play()
-
-            task.delay(0.18, function()
+            local function finishClose()
                 SafeMainAccess()
                 if myToken ~= UIState.Token then return end
                 if not UIState.Visible then
                     pcall(function() MainFrame.Visible = false end)
                 end
                 UIState.Animating = false
-                if (Config.PlatformMode == "Mobile" or (UIState.Touch and Config.PlatformMode ~= "PC")) and MobileToggleBtn then
-                    pcall(function() MobileToggleBtn.Visible = true end)
+                -- Never trap touch users without an on-screen reopen button.
+                if MobileToggleBtn and (Config.PlatformMode == "Mobile" or UIState.Touch or UIState.SawTouch or (UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled)) then
+                    pcall(function()
+                        MobileToggleBtn.Position = Theme._clampMobBtnPos(MobileToggleBtn.Position)
+                        MobileToggleBtn.Visible = true
+                    end)
                 end
+            end
+
+            local okTw, tClose, sClose = pcall(function()
+                return TweenService:Create(MainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                    Position = closeTargetPos,
+                    GroupTransparency = 1
+                }), TweenService:Create(MainScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                    Scale = curBaseScale * 0.90
+                })
             end)
+            if okTw and tClose and sClose then
+                table.insert(UIState.Tweens, tClose)
+                table.insert(UIState.Tweens, sClose)
+                tClose:Play()
+                sClose:Play()
+                task.delay(0.18, finishClose)
+            else
+                finishClose()
+            end
         end
     end
+
+    -- Detect touch at runtime even if executor spoofed GetPlatform/MouseEnabled at startup.
+    ConnectUI(UserInputService.InputBegan, function(input)
+        if input.UserInputType == Enum.UserInputType.Touch and not UIState.SawTouch then
+            UIState.SawTouch = true
+            if not UIState.Touch and not UIState.UserSetPlatform then
+                UIState.Touch = true
+                if Config.PlatformMode ~= "Mobile" then
+                    Config.PlatformMode = "Mobile"
+                    if UIState.SyncPlatformBtn then pcall(UIState.SyncPlatformBtn, "Mobile") end
+                end
+                if MobileToggleBtn then
+                    pcall(function()
+                        MobileToggleBtn.Position = Theme._clampMobBtnPos(MobileToggleBtn.Position)
+                        MobileToggleBtn.Visible = true
+                    end)
+                end
+                UpdateResponsiveScale()
+            end
+        end
+    end)
 
     local InnerContainer = Instance.new("Frame")
     InnerContainer.Name = "InnerContainer"
@@ -998,11 +1407,13 @@ local function CreateNexaraCustomUI(ctx)
 
     local dragging, dragInput, dragStart, startPos
     MainFrame.InputBegan:Connect(function(input)
+        if Config.LockGUI then return end
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             local mPos = input.Position
             local curScale = MainScale and MainScale.Scale or 1
             if (mPos.Y - MainFrame.AbsolutePosition.Y) <= (52 * curScale) then
                 dragging = true
+                dragInput = input
                 dragStart = input.Position
                 startPos = MainFrame.Position
                 if Theme._closeAllFlyouts then pcall(Theme._closeAllFlyouts) end
@@ -1066,9 +1477,26 @@ local function CreateNexaraCustomUI(ctx)
     MobIconCorner.Parent = MobIcon
 
     do
+        local _mobToggleV2 = true
         local mobDragging = false
         local mobMoved = false
         local mobDragInput, mobDragStart, mobStartPos
+        local mobLastToggle = 0
+        local function fireMobToggle()
+            local now = os.clock()
+            if (now - mobLastToggle) < 0.25 then return end
+            mobLastToggle = now
+            pcall(ToggleUI)
+        end
+        local function finishMobInput(wasCancel)
+            if not mobDragging then return end
+            local moved = mobMoved
+            mobDragging = false
+            mobDragInput = nil
+            if not moved and not wasCancel then
+                fireMobToggle()
+            end
+        end
         ConnectUI(MobileToggleBtn.InputBegan, function(input)
             if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
                 mobDragging = true
@@ -1076,17 +1504,27 @@ local function CreateNexaraCustomUI(ctx)
                 mobDragInput = input
                 mobDragStart = input.Position
                 mobStartPos = MobileToggleBtn.Position
+                input.Changed:Connect(function()
+                    if input ~= mobDragInput then return end
+                    if input.UserInputState == Enum.UserInputState.End then
+                        finishMobInput(false)
+                    elseif input.UserInputState == Enum.UserInputState.Cancel then
+                        finishMobInput(true)
+                    end
+                end)
             end
         end)
         ConnectUI(UserInputService.InputChanged, function(input)
-            if not mobDragging or not mobDragStart then return end
-            if input.UserInputType == Enum.UserInputType.Touch then
+            if not mobDragging or not mobDragStart or Config.LockGUI then return end
+            local isTouch = (input.UserInputType == Enum.UserInputType.Touch)
+            if isTouch then
                 if mobDragInput and mobDragInput.UserInputType == Enum.UserInputType.Touch and input ~= mobDragInput then return end
             elseif input.UserInputType ~= Enum.UserInputType.MouseMovement then
                 return
             end
             local delta = input.Position - mobDragStart
-            if not mobMoved and delta.Magnitude >= 8 then mobMoved = true end
+            local thresh = isTouch and 14 or 6
+            if not mobMoved and delta.Magnitude >= thresh then mobMoved = true end
             if mobMoved then
                 MobileToggleBtn.Position = Theme._clampMobBtnPos(UDim2.new(mobStartPos.X.Scale, mobStartPos.X.Offset + delta.X, mobStartPos.Y.Scale, mobStartPos.Y.Offset + delta.Y))
             end
@@ -1098,10 +1536,11 @@ local function CreateNexaraCustomUI(ctx)
             elseif input.UserInputType ~= Enum.UserInputType.MouseButton1 then
                 return
             end
-            mobDragging = false
-            mobDragInput = nil
+            finishMobInput(input.UserInputState == Enum.UserInputState.Cancel)
+        end)
+        ConnectUI(MobileToggleBtn.Activated, function()
             if not mobMoved then
-                ToggleUI()
+                fireMobToggle()
             end
         end)
     end
@@ -1258,6 +1697,825 @@ local function CreateNexaraCustomUI(ctx)
     SearchInput.ClearTextOnFocus = false
     SearchInput.Parent = SearchFrame
 
+    -- Neverlose-style TopBar Config Pill & Share/Import Popover (100% Lucide icons, zero emojis)
+    local ConfigPill = Instance.new("Frame")
+    do
+    ConfigPill.Name = "Nexara_ConfigPill"
+    ConfigPill.Size = UDim2.fromOffset(162, 32)
+    ConfigPill.Position = UDim2.new(0, 332, 0.5, -16)
+    ConfigPill.BackgroundColor3 = Theme.Input
+    ConfigPill.BorderSizePixel = 0
+    ConfigPill.ZIndex = 16
+    ConfigPill.Parent = TopBar
+    local CfgPillCorner = Instance.new("UICorner")
+    CfgPillCorner.CornerRadius = UDim.new(0, 6)
+    CfgPillCorner.Parent = ConfigPill
+    local CfgPillStroke = Instance.new("UIStroke")
+    CfgPillStroke.Color = Theme.CardStroke
+    CfgPillStroke.Thickness = 1
+    CfgPillStroke.Parent = ConfigPill
+
+    local QuickSaveBtn = Instance.new("TextButton")
+    QuickSaveBtn.Name = "QuickSaveBtn"
+    QuickSaveBtn.Text = ""
+    QuickSaveBtn.Size = UDim2.new(0, 30, 1, 0)
+    QuickSaveBtn.Position = UDim2.new(0, 0, 0, 0)
+    QuickSaveBtn.BackgroundTransparency = 1
+    QuickSaveBtn.AutoButtonColor = false
+    QuickSaveBtn.ZIndex = 17
+    QuickSaveBtn.Parent = ConfigPill
+    local QuickSaveIcon = Instance.new("ImageLabel")
+    QuickSaveIcon.Size = UDim2.fromOffset(14, 14)
+    QuickSaveIcon.Position = UDim2.new(0.5, -7, 0.5, -7)
+    QuickSaveIcon.BackgroundTransparency = 1
+    QuickSaveIcon.Image = "rbxassetid://10734941499"
+    QuickSaveIcon.ImageColor3 = Theme.TextDim
+    QuickSaveIcon.ZIndex = 18
+    QuickSaveIcon.Parent = QuickSaveBtn
+
+    local CfgPillDiv = Instance.new("Frame")
+    CfgPillDiv.Size = UDim2.new(0, 1, 0, 16)
+    CfgPillDiv.Position = UDim2.new(0, 30, 0.5, -8)
+    CfgPillDiv.BackgroundColor3 = Theme.CardStroke
+    CfgPillDiv.BorderSizePixel = 0
+    CfgPillDiv.ZIndex = 17
+    CfgPillDiv.Parent = ConfigPill
+
+    local CfgDropTrigger = Instance.new("TextButton")
+    CfgDropTrigger.Name = "ConfigDropTrigger"
+    CfgDropTrigger.Text = ""
+    CfgDropTrigger.Size = UDim2.new(1, -31, 1, 0)
+    CfgDropTrigger.Position = UDim2.new(0, 31, 0, 0)
+    CfgDropTrigger.BackgroundTransparency = 1
+    CfgDropTrigger.AutoButtonColor = false
+    CfgDropTrigger.ZIndex = 17
+    CfgDropTrigger.Parent = ConfigPill
+
+    local CfgPillLabel = Instance.new("TextLabel")
+    CfgPillLabel.Name = "ProfileName"
+    CfgPillLabel.Size = UDim2.new(1, -26, 1, 0)
+    CfgPillLabel.Position = UDim2.new(0, 8, 0, 0)
+    CfgPillLabel.BackgroundTransparency = 1
+    CfgPillLabel.Font = Enum.Font.GothamMedium
+    CfgPillLabel.TextSize = 11.5
+    CfgPillLabel.TextColor3 = Theme.Text
+    CfgPillLabel.TextXAlignment = Enum.TextXAlignment.Left
+    CfgPillLabel.TextTruncate = Enum.TextTruncate.AtEnd
+    CfgPillLabel.Text = ConfigSys.CurrentProfile or "Default"
+    CfgPillLabel.ZIndex = 18
+    CfgPillLabel.Parent = CfgDropTrigger
+
+    local CfgChevIcon = Instance.new("ImageLabel")
+    CfgChevIcon.Size = UDim2.fromOffset(13, 13)
+    CfgChevIcon.Position = UDim2.new(1, -19, 0.5, -6.5)
+    CfgChevIcon.BackgroundTransparency = 1
+    CfgChevIcon.Image = "rbxassetid://10709790948"
+    CfgChevIcon.ImageColor3 = Theme.TextMuted
+    CfgChevIcon.ZIndex = 18
+    CfgChevIcon.Parent = CfgDropTrigger
+
+    local CfgFlyout = Instance.new("CanvasGroup")
+    CfgFlyout.Name = "Nexara_ConfigFlyout"
+    CfgFlyout.Size = UDim2.fromOffset(290, 294)
+    CfgFlyout.Position = UDim2.fromOffset(200, 120)
+    CfgFlyout.BackgroundTransparency = 1
+    CfgFlyout.BorderSizePixel = 0
+    CfgFlyout.GroupTransparency = 1
+    CfgFlyout.Visible = false
+    CfgFlyout.ZIndex = 130
+    CfgFlyout.Parent = ScreenGui
+    local CfgFlyScale = Instance.new("UIScale")
+    CfgFlyScale.Scale = 1
+    CfgFlyScale.Parent = CfgFlyout
+    local CfgFlyCard = Instance.new("Frame")
+    CfgFlyCard.Name = "Card"
+    CfgFlyCard.Size = UDim2.new(1, -4, 1, -4)
+    CfgFlyCard.Position = UDim2.fromOffset(2, 2)
+    CfgFlyCard.BackgroundColor3 = Theme.Card
+    CfgFlyCard.BorderSizePixel = 0
+    CfgFlyCard.ClipsDescendants = true
+    CfgFlyCard.ZIndex = 130
+    CfgFlyCard.Parent = CfgFlyout
+    local CfgFlyCorner = Instance.new("UICorner")
+    CfgFlyCorner.CornerRadius = UDim.new(0, 10)
+    CfgFlyCorner.Parent = CfgFlyCard
+    local CfgFlyStroke = Instance.new("UIStroke")
+    CfgFlyStroke.Color = Theme.CardStroke
+    CfgFlyStroke.Thickness = 1
+    CfgFlyStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    CfgFlyStroke.Parent = CfgFlyCard
+    local CfgFlyPad = Instance.new("UIPadding")
+    CfgFlyPad.PaddingTop = UDim.new(0, 8)
+    CfgFlyPad.PaddingBottom = UDim.new(0, 8)
+    CfgFlyPad.PaddingLeft = UDim.new(0, 10)
+    CfgFlyPad.PaddingRight = UDim.new(0, 10)
+    CfgFlyPad.Parent = CfgFlyCard
+    local CfgFlyLayout = Instance.new("UIListLayout")
+    CfgFlyLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    CfgFlyLayout.Padding = UDim.new(0, 6)
+    CfgFlyLayout.Parent = CfgFlyCard
+
+    local function flashIconCheck(imgObj, origId, origCol)
+        if not imgObj then return end
+        imgObj.Image = "rbxassetid://10709790644"
+        imgObj.ImageColor3 = Color3.fromRGB(80, 235, 130)
+        task.delay(0.9, function()
+            if imgObj and imgObj.Parent then
+                imgObj.Image = origId
+                imgObj.ImageColor3 = origCol or Theme.TextDim
+            end
+        end)
+    end
+    local function makeMiniIconBtn(parent, imgId, xOff, zIdx, baseCol)
+        local b = Instance.new("TextButton")
+        b.Text = ""
+        b.Size = UDim2.fromOffset(24, 24)
+        b.Position = UDim2.new(1, xOff, 0.5, -12)
+        b.BackgroundColor3 = Theme.Input
+        b.BackgroundTransparency = 0.25
+        b.BorderSizePixel = 0
+        b.AutoButtonColor = false
+        b.ZIndex = zIdx
+        b.Parent = parent
+        local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = b
+        local ic = Instance.new("ImageLabel")
+        ic.Size = UDim2.fromOffset(13, 13)
+        ic.Position = UDim2.new(0.5, -6.5, 0.5, -6.5)
+        ic.BackgroundTransparency = 1
+        ic.Image = imgId
+        ic.ImageColor3 = baseCol or Theme.TextDim
+        ic.ZIndex = zIdx + 1
+        ic.Parent = b
+        b.MouseEnter:Connect(function()
+            TweenService:Create(b, TweenInfo.new(0.14), { BackgroundTransparency = 0 }):Play()
+            TweenService:Create(ic, TweenInfo.new(0.14), { ImageColor3 = baseCol or Theme.Text }):Play()
+        end)
+        b.MouseLeave:Connect(function()
+            TweenService:Create(b, TweenInfo.new(0.14), { BackgroundTransparency = 0.25 }):Play()
+            TweenService:Create(ic, TweenInfo.new(0.14), { ImageColor3 = baseCol or Theme.TextDim }):Play()
+        end)
+        return b, ic
+    end
+
+    local CfgHead = Instance.new("Frame")
+    CfgHead.Size = UDim2.new(1, 0, 0, 28)
+    CfgHead.BackgroundTransparency = 1
+    CfgHead.LayoutOrder = 1
+    CfgHead.ZIndex = 131
+    CfgHead.Parent = CfgFlyCard
+    local CfgCloudIc = Instance.new("ImageLabel")
+    CfgCloudIc.Size = UDim2.fromOffset(15, 15)
+    CfgCloudIc.Position = UDim2.new(0, 2, 0.5, -7.5)
+    CfgCloudIc.BackgroundTransparency = 1
+    CfgCloudIc.Image = "rbxassetid://10709806740"
+    CfgCloudIc.ImageColor3 = Theme.Accent
+    CfgCloudIc.ZIndex = 132
+    CfgCloudIc.Parent = CfgHead
+    Theme.RegisterAccent(CfgCloudIc, "ImageColor3")
+    local CfgHeadTitle = Instance.new("TextLabel")
+    CfgHeadTitle.Size = UDim2.new(1, -106, 1, 0)
+    CfgHeadTitle.Position = UDim2.new(0, 22, 0, 0)
+    CfgHeadTitle.BackgroundTransparency = 1
+    CfgHeadTitle.Font = Enum.Font.GothamBold
+    CfgHeadTitle.TextSize = 12.5
+    CfgHeadTitle.TextColor3 = Theme.Text
+    CfgHeadTitle.TextXAlignment = Enum.TextXAlignment.Left
+    CfgHeadTitle.Text = "Configs"
+    CfgHeadTitle.ZIndex = 132
+    CfgHeadTitle.Parent = CfgHead
+    local CfgImportToggleBtn, CfgImportToggleIc = makeMiniIconBtn(CfgHead, "rbxassetid://10723344270", -78, 132)
+    local CfgShareCurBtn, CfgShareCurIc = makeMiniIconBtn(CfgHead, "rbxassetid://10747366434", -51, 132)
+    local CfgNewToggleBtn, CfgNewToggleIc = makeMiniIconBtn(CfgHead, "rbxassetid://10734924532", -24, 132)
+
+    local CfgToast = Instance.new("TextLabel")
+    CfgToast.Size = UDim2.new(1, 0, 0, 14)
+    CfgToast.BackgroundTransparency = 1
+    CfgToast.Font = Enum.Font.GothamMedium
+    CfgToast.TextSize = 10.5
+    CfgToast.TextColor3 = Color3.fromRGB(95, 235, 145)
+    CfgToast.TextXAlignment = Enum.TextXAlignment.Left
+    CfgToast.Text = ""
+    CfgToast.Visible = false
+    CfgToast.LayoutOrder = 2
+    CfgToast.ZIndex = 132
+    CfgToast.Parent = CfgFlyCard
+    local cfgToastTok = 0
+    local function showCfgToast(msg, isErr)
+        cfgToastTok = cfgToastTok + 1
+        local tok = cfgToastTok
+        CfgToast.Text = tostring(msg or "")
+        CfgToast.TextColor3 = isErr and Color3.fromRGB(255, 105, 105) or Color3.fromRGB(95, 235, 145)
+        CfgToast.Visible = (msg and msg ~= "")
+        task.delay(2.2, function()
+            if tok == cfgToastTok and CfgToast and CfgToast.Parent then
+                CfgToast.Visible = false
+            end
+        end)
+    end
+
+    -- Inline Import Drawer
+    local CfgImportDrawer = Instance.new("Frame")
+    CfgImportDrawer.Size = UDim2.new(1, 0, 0, 68)
+    CfgImportDrawer.BackgroundColor3 = Theme.Input
+    CfgImportDrawer.BorderSizePixel = 0
+    CfgImportDrawer.Visible = false
+    CfgImportDrawer.LayoutOrder = 3
+    CfgImportDrawer.ZIndex = 131
+    CfgImportDrawer.Parent = CfgFlyCard
+    local cidCor = Instance.new("UICorner"); cidCor.CornerRadius = UDim.new(0, 7); cidCor.Parent = CfgImportDrawer
+    local cidStr = Instance.new("UIStroke"); cidStr.Color = Theme.CardStroke; cidStr.Thickness = 1; cidStr.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; cidStr.Parent = CfgImportDrawer
+    local hasGetClip = (type(getclipboard) == "function")
+    local CfgImportBox = Instance.new("TextBox")
+    CfgImportBox.Size = UDim2.new(1, hasGetClip and -34 or -12, 0, 26)
+    CfgImportBox.Position = UDim2.new(0, 6, 0, 5)
+    CfgImportBox.BackgroundColor3 = Theme.Card
+    CfgImportBox.BorderSizePixel = 0
+    CfgImportBox.Font = Enum.Font.Gotham
+    CfgImportBox.TextSize = 11
+    CfgImportBox.TextColor3 = Theme.Text
+    CfgImportBox.PlaceholderText = "Paste NX2:... code"
+    CfgImportBox.PlaceholderColor3 = Theme.TextMuted
+    CfgImportBox.Text = ""
+    CfgImportBox.TextXAlignment = Enum.TextXAlignment.Left
+    CfgImportBox.ClearTextOnFocus = false
+    CfgImportBox.ClipsDescendants = true
+    CfgImportBox.ZIndex = 132
+    CfgImportBox.Parent = CfgImportDrawer
+    local cibCor = Instance.new("UICorner"); cibCor.CornerRadius = UDim.new(0, 5); cibCor.Parent = CfgImportBox
+    local cibPad = Instance.new("UIPadding"); cibPad.PaddingLeft = UDim.new(0, 6); cibPad.PaddingRight = UDim.new(0, 6); cibPad.Parent = CfgImportBox
+    if hasGetClip then
+        local pasteBtn = Instance.new("TextButton")
+        pasteBtn.Text = ""
+        pasteBtn.Size = UDim2.fromOffset(24, 24)
+        pasteBtn.Position = UDim2.new(1, -28, 0, 6)
+        pasteBtn.BackgroundColor3 = Theme.Card
+        pasteBtn.BorderSizePixel = 0
+        pasteBtn.AutoButtonColor = false
+        pasteBtn.ZIndex = 132
+        pasteBtn.Parent = CfgImportDrawer
+        local pCor = Instance.new("UICorner"); pCor.CornerRadius = UDim.new(0, 5); pCor.Parent = pasteBtn
+        local pIc = Instance.new("ImageLabel")
+        pIc.Size = UDim2.fromOffset(13, 13); pIc.Position = UDim2.new(0.5, -6.5, 0.5, -6.5)
+        pIc.BackgroundTransparency = 1; pIc.Image = "rbxassetid://10709812159"; pIc.ImageColor3 = Theme.TextDim; pIc.ZIndex = 133; pIc.Parent = pasteBtn
+        pasteBtn.MouseButton1Click:Connect(function()
+            local okP, clip = pcall(getclipboard)
+            if okP and type(clip) == "string" then
+                CfgImportBox.Text = clip
+                flashIconCheck(pIc, "rbxassetid://10709812159", Theme.TextDim)
+            end
+        end)
+    end
+    local CfgImportName = Instance.new("TextBox")
+    CfgImportName.Size = UDim2.new(1, -76, 0, 26)
+    CfgImportName.Position = UDim2.new(0, 6, 0, 36)
+    CfgImportName.BackgroundColor3 = Theme.Card
+    CfgImportName.BorderSizePixel = 0
+    CfgImportName.Font = Enum.Font.Gotham
+    CfgImportName.TextSize = 11
+    CfgImportName.TextColor3 = Theme.Text
+    CfgImportName.PlaceholderText = "Config name (optional)"
+    CfgImportName.PlaceholderColor3 = Theme.TextMuted
+    CfgImportName.Text = ""
+    CfgImportName.TextXAlignment = Enum.TextXAlignment.Left
+    CfgImportName.ClearTextOnFocus = false
+    CfgImportName.ZIndex = 132
+    CfgImportName.Parent = CfgImportDrawer
+    local cinCor = Instance.new("UICorner"); cinCor.CornerRadius = UDim.new(0, 5); cinCor.Parent = CfgImportName
+    local cinPad = Instance.new("UIPadding"); cinPad.PaddingLeft = UDim.new(0, 6); cinPad.PaddingRight = UDim.new(0, 6); cinPad.Parent = CfgImportName
+    local CfgImportConfirm = Instance.new("TextButton")
+    CfgImportConfirm.Text = "Import"
+    CfgImportConfirm.Size = UDim2.new(0, 60, 0, 26)
+    CfgImportConfirm.Position = UDim2.new(1, -66, 0, 36)
+    CfgImportConfirm.BackgroundColor3 = Theme.Accent
+    CfgImportConfirm.BorderSizePixel = 0
+    CfgImportConfirm.Font = Enum.Font.GothamBold
+    CfgImportConfirm.TextSize = 11
+    CfgImportConfirm.TextColor3 = Color3.fromRGB(255, 255, 255)
+    CfgImportConfirm.AutoButtonColor = false
+    CfgImportConfirm.ZIndex = 132
+    CfgImportConfirm.Parent = CfgImportDrawer
+    local cicCor = Instance.new("UICorner"); cicCor.CornerRadius = UDim.new(0, 5); cicCor.Parent = CfgImportConfirm
+    Theme.RegisterAccent(CfgImportConfirm, "BackgroundColor3")
+
+    -- Inline Create Drawer
+    local CfgCreateDrawer = Instance.new("Frame")
+    CfgCreateDrawer.Size = UDim2.new(1, 0, 0, 36)
+    CfgCreateDrawer.BackgroundColor3 = Theme.Input
+    CfgCreateDrawer.BorderSizePixel = 0
+    CfgCreateDrawer.Visible = false
+    CfgCreateDrawer.LayoutOrder = 4
+    CfgCreateDrawer.ZIndex = 131
+    CfgCreateDrawer.Parent = CfgFlyCard
+    local ccdCor = Instance.new("UICorner"); ccdCor.CornerRadius = UDim.new(0, 7); ccdCor.Parent = CfgCreateDrawer
+    local ccdStr = Instance.new("UIStroke"); ccdStr.Color = Theme.CardStroke; ccdStr.Thickness = 1; ccdStr.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; ccdStr.Parent = CfgCreateDrawer
+    local CfgCreateName = Instance.new("TextBox")
+    CfgCreateName.Size = UDim2.new(1, -74, 0, 26)
+    CfgCreateName.Position = UDim2.new(0, 6, 0, 5)
+    CfgCreateName.BackgroundColor3 = Theme.Card
+    CfgCreateName.BorderSizePixel = 0
+    CfgCreateName.Font = Enum.Font.Gotham
+    CfgCreateName.TextSize = 11
+    CfgCreateName.TextColor3 = Theme.Text
+    CfgCreateName.PlaceholderText = "New config name..."
+    CfgCreateName.PlaceholderColor3 = Theme.TextMuted
+    CfgCreateName.Text = ""
+    CfgCreateName.TextXAlignment = Enum.TextXAlignment.Left
+    CfgCreateName.ClearTextOnFocus = false
+    CfgCreateName.ZIndex = 132
+    CfgCreateName.Parent = CfgCreateDrawer
+    local ccnCor = Instance.new("UICorner"); ccnCor.CornerRadius = UDim.new(0, 5); ccnCor.Parent = CfgCreateName
+    local ccnPad = Instance.new("UIPadding"); ccnPad.PaddingLeft = UDim.new(0, 6); ccnPad.PaddingRight = UDim.new(0, 6); ccnPad.Parent = CfgCreateName
+    local CfgCreateConfirm = Instance.new("TextButton")
+    CfgCreateConfirm.Text = "Create"
+    CfgCreateConfirm.Size = UDim2.new(0, 58, 0, 26)
+    CfgCreateConfirm.Position = UDim2.new(1, -64, 0, 5)
+    CfgCreateConfirm.BackgroundColor3 = Theme.Accent
+    CfgCreateConfirm.BorderSizePixel = 0
+    CfgCreateConfirm.Font = Enum.Font.GothamBold
+    CfgCreateConfirm.TextSize = 11
+    CfgCreateConfirm.TextColor3 = Color3.fromRGB(255, 255, 255)
+    CfgCreateConfirm.AutoButtonColor = false
+    CfgCreateConfirm.ZIndex = 132
+    CfgCreateConfirm.Parent = CfgCreateDrawer
+    local cccCor = Instance.new("UICorner"); cccCor.CornerRadius = UDim.new(0, 5); cccCor.Parent = CfgCreateConfirm
+    Theme.RegisterAccent(CfgCreateConfirm, "BackgroundColor3")
+
+    -- Search box inside Config Flyout
+    local CfgSearchWrap = Instance.new("Frame")
+    CfgSearchWrap.Size = UDim2.new(1, 0, 0, 28)
+    CfgSearchWrap.BackgroundColor3 = Theme.Input
+    CfgSearchWrap.BorderSizePixel = 0
+    CfgSearchWrap.LayoutOrder = 5
+    CfgSearchWrap.ZIndex = 131
+    CfgSearchWrap.Parent = CfgFlyCard
+    local cswCor = Instance.new("UICorner"); cswCor.CornerRadius = UDim.new(0, 6); cswCor.Parent = CfgSearchWrap
+    local cswStr = Instance.new("UIStroke"); cswStr.Color = Theme.CardStroke; cswStr.Thickness = 1; cswStr.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; cswStr.Parent = CfgSearchWrap
+    local cswIc = Instance.new("ImageLabel")
+    cswIc.Size = UDim2.fromOffset(13, 13); cswIc.Position = UDim2.new(0, 8, 0.5, -6.5)
+    cswIc.BackgroundTransparency = 1; cswIc.Image = "rbxassetid://10723366550"; cswIc.ImageColor3 = Theme.TextMuted; cswIc.ZIndex = 132; cswIc.Parent = CfgSearchWrap
+    local CfgSearchBox = Instance.new("TextBox")
+    CfgSearchBox.Size = UDim2.new(1, -30, 1, 0)
+    CfgSearchBox.Position = UDim2.new(0, 26, 0, 0)
+    CfgSearchBox.BackgroundTransparency = 1
+    CfgSearchBox.Font = Enum.Font.Gotham
+    CfgSearchBox.TextSize = 11.5
+    CfgSearchBox.TextColor3 = Theme.Text
+    CfgSearchBox.PlaceholderText = "Search configs..."
+    CfgSearchBox.PlaceholderColor3 = Theme.TextMuted
+    CfgSearchBox.Text = ""
+    CfgSearchBox.TextXAlignment = Enum.TextXAlignment.Left
+    CfgSearchBox.ClearTextOnFocus = false
+    CfgSearchBox.ZIndex = 132
+    CfgSearchBox.Parent = CfgSearchWrap
+
+    local CfgScroll = Instance.new("ScrollingFrame")
+    CfgScroll.Size = UDim2.new(1, 0, 0, 140)
+    CfgScroll.BackgroundTransparency = 1
+    CfgScroll.BorderSizePixel = 0
+    CfgScroll.ScrollBarThickness = 3
+    CfgScroll.ScrollBarImageColor3 = Theme.Accent
+    CfgScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    CfgScroll.LayoutOrder = 6
+    CfgScroll.ZIndex = 131
+    CfgScroll.Parent = CfgFlyCard
+    local CfgScrollPad = Instance.new("UIPadding")
+    CfgScrollPad.PaddingTop = UDim.new(0, 2)
+    CfgScrollPad.PaddingBottom = UDim.new(0, 2)
+    CfgScrollPad.PaddingLeft = UDim.new(0, 2)
+    CfgScrollPad.PaddingRight = UDim.new(0, 4)
+    CfgScrollPad.Parent = CfgScroll
+    local CfgListLayout = Instance.new("UIListLayout")
+    CfgListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    CfgListLayout.Padding = UDim.new(0, 4)
+    CfgListLayout.Parent = CfgScroll
+
+    -- Footer: Auto Save toggle + Autoload scope toggle
+    local CfgFooter = Instance.new("Frame")
+    CfgFooter.Name = "Footer"
+    CfgFooter.Size = UDim2.new(1, 0, 0, 28)
+    CfgFooter.BackgroundTransparency = 1
+    CfgFooter.LayoutOrder = 7
+    CfgFooter.ZIndex = 131
+    CfgFooter.Parent = CfgFlyCard
+    local CfgFootDiv = Instance.new("Frame")
+    CfgFootDiv.Size = UDim2.new(1, 0, 0, 1)
+    CfgFootDiv.BackgroundColor3 = Theme.CardStroke
+    CfgFootDiv.BackgroundTransparency = 0.45
+    CfgFootDiv.BorderSizePixel = 0
+    CfgFootDiv.ZIndex = 132
+    CfgFootDiv.Parent = CfgFooter
+
+    local CfgAutoSaveBtn = Instance.new("TextButton")
+    CfgAutoSaveBtn.Name = "AutoSaveToggle"
+    CfgAutoSaveBtn.Text = ""
+    CfgAutoSaveBtn.Size = UDim2.new(0.54, -3, 0, 22)
+    CfgAutoSaveBtn.Position = UDim2.new(0, 0, 0, 6)
+    CfgAutoSaveBtn.BackgroundColor3 = Theme.Input
+    CfgAutoSaveBtn.BackgroundTransparency = 0.35
+    CfgAutoSaveBtn.BorderSizePixel = 0
+    CfgAutoSaveBtn.AutoButtonColor = false
+    CfgAutoSaveBtn.ZIndex = 132
+    CfgAutoSaveBtn.Parent = CfgFooter
+    local casCor = Instance.new("UICorner"); casCor.CornerRadius = UDim.new(0, 5); casCor.Parent = CfgAutoSaveBtn
+    local CfgAutoSaveBox = Instance.new("Frame")
+    CfgAutoSaveBox.Size = UDim2.fromOffset(13, 13)
+    CfgAutoSaveBox.Position = UDim2.new(0, 6, 0.5, -6.5)
+    CfgAutoSaveBox.BackgroundColor3 = Theme.Accent
+    CfgAutoSaveBox.BorderSizePixel = 0
+    CfgAutoSaveBox.ZIndex = 133
+    CfgAutoSaveBox.Parent = CfgAutoSaveBtn
+    local casbCor = Instance.new("UICorner"); casbCor.CornerRadius = UDim.new(0, 3); casbCor.Parent = CfgAutoSaveBox
+    local casbStr = Instance.new("UIStroke"); casbStr.Color = Theme.CardStroke; casbStr.Thickness = 1; casbStr.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; casbStr.Parent = CfgAutoSaveBox
+    local CfgAutoSaveTick = Instance.new("ImageLabel")
+    CfgAutoSaveTick.Size = UDim2.fromOffset(9, 9)
+    CfgAutoSaveTick.Position = UDim2.new(0.5, -4.5, 0.5, -4.5)
+    CfgAutoSaveTick.BackgroundTransparency = 1
+    CfgAutoSaveTick.Image = "rbxassetid://10709790644"
+    CfgAutoSaveTick.ImageColor3 = Color3.fromRGB(255, 255, 255)
+    CfgAutoSaveTick.ZIndex = 134
+    CfgAutoSaveTick.Parent = CfgAutoSaveBox
+    local CfgAutoSaveLbl = Instance.new("TextLabel")
+    CfgAutoSaveLbl.Size = UDim2.new(1, -24, 1, 0)
+    CfgAutoSaveLbl.Position = UDim2.new(0, 24, 0, 0)
+    CfgAutoSaveLbl.BackgroundTransparency = 1
+    CfgAutoSaveLbl.Font = Enum.Font.GothamMedium
+    CfgAutoSaveLbl.TextSize = 10.5
+    CfgAutoSaveLbl.TextColor3 = Theme.Text
+    CfgAutoSaveLbl.TextXAlignment = Enum.TextXAlignment.Left
+    CfgAutoSaveLbl.Text = "Auto Save"
+    CfgAutoSaveLbl.ZIndex = 133
+    CfgAutoSaveLbl.Parent = CfgAutoSaveBtn
+
+    local CfgModeBtn = Instance.new("TextButton")
+    CfgModeBtn.Name = "AutoloadModeToggle"
+    CfgModeBtn.Size = UDim2.new(0.46, -3, 0, 22)
+    CfgModeBtn.Position = UDim2.new(0.54, 3, 0, 6)
+    CfgModeBtn.BackgroundColor3 = Theme.Input
+    CfgModeBtn.BackgroundTransparency = 0.2
+    CfgModeBtn.BorderSizePixel = 0
+    CfgModeBtn.Font = Enum.Font.GothamMedium
+    CfgModeBtn.TextSize = 10.5
+    CfgModeBtn.TextColor3 = Theme.TextDim
+    CfgModeBtn.Text = "All Acc"
+    CfgModeBtn.AutoButtonColor = false
+    CfgModeBtn.ZIndex = 132
+    CfgModeBtn.Parent = CfgFooter
+    local cmCor = Instance.new("UICorner"); cmCor.CornerRadius = UDim.new(0, 5); cmCor.Parent = CfgModeBtn
+    local cmStr = Instance.new("UIStroke"); cmStr.Color = Theme.CardStroke; cmStr.Thickness = 1; cmStr.Transparency = 0.45; cmStr.ApplyStrokeMode = Enum.ApplyStrokeMode.Border; cmStr.Parent = CfgModeBtn
+
+    local function syncCfgFooter()
+        local isAuto = (Config.ConfigAutoSaveEnabled ~= false)
+        CfgAutoSaveBox.BackgroundColor3 = isAuto and Theme.Accent or Theme.Input
+        CfgAutoSaveTick.Visible = isAuto
+        CfgAutoSaveLbl.TextColor3 = isAuto and Theme.Text or Theme.TextDim
+        CfgModeBtn.Text = (Config.AutoloadMode == "Current account only") and "This Acc" or "All Acc"
+    end
+    local function writeAutoloadFile(val)
+        local accPath, globalPath = ConfigSys.GetAutoloadPaths()
+        pcall(function()
+            if makefolder and isfolder and not isfolder(ConfigSys.Folder) then makefolder(ConfigSys.Folder) end
+            if writefile then
+                if Config.AutoloadMode == "Current account only" then
+                    writefile(accPath, val)
+                    if delfile and isfile and isfile(globalPath) then delfile(globalPath) end
+                else
+                    writefile(globalPath, val)
+                    if delfile and isfile and isfile(accPath) then delfile(accPath) end
+                end
+            end
+        end)
+    end
+    syncCfgFooter()
+
+    local cfgFlyoutOpen = false
+    local cfgAnimTok = 0
+    local cfgRowCount = 0
+    local cfgTargetH = 294
+    local function getFlyoutTargetPos()
+        local okP, absPos, absSz = pcall(function() return ConfigPill.AbsolutePosition, ConfigPill.AbsoluteSize end)
+        if not okP or not absPos then return nil, nil end
+        local bounds = Theme._getGuiBounds()
+        local fw = math.min(290, math.max(220, bounds.X - 16))
+        local tx = math.clamp(absPos.X - 2, 8, math.max(8, bounds.X - fw - 8))
+        local ty = math.clamp(absPos.Y + absSz.Y + 4, 8, math.max(8, bounds.Y - cfgTargetH - 8))
+        return tx, ty, fw
+    end
+    local function resizeCfgFlyout(animate)
+        local rawH = math.max(CfgListLayout.AbsoluteContentSize.Y, cfgRowCount > 0 and (cfgRowCount * 36 - 4) or 0)
+        local listH = math.clamp(rawH + 6, 38, 182)
+        CfgScroll.Size = UDim2.new(1, 0, 0, listH)
+        CfgScroll.CanvasSize = UDim2.new(0, 0, 0, rawH + 6)
+        local cardH = 16 + 28 + 6 + 28 + 6 + listH + 6 + 28
+        if CfgToast.Visible then cardH = cardH + 20 end
+        if CfgImportDrawer.Visible then cardH = cardH + 74 end
+        if CfgCreateDrawer.Visible then cardH = cardH + 42 end
+        cfgTargetH = cardH + 4
+        local bounds = Theme._getGuiBounds()
+        local fw = math.min(290, math.max(220, bounds.X - 16))
+        local targetSz = UDim2.fromOffset(fw, cfgTargetH)
+        if animate and CfgFlyout.Visible then
+            TweenService:Create(CfgFlyout, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = targetSz }):Play()
+        else
+            CfgFlyout.Size = targetSz
+        end
+    end
+    local function positionCfgFlyout(animate)
+        local tx, ty = getFlyoutTargetPos()
+        if not tx then return end
+        local targetPos = UDim2.fromOffset(tx, ty)
+        if animate and CfgFlyout.Visible then
+            TweenService:Create(CfgFlyout, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Position = targetPos }):Play()
+        else
+            CfgFlyout.Position = targetPos
+        end
+    end
+
+    local function rebuildCfgFlyoutList(animate)
+        for _, ch in ipairs(CfgScroll:GetChildren()) do
+            if ch:IsA("Frame") or ch:IsA("TextButton") then ch:Destroy() end
+        end
+        local q = CfgSearchBox.Text:lower():gsub("^%s+", ""):gsub("%s+$", "")
+        local active = ConfigSys.CurrentProfile or "Default"
+        local autoProf = ConfigSys.AutoloadProfile
+        local names = ConfigSys.GetProfileList()
+        local order = 0
+        for _, name in ipairs(names) do
+            if q == "" or name:lower():find(q, 1, true) then
+                order = order + 1
+                local isActive = (name == active)
+                local isAuto = (autoProf == name)
+                local hasDel = (name ~= "Default")
+                local row = Instance.new("Frame")
+                row.Size = UDim2.new(1, -2, 0, 32)
+                row.BackgroundColor3 = isActive and Color3.fromRGB(34, 36, 50) or Theme.Input
+                row.BorderSizePixel = 0
+                row.LayoutOrder = isAuto and 0 or order
+                row.ZIndex = 132
+                row.Parent = CfgScroll
+                local rCor = Instance.new("UICorner"); rCor.CornerRadius = UDim.new(0, 7); rCor.Parent = row
+                local rStr = Instance.new("UIStroke")
+                rStr.Color = isActive and Theme.Accent or Theme.CardStroke
+                rStr.Thickness = isActive and 1.2 or 1
+                rStr.Transparency = isActive and 0.2 or 0.55
+                rStr.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+                rStr.Parent = row
+
+                local loadHit = Instance.new("TextButton")
+                loadHit.Text = ""
+                loadHit.Size = UDim2.new(1, hasDel and -106 or -80, 1, 0)
+                loadHit.BackgroundTransparency = 1
+                loadHit.AutoButtonColor = false
+                loadHit.ZIndex = 133
+                loadHit.Parent = row
+                local rLbl = Instance.new("TextLabel")
+                rLbl.Size = UDim2.new(1, -12, 1, 0)
+                rLbl.Position = UDim2.new(0, 10, 0, 0)
+                rLbl.BackgroundTransparency = 1
+                rLbl.Font = isActive and Enum.Font.GothamBold or Enum.Font.GothamMedium
+                rLbl.TextSize = 11.5
+                rLbl.TextColor3 = isActive and Theme.Text or Theme.TextDim
+                rLbl.TextXAlignment = Enum.TextXAlignment.Left
+                rLbl.TextTruncate = Enum.TextTruncate.AtEnd
+                rLbl.Text = name
+                rLbl.ZIndex = 134
+                rLbl.Parent = loadHit
+                loadHit.MouseButton1Click:Connect(function()
+                    if ConfigSys.FlushAutoSave then ConfigSys.FlushAutoSave() end
+                    ConfigSys.LoadProfile(name, false)
+                    if ConfigSys.OnProfilesChanged then pcall(ConfigSys.OnProfilesChanged) end
+                    if Theme.RefreshTopConfigUI then Theme.RefreshTopConfigUI() end
+                    showCfgToast("Loaded: " .. name, false)
+                end)
+
+                local starB, _ = makeMiniIconBtn(row, "rbxassetid://10734966248", hasDel and -104 or -78, 133, isAuto and Color3.fromRGB(250, 200, 75) or nil)
+                if isAuto then starB.BackgroundColor3 = Color3.fromRGB(58, 48, 22) end
+                starB.MouseButton1Click:Connect(function()
+                    if ConfigSys.AutoloadProfile == name then
+                        ConfigSys.AutoloadProfile = "none"
+                        writeAutoloadFile("none")
+                        showCfgToast("Unfollowed: " .. name, false)
+                    else
+                        ConfigSys.AutoloadProfile = name
+                        writeAutoloadFile(name)
+                        if ConfigSys.CurrentProfile ~= name then
+                            if ConfigSys.FlushAutoSave then ConfigSys.FlushAutoSave() end
+                            ConfigSys.LoadProfile(name, false)
+                        end
+                        showCfgToast("Followed & Auto-load: " .. name, false)
+                    end
+                    if ConfigSys.OnProfilesChanged then pcall(ConfigSys.OnProfilesChanged) end
+                    if Theme.RefreshTopConfigUI then Theme.RefreshTopConfigUI() end
+                end)
+                local shareB, shareIc = makeMiniIconBtn(row, "rbxassetid://10709812159", hasDel and -78 or -52, 133)
+                shareB.MouseButton1Click:Connect(function()
+                    local code, err = ConfigSys.ExportShareCode(name)
+                    if code then
+                        local clipFn = setclipboard or toclipboard or set_clipboard
+                        if clipFn then pcall(clipFn, code) end
+                        flashIconCheck(shareIc, "rbxassetid://10709812159", Theme.TextDim)
+                        showCfgToast(clipFn and ("Copied code (" .. tostring(#code) .. " chars)") or "Clipboard unsupported", not clipFn)
+                    else
+                        showCfgToast(err or "Export failed", true)
+                    end
+                end)
+                local saveB, saveIc = makeMiniIconBtn(row, "rbxassetid://10734941499", hasDel and -52 or -26, 133)
+                saveB.MouseButton1Click:Connect(function()
+                    ConfigSys.CurrentProfile = name
+                    ConfigSys.SaveProfile(name)
+                    flashIconCheck(saveIc, "rbxassetid://10734941499", Theme.TextDim)
+                    if ConfigSys.OnProfilesChanged then pcall(ConfigSys.OnProfilesChanged) end
+                    if Theme.RefreshTopConfigUI then Theme.RefreshTopConfigUI() end
+                    showCfgToast("Saved: " .. name, false)
+                end)
+                if hasDel then
+                    local delB, _ = makeMiniIconBtn(row, "rbxassetid://10747362393", -26, 133)
+                    delB.MouseButton1Click:Connect(function()
+                        pcall(function()
+                            local pth = ConfigSys.Folder .. "/" .. name .. ".json"
+                            if delfile and isfile and isfile(pth) then delfile(pth) end
+                        end)
+                        if ConfigSys.AutoloadProfile == name then
+                            ConfigSys.AutoloadProfile = "none"
+                            local accP, globP = ConfigSys.GetAutoloadPaths()
+                            pcall(function()
+                                if delfile and isfile and isfile(accP) then delfile(accP) end
+                                if delfile and isfile and isfile(globP) then delfile(globP) end
+                            end)
+                        end
+                        if ConfigSys.CurrentProfile == name then
+                            ConfigSys.CurrentProfile = "Default"
+                        end
+                        if ConfigSys.OnProfilesChanged then pcall(ConfigSys.OnProfilesChanged) end
+                        if Theme.RefreshTopConfigUI then Theme.RefreshTopConfigUI() end
+                        showCfgToast("Deleted: " .. name, false)
+                    end)
+                end
+            end
+        end
+        cfgRowCount = order
+        syncCfgFooter()
+        resizeCfgFlyout(animate)
+        if cfgFlyoutOpen then positionCfgFlyout(animate) end
+    end
+
+    CfgAutoSaveBtn.MouseButton1Click:Connect(function()
+        local newVal = not (Config.ConfigAutoSaveEnabled ~= false)
+        Config.ConfigAutoSaveEnabled = newVal
+        ConfigSys.SaveProfile(ConfigSys.CurrentProfile or "Default")
+        syncCfgFooter()
+        showCfgToast("Auto Save: " .. (newVal and "ON" or "OFF"), false)
+    end)
+    CfgModeBtn.MouseButton1Click:Connect(function()
+        local newMode = (Config.AutoloadMode == "Current account only") and "All accounts" or "Current account only"
+        Config.AutoloadMode = newMode
+        if ConfigSys.AutoloadProfile and ConfigSys.AutoloadProfile ~= "none" then
+            writeAutoloadFile(ConfigSys.AutoloadProfile)
+        end
+        syncCfgFooter()
+        showCfgToast("Autoload: " .. newMode, false)
+    end)
+
+    Theme.CloseConfigFlyout = function()
+        if not cfgFlyoutOpen then return end
+        cfgFlyoutOpen = false
+        cfgAnimTok = cfgAnimTok + 1
+        local tok = cfgAnimTok
+        TweenService:Create(CfgChevIcon, TweenInfo.new(0.16), { Rotation = 0 }):Play()
+        TweenService:Create(CfgPillStroke, TweenInfo.new(0.16), { Color = Theme.CardStroke }):Play()
+        local tOut = TweenService:Create(CfgFlyout, TweenInfo.new(0.13, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            GroupTransparency = 1,
+            Position = UDim2.fromOffset(CfgFlyout.Position.X.Offset, CfgFlyout.Position.Y.Offset - 6),
+        })
+        TweenService:Create(CfgFlyScale, TweenInfo.new(0.13, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Scale = 0.95 }):Play()
+        tOut.Completed:Connect(function()
+            if tok == cfgAnimTok and not cfgFlyoutOpen then
+                CfgFlyout.Visible = false
+                CfgImportDrawer.Visible = false
+                CfgCreateDrawer.Visible = false
+            end
+        end)
+        tOut:Play()
+    end
+    Theme.RefreshTopConfigUI = function()
+        CfgPillLabel.Text = ConfigSys.CurrentProfile or "Default"
+        syncCfgFooter()
+        if cfgFlyoutOpen then
+            rebuildCfgFlyoutList(true)
+        end
+    end
+
+    QuickSaveBtn.MouseEnter:Connect(function()
+        TweenService:Create(QuickSaveIcon, TweenInfo.new(0.14), { ImageColor3 = Theme.Text }):Play()
+    end)
+    QuickSaveBtn.MouseLeave:Connect(function()
+        TweenService:Create(QuickSaveIcon, TweenInfo.new(0.14), { ImageColor3 = Theme.TextDim }):Play()
+    end)
+    QuickSaveBtn.MouseButton1Click:Connect(function()
+        local prof = ConfigSys.CurrentProfile or "Default"
+        ConfigSys.SaveProfile(prof)
+        flashIconCheck(QuickSaveIcon, "rbxassetid://10734941499", Theme.TextDim)
+        if ConfigSys.OnProfilesChanged then pcall(ConfigSys.OnProfilesChanged) end
+    end)
+
+    CfgDropTrigger.MouseButton1Click:Connect(function()
+        if cfgFlyoutOpen then
+            Theme.CloseConfigFlyout()
+        else
+            if Theme._closeAllFlyouts then pcall(Theme._closeAllFlyouts) end
+            cfgAnimTok = cfgAnimTok + 1
+            cfgFlyoutOpen = true
+            CfgImportDrawer.Visible = false
+            CfgCreateDrawer.Visible = false
+            rebuildCfgFlyoutList(false)
+            local tx, ty = getFlyoutTargetPos()
+            if tx then
+                CfgFlyout.Position = UDim2.fromOffset(tx, ty - 8)
+            end
+            CfgFlyout.GroupTransparency = 1
+            CfgFlyScale.Scale = 0.94
+            CfgFlyout.Visible = true
+            local openInfo = TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+            TweenService:Create(CfgFlyout, openInfo, {
+                GroupTransparency = 0,
+                Position = tx and UDim2.fromOffset(tx, ty) or CfgFlyout.Position,
+            }):Play()
+            TweenService:Create(CfgFlyScale, openInfo, { Scale = 1 }):Play()
+            TweenService:Create(CfgChevIcon, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Rotation = 180 }):Play()
+            TweenService:Create(CfgPillStroke, TweenInfo.new(0.16), { Color = Theme.Accent }):Play()
+        end
+    end)
+
+    CfgImportToggleBtn.MouseButton1Click:Connect(function()
+        CfgCreateDrawer.Visible = false
+        CfgImportDrawer.Visible = not CfgImportDrawer.Visible
+        resizeCfgFlyout(true)
+        positionCfgFlyout(true)
+    end)
+    CfgNewToggleBtn.MouseButton1Click:Connect(function()
+        CfgImportDrawer.Visible = false
+        CfgCreateDrawer.Visible = not CfgCreateDrawer.Visible
+        resizeCfgFlyout(true)
+        positionCfgFlyout(true)
+    end)
+    CfgShareCurBtn.MouseButton1Click:Connect(function()
+        local prof = ConfigSys.CurrentProfile or "Default"
+        local code, err = ConfigSys.ExportShareCode(prof)
+        if code then
+            local clipFn = setclipboard or toclipboard or set_clipboard
+            if clipFn then pcall(clipFn, code) end
+            flashIconCheck(CfgShareCurIc, "rbxassetid://10747366434", Theme.TextDim)
+            showCfgToast(clipFn and ("Copied " .. prof .. " (" .. tostring(#code) .. " chars)") or "Clipboard unsupported", not clipFn)
+        else
+            showCfgToast(err or "Export failed", true)
+        end
+    end)
+    CfgImportConfirm.MouseButton1Click:Connect(function()
+        local okI, res = ConfigSys.ImportShareCode(CfgImportBox.Text, CfgImportName.Text)
+        if okI then
+            CfgImportBox.Text = ""
+            CfgImportName.Text = ""
+            CfgImportDrawer.Visible = false
+            rebuildCfgFlyoutList(true)
+            showCfgToast("Imported: " .. tostring(res), false)
+        else
+            showCfgToast(tostring(res or "Invalid code"), true)
+        end
+    end)
+    CfgCreateConfirm.MouseButton1Click:Connect(function()
+        local nm = CfgCreateName.Text:gsub("[^%w%-%_%s]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+        if nm == "" then nm = "Profile_" .. tostring(#ConfigSys.GetProfileList()) end
+        ConfigSys.CurrentProfile = nm
+        ConfigSys.SaveProfile(nm)
+        CfgCreateName.Text = ""
+        CfgCreateDrawer.Visible = false
+        if ConfigSys.OnProfilesChanged then pcall(ConfigSys.OnProfilesChanged) end
+        Theme.RefreshTopConfigUI()
+        showCfgToast("Created: " .. nm, false)
+    end)
+    CfgSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        if cfgFlyoutOpen then rebuildCfgFlyoutList(true) end
+    end)
+    CfgToast:GetPropertyChangedSignal("Visible"):Connect(function()
+        if cfgFlyoutOpen then resizeCfgFlyout(true); positionCfgFlyout(true) end
+    end)
+    ConnectUI(UserInputService.InputBegan, function(input)
+        if not cfgFlyoutOpen then return end
+        local ftb = UserInputService:GetFocusedTextBox()
+        if ftb and ftb:IsDescendantOf(CfgFlyout) then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            local p = input.Position
+            local function inBox(gui)
+                if not gui or not gui.Visible then return false end
+                local ap, as = gui.AbsolutePosition, gui.AbsoluteSize
+                return p.X >= ap.X and p.X <= ap.X + as.X and p.Y >= ap.Y and p.Y <= ap.Y + as.Y
+            end
+            if not inBox(CfgFlyout) and not inBox(ConfigPill) then
+                Theme.CloseConfigFlyout()
+            end
+        end
+    end)
+    end
+
     do
     local LangBtn = Instance.new("TextButton")
     LangBtn.Name = "Nexara_LangBtn"
@@ -1301,6 +2559,7 @@ local function CreateNexaraCustomUI(ctx)
         ["Skeleton"] = "เส้นกระดูก",
         ["Chams"] = "ออร่า",
         ["Cooldowns"] = "คูลดาวน์",
+        ["Item Icon"] = "ไอคอนไอเทมใต้เท้า",
         ["Skills & Alerts"] = "สกิลและแจ้งเตือน",
         ["Effects"] = "เอฟเฟกต์",
         ["Generators"] = "เครื่องปั่นไฟ",
@@ -1480,6 +2739,7 @@ local function CreateNexaraCustomUI(ctx)
         ["Parry Radius"] = "ระยะแพรี่",
         ["Radius Circle"] = "วงระยะแพรี่",
         ["Legit Mode"] = "โหมดเนียน (ยกบล็อกสมจริง)",
+        ["Anti-Fake"] = "กันหลอกสบัดหนี (Anti-Fake)",
         ["Frenzy Slash"] = "แพรี่ Frenzy Slash",
         ["Shadow Leap"] = "แพรี่ Shadow Leap",
         ["Dark Severance"] = "แพรี่ Dark Severance",
@@ -1487,6 +2747,7 @@ local function CreateNexaraCustomUI(ctx)
         ["Menu Keybind"] = "ปุ่มเปิด/ปิดเมนู",
         ["Anti-AFK"] = "กันเด้ง AFK",
         ["Minimize UI on Start"] = "ย่อเมนูตอนเริ่ม",
+        ["Lock GUI"] = "ล็อคเมนู (กันลากหลุด)",
         ["UI Font"] = "ฟอนต์เมนู",
         ["Unload"] = "ปิดสคริปต์",
         ["Show Keybinds List"] = "โชว์รายการคีย์ลัด",
@@ -1652,6 +2913,7 @@ local function CreateNexaraCustomUI(ctx)
     UIState.LayoutTargets.Sidebar = Sidebar
     UIState.LayoutTargets.TopBar = TopBar
     UIState.LayoutTargets.SearchFrame = SearchFrame
+    UIState.LayoutTargets.ConfigPill = ConfigPill
     UIState.LayoutTargets.Breadcrumb = BreadcrumbLabel
     UIState.LayoutTargets.Content = ContentContainer
     UpdateResponsiveScale()
@@ -2671,6 +3933,7 @@ local function CreateNexaraCustomUI(ctx)
         if CloseAllKeybindFlyouts then CloseAllKeybindFlyouts() end
         if CloseAllDropdownFlyouts then CloseAllDropdownFlyouts() end
         if not keepPopups and Theme.CloseAllDropdownPopups then Theme.CloseAllDropdownPopups() end
+        if Theme.CloseConfigFlyout then pcall(Theme.CloseConfigFlyout) end
     end
 
     local function IsPosInsideGui(pos, gui)
@@ -3122,6 +4385,27 @@ local function CreateNexaraCustomUI(ctx)
         local dragInput = nil
         local dragStart = nil
         local startX, startY = 0, 0
+        local lastTapClock = 0
+
+        local function finishQuickInput(wasCancel)
+            if not dragging then return end
+            local moved = dragMoved
+            dragging = false
+            dragInput = nil
+            if moved then
+                local pos = Btn.AbsolutePosition
+                Config[xKey] = math.floor(pos.X + 0.5)
+                Config[yKey] = math.floor(pos.Y + 0.5)
+                ConfigSys.ScheduleAutoSave()
+            elseif not wasCancel then
+                local now = os.clock()
+                if (now - lastTapClock) >= 0.2 then
+                    lastTapClock = now
+                    setStateFn(not (getStateFn() == true))
+                    syncState()
+                end
+            end
+        end
 
         Btn.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -3131,14 +4415,28 @@ local function CreateNexaraCustomUI(ctx)
                 dragStart = input.Position
                 local abs = Btn.AbsolutePosition
                 startX, startY = abs.X, abs.Y
+                input.Changed:Connect(function()
+                    if input ~= dragInput then return end
+                    if input.UserInputState == Enum.UserInputState.End then
+                        finishQuickInput(false)
+                    elseif input.UserInputState == Enum.UserInputState.Cancel then
+                        finishQuickInput(true)
+                    end
+                end)
             end
         end)
 
         ConnectUI(UserInputService.InputChanged, function(input)
-            if not dragging then return end
-            if input ~= dragInput and input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+            if not dragging or Config.LockGUI then return end
+            local isTouch = (input.UserInputType == Enum.UserInputType.Touch)
+            if isTouch then
+                if input ~= dragInput then return end
+            elseif input.UserInputType ~= Enum.UserInputType.MouseMovement then
+                return
+            end
             local delta = input.Position - dragStart
-            if not dragMoved and delta.Magnitude >= 6 then
+            local thresh = isTouch and 14 or 6
+            if not dragMoved and delta.Magnitude >= thresh then
                 dragMoved = true
             end
             if dragMoved then
@@ -3152,18 +4450,12 @@ local function CreateNexaraCustomUI(ctx)
 
         ConnectUI(UserInputService.InputEnded, function(input)
             if not dragging then return end
-            if input ~= dragInput and input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then return end
-            dragging = false
-            dragInput = nil
-            if dragMoved then
-                local pos = Btn.AbsolutePosition
-                Config[xKey] = math.floor(pos.X + 0.5)
-                Config[yKey] = math.floor(pos.Y + 0.5)
-                ConfigSys.ScheduleAutoSave()
-            else
-                setStateFn(not (getStateFn() == true))
-                syncState()
+            if input.UserInputType == Enum.UserInputType.Touch then
+                if dragInput and dragInput.UserInputType == Enum.UserInputType.Touch and input ~= dragInput then return end
+            elseif input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+                return
             end
+            finishQuickInput(input.UserInputState == Enum.UserInputState.Cancel)
         end)
 
         local entry = {
@@ -5769,7 +7061,7 @@ local function CreateNexaraCustomUI(ctx)
             }
         end
 
-        function ModuleObj:AddDropdown(label, options, defaultVal, onSelect)
+        function ModuleObj:AddDropdown(label, options, defaultVal, onSelect, noAutoSave)
             rowOrder = rowOrder + 1
             options = options or { "Default" }
             local curSelected = defaultVal or options[1] or "Default"
@@ -6026,7 +7318,7 @@ local function CreateNexaraCustomUI(ctx)
                         ClosePopup()
                         RebuildItems()
                         if onSelect then pcall(onSelect, opt) end
-                        ConfigSys.ScheduleAutoSave()
+                        if not noAutoSave then ConfigSys.ScheduleAutoSave() end
                     end)
                 end
                 if onRebuildCb then pcall(onRebuildCb) end
@@ -6043,7 +7335,7 @@ local function CreateNexaraCustomUI(ctx)
                     RebuildItems()
                     if not silent then
                         if onSelect then pcall(onSelect, val) end
-                        ConfigSys.ScheduleAutoSave()
+                        if not noAutoSave then ConfigSys.ScheduleAutoSave() end
                     end
                 end,
                 Refresh = function(newOpts, newSel)
@@ -6241,6 +7533,10 @@ local function CreateNexaraCustomUI(ctx)
         Config.ESP_SurvivorSkills = v
         Config.ESP_SurvivorCooldown = v
     end)
+    W.sItemIcon = SurvCooldown:AddCheckbox("Item Icon", Config.ESP_SurvivorItemIcon == true, nil, function(v)
+        Config.ESP_SurvivorItemIcon = (v == true)
+    end)
+    ConfigSys.KeyedWidgets.ESP_SurvivorItemIcon = W.sItemIcon
 
     local KillerESP = WindowObj:CreateModule("Player ESP_Killer", "Left", "Killer ESP", "")
     W.kEn = KillerESP:AddCheckbox("Enabled", Config.ESP_KillerEnabled, nil, function(v) Config.ESP_KillerEnabled = v end)
@@ -6308,6 +7604,7 @@ local function CreateNexaraCustomUI(ctx)
         W.sSkelDist.Set(Config.SkeletonMaxDistance or 180, true)
         W.sSkelCol.Set(Config.Color_SurvivorSkeleton)
         W.sSkills.Set((Config.ESP_SurvivorSkills == true or Config.ESP_SurvivorCooldown == true), true)
+        if W.sItemIcon then W.sItemIcon.Set(Config.ESP_SurvivorItemIcon == true, true) end
         Config.ESP_SurvivorPerks = false
         W.kEn.Set(Config.ESP_KillerEnabled == true, true)
         W.kNames.Set(Config.ESP_KillerNames == true, true); W.kNames.SetColor(Config.Color_KillerNames)
@@ -6719,7 +8016,7 @@ local function CreateNexaraCustomUI(ctx)
         end
     end)
 
-    local AvatarCopyMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Avatar Copier", "")
+    local AvatarCopyMod = WindowObj:CreateModule("Miscellaneous_General", "Left", "Avatar Copier", "")
     local AVATAR_SAVE_DIR = "Nexara/ViolenceDistrict"
     local AVATAR_SAVE_PATH = AVATAR_SAVE_DIR .. "/SavedAvatars.json"
     local _avHttp = game:GetService("HttpService")
@@ -6976,7 +8273,7 @@ local function CreateNexaraCustomUI(ctx)
         }
     )
 
-    local AutoSkillMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Auto Skill Check", "")
+    local AutoSkillMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Auto Skill Check", "")
     W.scGen = AutoSkillMod:AddCheckbox("Generator Skill Check", Config.AutoSkillCheck, nil, function(v)
         Config.AutoSkillCheck = v
     end)
@@ -6994,7 +8291,7 @@ local function CreateNexaraCustomUI(ctx)
         Config.Surv_FlashlightLockSmooth = v
     end)
 
-    local FakeLookMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Fake Look", "")
+    local FakeLookMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Fake Look", "")
     W.survFakeLook = FakeLookMod:AddCheckboxWithKeybind("Backwards Look", Config.Surv_FakeBackLook, Config.Surv_FakeBackLookKeyCode, function(v)
         Config.Surv_FakeBackLook = v
         if not v and AutoParry and AutoParry.StopSurvFakeLook then
@@ -7854,6 +9151,10 @@ local function CreateNexaraCustomUI(ctx)
         W.pLegit = ParryAuto:AddCheckbox("Legit Mode", Config.AutoParry_LegitMode == true, nil, function(v)
             Config.AutoParry_LegitMode = (v == true)
         end)
+        W.pAntiFake = ParryAuto:AddCheckbox("Anti-Fake", Config.AutoParry_AntiFake == true, nil, function(v)
+            Config.AutoParry_AntiFake = (v == true)
+        end)
+        ConfigSys.KeyedWidgets.AutoParry_AntiFake = W.pAntiFake
 
         local ParrySkills = WindowObj:CreateModule("Legit_Parry", "Right", "Killer Skills", "")
         W.pFrenzy = ParrySkills:AddCheckbox("Frenzy Slash", Config.AutoParry_Skill_Frenzy, nil, function(v)
@@ -7902,6 +9203,7 @@ local function CreateNexaraCustomUI(ctx)
         W.pRad.Set(Config.AutoParry_Radius or 12, true)
         W.pShowRad.Set(Config.AutoParry_ShowRadius ~= false, true); W.pShowRad.SetColor(Config.Color_AutoParry_Radius)
         if W.pLegit then W.pLegit.Set(Config.AutoParry_LegitMode == true, true) end
+        if W.pAntiFake then W.pAntiFake.Set(Config.AutoParry_AntiFake == true, true) end
         W.pFrenzy.Set(Config.AutoParry_Skill_Frenzy == true, true)
         W.pShadow.Set(Config.AutoParry_Skill_ShadowLeap == true, true)
         W.pDark.Set(Config.AutoParry_Skill_DarkSeverance == true, true)
@@ -9102,6 +10404,10 @@ local function CreateNexaraCustomUI(ctx)
     W.minStart = MenuMod:AddCheckbox("Minimize UI on Start", Config.MinimizeUIOnStart, nil, function(v)
         Config.MinimizeUIOnStart = v
     end)
+    W.lockGui = MenuMod:AddCheckbox("Lock GUI", Config.LockGUI, nil, function(v)
+        Config.LockGUI = v
+    end)
+    ConfigSys.KeyedWidgets.LockGUI = W.lockGui
 
     W.uiAccent = MenuMod:AddColorRow("UI Accent Color", Config.UI_AccentColor or Theme.Accent, function(c)
         Config.UI_AccentColor = c
@@ -9176,7 +10482,7 @@ local function CreateNexaraCustomUI(ctx)
         end
     end)
 
-    local CombatLogsMod = WindowObj:CreateModule("Settings", "Left", "Hit Logs", "")
+    local CombatLogsMod = WindowObj:CreateModule("Settings", "Right", "Hit Logs", "")
     W.hitLog = CombatLogsMod:AddCheckbox("Hit Log", Config.HitLog, nil, function(v)
         Config.HitLog = v
         if _G.Nexara_VD_HitLogContainer then
@@ -9184,181 +10490,18 @@ local function CreateNexaraCustomUI(ctx)
         end
     end)
 
-    local ConfigsMod = WindowObj:CreateModule("Settings", "Right", "Configs", "")
-    local configFolder = ConfigSys.Folder
-
-    local function GetConfigNames()
-        local list = { "Default" }
-        pcall(function()
-            if listfiles and isfolder and isfolder(configFolder) then
-                for _, path in ipairs(listfiles(configFolder)) do
-                    local name = path:match("([^/\\]+)%.json$")
-                    if name and not table.find(list, name) then
-                        table.insert(list, name)
-                    end
-                end
-            end
-        end)
-        return list
-    end
-
-    W.autoSave = ConfigsMod:AddCheckbox("Auto Save Config", Config.ConfigAutoSaveEnabled ~= false, nil, function(v)
-        Config.ConfigAutoSaveEnabled = v
-        ConfigSys.SaveProfile(ConfigSys.CurrentProfile or "Default")
-    end)
-
-    local customInputName = ""
-    local configInput = ConfigsMod:AddInput("config name", "", function(txt)
-        customInputName = txt
-    end)
-
-    local configDropdown
-    configDropdown = ConfigsMod:AddDropdown("", GetConfigNames(), ConfigSys.CurrentProfile or "Default", function(selected)
-        ConfigSys.SaveToken = ConfigSys.SaveToken + 1
-        ConfigSys.CurrentProfile = selected
-        ConfigSys.UpdateStatusLabel()
-    end)
-
-    local statusLabel = nil
     ConfigSys.UpdateStatusLabel = function()
-        if statusLabel then
-            statusLabel.Set("loaded: " .. (ConfigSys.CurrentProfile or "Default") .. " | autoload: " .. (ConfigSys.AutoloadProfile or "none"))
-        end
+        if Theme and Theme.RefreshTopConfigUI then pcall(Theme.RefreshTopConfigUI) end
     end
-
-    ConfigsMod:AddButtonRow(
-        {
-            Name = "Create",
-            Callback = function()
-                local name = customInputName:gsub("^%s+", ""):gsub("%s+$", "")
-                if name == "" then name = "Profile_" .. tostring(#GetConfigNames()) end
-                ConfigSys.CurrentProfile = name
-                ConfigSys.SaveProfile(name)
-                configDropdown.Refresh(GetConfigNames(), name)
-                ConfigSys.UpdateStatusLabel()
-                print("[Nexara] Created Config:", name)
-            end
-        },
-        {
-            Name = "Save",
-            Callback = function()
-                local name = ConfigSys.CurrentProfile or "Default"
-                ConfigSys.SaveProfile(name)
-                configDropdown.Refresh(GetConfigNames(), name)
-                ConfigSys.UpdateStatusLabel()
-                print("[Nexara] Saved Config:", name)
-            end
-        }
-    )
-
-    ConfigsMod:AddButtonRow(
-        {
-            Name = "Load",
-            Callback = function()
-                local name = ConfigSys.CurrentProfile or "Default"
-                local ok = ConfigSys.LoadProfile(name, false)
-                print("[Nexara] Loaded Config:", name, ok)
-            end
-        },
-        {
-            Name = "Delete",
-            TextColor3 = Color3.fromRGB(240, 80, 80),
-            Callback = function()
-                local name = ConfigSys.CurrentProfile
-                if name and name ~= "Default" then
-                    pcall(function()
-                        local path = configFolder .. "/" .. name .. ".json"
-                        if delfile and isfile and isfile(path) then delfile(path) end
-                    end)
-                    if ConfigSys.AutoloadProfile == name then
-                        ConfigSys.AutoloadProfile = "none"
-                        local accPath, globalPath = ConfigSys.GetAutoloadPaths()
-                        pcall(function()
-                            if delfile and isfile and isfile(accPath) then delfile(accPath) end
-                            if delfile and isfile and isfile(globalPath) then delfile(globalPath) end
-                        end)
-                    end
-                    ConfigSys.CurrentProfile = "Default"
-                    configDropdown.Refresh(GetConfigNames(), "Default")
-                    ConfigSys.UpdateStatusLabel()
-                    print("[Nexara] Deleted Config:", name)
-                end
-            end
-        }
-    )
-
-    ConfigsMod:AddButtonRow(
-        {
-            Name = "Set autoload",
-            Callback = function()
-                local name = ConfigSys.CurrentProfile or "Default"
-                ConfigSys.AutoloadProfile = name
-                local accPath, globalPath = ConfigSys.GetAutoloadPaths()
-                pcall(function()
-                    if writefile then
-                        if Config.AutoloadMode == "Current account only" then
-                            writefile(accPath, name)
-                            if delfile and isfile and isfile(globalPath) then delfile(globalPath) end
-                        else
-                            writefile(globalPath, name)
-                            if delfile and isfile and isfile(accPath) then delfile(accPath) end
-                        end
-                    end
-                end)
-                ConfigSys.UpdateStatusLabel()
-                print("[Nexara] Set Autoload:", name)
-            end
-        },
-        {
-            Name = "Clear autoload",
-            Callback = function()
-                ConfigSys.AutoloadProfile = "none"
-                local accPath, globalPath = ConfigSys.GetAutoloadPaths()
-                pcall(function()
-                    if makefolder and isfolder and not isfolder(ConfigSys.Folder) then
-                        makefolder(ConfigSys.Folder)
-                    end
-                    local targetPath = (Config.AutoloadMode == "Current account only") and accPath or globalPath
-                    local otherPath = (targetPath == accPath) and globalPath or accPath
-                    if writefile then writefile(targetPath, "none") end
-                    if delfile and isfile and isfile(otherPath) then delfile(otherPath) end
-                end)
-                ConfigSys.UpdateStatusLabel()
-                print("[Nexara] Cleared Autoload")
-            end
-        }
-    )
-
-    statusLabel = ConfigsMod:AddLabel("loaded: " .. (ConfigSys.CurrentProfile or "Default") .. " | autoload: " .. (ConfigSys.AutoloadProfile or "none"))
-
-    W.autoloadMode = ConfigsMod:AddDropdown("Autoload mode", { "All accounts", "Current account only" }, Config.AutoloadMode or "All accounts", function(v)
-        Config.AutoloadMode = v
-        if ConfigSys.AutoloadProfile and ConfigSys.AutoloadProfile ~= "none" then
-            local accPath, globalPath = ConfigSys.GetAutoloadPaths()
-            pcall(function()
-                if writefile then
-                    if v == "Current account only" then
-                        writefile(accPath, ConfigSys.AutoloadProfile)
-                        if delfile and isfile and isfile(globalPath) then delfile(globalPath) end
-                    else
-                        writefile(globalPath, ConfigSys.AutoloadProfile)
-                        if delfile and isfile and isfile(accPath) then delfile(accPath) end
-                    end
-                end
-            end)
-        end
-    end)
-
-    ConfigsMod:AddButton("Refresh list", function()
-        configDropdown.Refresh(GetConfigNames(), ConfigSys.CurrentProfile or "Default")
+    ConfigSys.OnProfilesChanged = function()
         ConfigSys.UpdateStatusLabel()
-        print("[Nexara] Refreshed config list")
-    end)
+    end
 
     table.insert(ConfigSys.SyncHandlers, function()
         W.menuKey.Set(Config.MenuToggleKey or Enum.KeyCode.RightControl, true)
         W.antiAfk.Set(Config.AntiAFK == true, true)
         W.minStart.Set(Config.MinimizeUIOnStart == true, true)
+        if W.lockGui then W.lockGui.Set(Config.LockGUI == true, true) end
         W.uiAccent.Set(Config.UI_AccentColor or Theme.Accent)
         if typeof(Config.UI_AccentColor) == "Color3" and Theme.ApplyAccent then
             Theme.ApplyAccent(Config.UI_AccentColor)
@@ -9378,9 +10521,7 @@ local function CreateNexaraCustomUI(ctx)
         W.streamer.Set(Config.StreamerMode == true, true)
         if W.specList then W.specList.Set(Config.ShowSpectatorList == true, true) end
         W.hitLog.Set(Config.HitLog == true, true)
-        W.autoSave.Set(Config.ConfigAutoSaveEnabled ~= false, true)
-        W.autoloadMode.Set(Config.AutoloadMode or "All accounts", true)
-        configDropdown.Refresh(GetConfigNames(), ConfigSys.CurrentProfile or "Default")
+        if Theme and Theme.RefreshTopConfigUI then pcall(Theme.RefreshTopConfigUI) end
         if Theme.ApplyLanguage then Theme.ApplyLanguage("EN") end
     end)
 
@@ -9573,6 +10714,7 @@ local function CreateNexaraCustomUI(ctx)
     end
 
     _G.Nexara_CustomUI_Cleanup = function()
+        if ConfigSys and ConfigSys.FlushAutoSave then pcall(ConfigSys.FlushAutoSave) end
         _G.Nexara_IsCapturingKeybind = false
         for _, conn in ipairs(UI_Connections) do
             pcall(function() conn:Disconnect() end)
