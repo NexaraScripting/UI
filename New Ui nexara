@@ -127,6 +127,18 @@ local function CreateNexaraCustomUI(ctx)
                 Config.ESP_SurvivorSkills = sc
                 Config.ESP_SurvivorCooldown = sc
             end
+            local scMode = Config.AutoSkillCheckMode
+            if scMode ~= "Random" and scMode ~= "Perfect" and scMode ~= "Normal" then
+                Config.AutoSkillCheckMode = "Perfect"
+            end
+            local avoidD = tonumber(Config.AutoFarm_AvoidDist)
+            if not avoidD or avoidD ~= avoidD then
+                Config.AutoFarm_AvoidDist = 48
+            else
+                Config.AutoFarm_AvoidDist = math.clamp(math.floor(avoidD + 0.5), 20, 90)
+            end
+            if Config.AutoFarm_SmartChase == nil then Config.AutoFarm_SmartChase = true end
+            if Config.ServerHop_SameRegion == nil then Config.ServerHop_SameRegion = true end
             if Config.ConfigAutoSaveEnabled == nil then Config.ConfigAutoSaveEnabled = true end
             if Config.AvatarCopy_Enabled == nil then Config.AvatarCopy_Enabled = false end
             if Config.AvatarCopy_Username == nil then Config.AvatarCopy_Username = "" end
@@ -776,6 +788,7 @@ local function CreateNexaraCustomUI(ctx)
     ScreenGui.ResetOnSpawn = false
     ScreenGui.DisplayOrder = 999999
     ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    pcall(function() ScreenGui.ScreenInsets = Enum.ScreenInsets.None end)
     pcall(function()
         if gethui then ScreenGui.Parent = gethui()
         elseif syn and syn.protect_gui then syn.protect_gui(ScreenGui); ScreenGui.Parent = CoreGui
@@ -1052,6 +1065,11 @@ local function CreateNexaraCustomUI(ctx)
         end
         local cam = workspace.CurrentCamera
         return cam and cam.ViewportSize or Vector2.new(1280, 720)
+    end
+    -- Convert AbsolutePosition (inset-adjusted) to ScreenGui-local offset (needed when ScreenInsets = None).
+    function Theme._toGuiLocal(absX, absY)
+        local origin = (ScreenGui and ScreenGui.AbsolutePosition) or Vector2.zero
+        return absX - origin.X, absY - origin.Y
     end
     function Theme._getMainScale()
         return math.max((MainScale and MainScale.Scale) or 1, 0.25)
@@ -2194,10 +2212,11 @@ local function CreateNexaraCustomUI(ctx)
     local function getFlyoutTargetPos()
         local okP, absPos, absSz = pcall(function() return ConfigPill.AbsolutePosition, ConfigPill.AbsoluteSize end)
         if not okP or not absPos then return nil, nil end
+        local lx, ly = Theme._toGuiLocal(absPos.X, absPos.Y)
         local bounds = Theme._getGuiBounds()
         local fw = math.min(290, math.max(220, bounds.X - 16))
-        local tx = math.clamp(absPos.X - 2, 8, math.max(8, bounds.X - fw - 8))
-        local ty = math.clamp(absPos.Y + absSz.Y + 4, 8, math.max(8, bounds.Y - cfgTargetH - 8))
+        local tx = math.clamp(lx - 2, 8, math.max(8, bounds.X - fw - 8))
+        local ty = math.clamp(ly + absSz.Y + 4, 8, math.max(8, bounds.Y - cfgTargetH - 8))
         return tx, ty, fw
     end
     local function resizeCfgFlyout(animate)
@@ -2642,6 +2661,9 @@ local function CreateNexaraCustomUI(ctx)
         ["Flashlight Blind Progress"] = "แถบส่องไฟฉาย",
         ["Flashlight Lock"] = "ล็อคไฟฉาย (หน้าฆาตกร)",
         ["Backwards Look"] = "หันหลังหลอก",
+        ["Movement"] = "การเคลื่อนไหว",
+        ["Moonwalk"] = "มูนวอล์ค",
+        ["Anti Fall Slow"] = "กันสโลว์ตกที่สูง",
         ["Killer Distance"] = "ระยะฆาตกร",
         ["Dead Hard"] = "พุ่งตัวสั้น (Dead Hard)",
         ["Dash Distance"] = "ระยะพุ่ง",
@@ -2725,6 +2747,7 @@ local function CreateNexaraCustomUI(ctx)
         ["FOV Radius"] = "ขนาดวง FOV",
         ["Smoothness"] = "ความเนียน",
         ["Laser Tracer"] = "เส้นเลเซอร์",
+        ["Laser Size"] = "ขนาดเส้นเลเซอร์",
         ["Laser Duration"] = "เวลาเส้นเลเซอร์",
         ["Hitmarker"] = "เป้าแจ้งเตือนยิงโดน",
         ["Hitmarker Position"] = "ตำแหน่ง Hitmarker",
@@ -2761,6 +2784,15 @@ local function CreateNexaraCustomUI(ctx)
         ["Load"] = "โหลด",
         ["Delete"] = "ลบ",
         ["Create"] = "สร้างใหม่",
+        ["Auto Farm"] = "ฟาร์มอัตโนมัติ",
+        ["Pumpkin Farm"] = "ฟาร์มฟักทอง",
+        ["Auto Farm Pumpkins"] = "เดินฟาร์มฟักทอง (Pathfinding)",
+        ["Auto Crush Near Pumpkin"] = "เหยียบฟักทองใกล้อัตโนมัติ",
+        ["Vault & Pallet Loop"] = "ข้ามหน้าต่าง / วนไม้ & พับไม้",
+        ["Avoid Killer Radius"] = "ระยะหลบฆาตกร",
+        ["Server Hop"] = "ย้ายเซิร์ฟเวอร์",
+        ["Same Region First"] = "หาโซนเดียวกันก่อน",
+        ["Hop Server (Starting Soon)"] = "ย้ายเซิร์ฟ (หาห้องใกล้เริ่ม)",
     }
 
     local function trText(s, lang)
@@ -3946,8 +3978,7 @@ local function CreateNexaraCustomUI(ctx)
 
     local function UpdateFlyoutPosition()
         if activeRowAnchor and activeRowAnchor.Parent then
-            local rowX = activeRowAnchor.AbsolutePosition.X
-            local rowY = activeRowAnchor.AbsolutePosition.Y
+            local rowX, rowY = Theme._toGuiLocal(activeRowAnchor.AbsolutePosition.X, activeRowAnchor.AbsolutePosition.Y)
             local rowW = activeRowAnchor.AbsoluteSize.X
             local bounds = Theme._getGuiBounds()
             local screenW = bounds.X
@@ -3972,24 +4003,23 @@ local function CreateNexaraCustomUI(ctx)
 
     local function UpdateSliderFlyoutPosition()
         if activeSliderRow and activeSliderRow.Parent then
-            local rowX = activeSliderRow.AbsolutePosition.X
-            local rowY = activeSliderRow.AbsolutePosition.Y
+            local rowX, rowY = Theme._toGuiLocal(activeSliderRow.AbsolutePosition.X, activeSliderRow.AbsolutePosition.Y)
             local rowW = activeSliderRow.AbsoluteSize.X
+            local rowH = activeSliderRow.AbsoluteSize.Y
             local bounds = Theme._getGuiBounds()
             local screenW = bounds.X
             local screenH = bounds.Y
 
             local flyoutW = 185
             local targetX = math.clamp(rowX + rowW + 10, 8, math.max(8, screenW - flyoutW - 8))
-            local targetY = math.clamp(rowY - 2, 15, math.max(15, screenH - 45))
+            local targetY = math.clamp(rowY + math.floor((rowH - 32) * 0.5), 28, math.max(28, screenH - 45))
             SliderFlyout.Position = UDim2.fromOffset(targetX, targetY)
         end
     end
 
     local function UpdateKeybindFlyoutPosition()
         if activeKeybindRow and activeKeybindRow.Parent then
-            local rowX = activeKeybindRow.AbsolutePosition.X
-            local rowY = activeKeybindRow.AbsolutePosition.Y
+            local rowX, rowY = Theme._toGuiLocal(activeKeybindRow.AbsolutePosition.X, activeKeybindRow.AbsolutePosition.Y)
             local rowW = activeKeybindRow.AbsoluteSize.X
             local bounds = Theme._getGuiBounds()
             local screenW = bounds.X
@@ -4013,8 +4043,7 @@ local function CreateNexaraCustomUI(ctx)
 
     local function UpdateDropdownFlyoutPosition()
         if activeDropdownRow and activeDropdownRow.Parent then
-            local rowX = activeDropdownRow.AbsolutePosition.X
-            local rowY = activeDropdownRow.AbsolutePosition.Y
+            local rowX, rowY = Theme._toGuiLocal(activeDropdownRow.AbsolutePosition.X, activeDropdownRow.AbsolutePosition.Y)
             local rowW = activeDropdownRow.AbsoluteSize.X
             local bounds = Theme._getGuiBounds()
             local screenW = bounds.X
@@ -7221,21 +7250,22 @@ local function CreateNexaraCustomUI(ctx)
 
                 local absPos = DropBtn.AbsolutePosition
                 local absSize = DropBtn.AbsoluteSize
+                local locX, locY = Theme._toGuiLocal(absPos.X, absPos.Y)
                 local count = math.min(#options, 6)
                 local popHeight = (count * 28) + 8
                 local bounds = Theme._getGuiBounds()
                 local screenW = bounds.X
                 local screenH = bounds.Y
                 local popW = math.max(absSize.X, 40)
-                local popX = math.clamp(absPos.X, 8, math.max(8, screenW - popW - 8))
-                local openUp = (absPos.Y + absSize.Y + 4 + popHeight > screenH - 8) and (absPos.Y - popHeight - 4 > 8)
+                local popX = math.clamp(locX, 8, math.max(8, screenW - popW - 8))
+                local openUp = (locY + absSize.Y + 4 + popHeight > screenH - 8) and (locY - popHeight - 4 > 8)
 
                 if openUp then
                     Popup.AnchorPoint = Vector2.new(0, 1)
-                    Popup.Position = UDim2.fromOffset(popX, math.clamp(absPos.Y - 4, popHeight + 8, math.max(popHeight + 8, screenH - 8)))
+                    Popup.Position = UDim2.fromOffset(popX, math.clamp(locY - 4, popHeight + 8, math.max(popHeight + 8, screenH - 8)))
                 else
                     Popup.AnchorPoint = Vector2.new(0, 0)
-                    local popY = math.clamp(absPos.Y + absSize.Y + 4, 8, math.max(8, screenH - popHeight - 8))
+                    local popY = math.clamp(locY + absSize.Y + 4, 8, math.max(8, screenH - popHeight - 8))
                     Popup.Position = UDim2.fromOffset(popX, popY)
                 end
 
@@ -8274,9 +8304,11 @@ local function CreateNexaraCustomUI(ctx)
     )
 
     local AutoSkillMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Auto Skill Check", "")
-    W.scGen = AutoSkillMod:AddCheckbox("Generator Skill Check", Config.AutoSkillCheck, nil, function(v)
+    W.scGen = AutoSkillMod:AddCheckboxWithDropdown("Generator Skill Check", Config.AutoSkillCheck, { "Random", "Perfect", "Normal" }, Config.AutoSkillCheckMode or "Perfect", function(v)
         Config.AutoSkillCheck = v
-    end)
+    end, function(mode)
+        Config.AutoSkillCheckMode = mode
+    end, "Mode")
     W.scTrap = AutoSkillMod:AddCheckbox("Bear Trap Skill Check", Config.AutoSkillCheck_Trap, nil, function(v)
         Config.AutoSkillCheck_Trap = v
     end)
@@ -8306,6 +8338,27 @@ local function CreateNexaraCustomUI(ctx)
     end)
     ConfigSys.KeyedWidgets.Surv_FakeBackLook = W.survFakeLook
 
+    local SurvMoveMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Movement", "")
+    W.survMoonwalk = SurvMoveMod:AddCheckboxWithKeybind("Moonwalk", Config.Surv_Moonwalk, Config.Surv_MoonwalkKeyCode, function(v)
+        Config.Surv_Moonwalk = (v == true)
+        if not v and AutoParry and AutoParry.StopSurvMoonwalk then
+            pcall(AutoParry.StopSurvMoonwalk)
+        end
+        if _G.Nexara_VD_RefreshNamecall then pcall(_G.Nexara_VD_RefreshNamecall) end
+        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
+    end, function(key)
+        Config.Surv_MoonwalkKeyCode = key
+        Config.Surv_MoonwalkKeyName = ConfigSys.FormatKey(key)
+        Config.Surv_MoonwalkKeyType = key and ((key.EnumType == Enum.UserInputType) and "Mouse" or "Keyboard") or "None"
+        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
+    end, { key = "Surv_MoonwalkMob", title = "Moonwalk", order = 4 })
+    ConfigSys.KeyedWidgets.Surv_Moonwalk = W.survMoonwalk
+    W.survAntiFallSlow = SurvMoveMod:AddCheckbox("Anti Fall Slow", Config.Surv_AntiFallSlow == true, nil, function(v)
+        Config.Surv_AntiFallSlow = (v == true)
+        if AutoParry and AutoParry.SyncAntiFallSlow then pcall(AutoParry.SyncAntiFallSlow) end
+        if _G.Nexara_VD_RefreshNamecall then pcall(_G.Nexara_VD_RefreshNamecall) end
+    end)
+
     local AutoPalletMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Auto Pallet", "")
     W.autoPallet = AutoPalletMod:AddCheckboxWithSlider("Auto Pallet", Config.AutoPallet_Enabled, 5, 16, math.floor(Config.AutoPallet_WarpRange or 10), " studs", "Range",
         function(v) Config.AutoPallet_Enabled = v end,
@@ -8318,10 +8371,11 @@ local function CreateNexaraCustomUI(ctx)
     local DeadHardMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Dead Hard", "")
     W.deadHard = DeadHardMod:AddCheckboxWithKeybind("Dead Hard", Config.Surv_DeadHard, Config.Surv_DeadHardKeyCode, function(v)
         Config.Surv_DeadHard = (v == true)
-        if not v and AutoParry and AutoParry.StopDeadHard then
-            pcall(AutoParry.StopDeadHard)
+        local ap = _G.Nexara_VD_AutoParry or AutoParry
+        if not v and ap and ap.StopDeadHard then
+            pcall(ap.StopDeadHard)
         end
-        if AutoParry and AutoParry.UpdateDeadHardButton then pcall(AutoParry.UpdateDeadHardButton) end
+        if ap and ap.UpdateDeadHardButton then pcall(ap.UpdateDeadHardButton, v == true) end
         if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
     end, function(key)
         Config.Surv_DeadHardKeyCode = key
@@ -8332,7 +8386,8 @@ local function CreateNexaraCustomUI(ctx)
     ConfigSys.KeyedWidgets.Surv_DeadHard = W.deadHard
     W.deadHardBtn = DeadHardMod:AddCheckbox("Floating Button", Config.Surv_DeadHardBtn ~= false, nil, function(v)
         Config.Surv_DeadHardBtn = (v == true)
-        if AutoParry and AutoParry.UpdateDeadHardButton then pcall(AutoParry.UpdateDeadHardButton) end
+        local ap = _G.Nexara_VD_AutoParry or AutoParry
+        if ap and ap.UpdateDeadHardButton then pcall(ap.UpdateDeadHardButton, v == true) end
     end)
     W.deadHardDist = DeadHardMod:AddSlider("Dash Distance", 3, 16, math.floor(Config.Surv_DeadHardDist or 9), " studs", function(v)
         Config.Surv_DeadHardDist = v
@@ -8920,7 +8975,7 @@ local function CreateNexaraCustomUI(ctx)
             W.avSavedDrop.Refresh(opts, matchOpt)
         end
         refreshAvatarBlurControls()
-        W.scGen.Set(Config.AutoSkillCheck == true, true)
+        W.scGen.Set(Config.AutoSkillCheck == true, true); if W.scGen.SetOption then W.scGen.SetOption(Config.AutoSkillCheckMode or "Perfect", true) end
         W.scTrap.Set(Config.AutoSkillCheck_Trap == true, true)
         W.blind.Set(Config.BlindProgressEnabled == true, true)
         if W.flLock then
@@ -8930,6 +8985,13 @@ local function CreateNexaraCustomUI(ctx)
         if W.survFakeLook then
             W.survFakeLook.Set(Config.Surv_FakeBackLook == true, true)
             W.survFakeLook.SetKey(Config.Surv_FakeBackLookKeyCode, true)
+        end
+        if W.survMoonwalk then
+            W.survMoonwalk.Set(Config.Surv_Moonwalk == true, true)
+            W.survMoonwalk.SetKey(Config.Surv_MoonwalkKeyCode, true)
+        end
+        if W.survAntiFallSlow then
+            W.survAntiFallSlow.Set(Config.Surv_AntiFallSlow == true, true)
         end
         if W.autoPallet then
             W.autoPallet.Set(Config.AutoPallet_Enabled == true, true)
@@ -9024,6 +9086,9 @@ local function CreateNexaraCustomUI(ctx)
             function(v) Config.Tof_Laser = v end,
             function(c) Config.Color_Tof_Laser = c end
         )
+        W.tofLaserSize = TwistSettings:AddSlider("Laser Size", 3, 80, math.floor(Config.Tof_LaserSize or 11), "", function(v)
+            Config.Tof_LaserSize = v
+        end)
         W.tofLaserDur = TwistSettings:AddSlider("Laser Duration", 200, 2000, math.floor((Config.Tof_LaserDuration or 0.6) * 1000), " ms", function(v)
             Config.Tof_LaserDuration = v / 1000
         end)
@@ -9073,6 +9138,9 @@ local function CreateNexaraCustomUI(ctx)
             function(v) Config.Veil_Laser = v end,
             function(c) Config.Color_Veil_Laser = c end
         )
+        W.veilLaserSize = VeilCombat:AddSlider("Laser Size", 3, 80, math.floor(Config.Veil_LaserSize or 20), "", function(v)
+            Config.Veil_LaserSize = v
+        end)
         W.veilAuto = VeilCombat:AddCheckbox("Auto Target", Config.Veil_AutoOpenTarget ~= false, nil, function(v)
             Config.Veil_AutoOpenTarget = v
         end)
@@ -9179,6 +9247,7 @@ local function CreateNexaraCustomUI(ctx)
         W.tofFovRad.Set(Config.Tof_FOV or 220, true)
         W.tofSmooth.Set(Config.Tof_AimbotSmooth or 10, true)
         W.tofLaser.Set(Config.Tof_Laser == true, true); W.tofLaser.SetColor(Config.Color_Tof_Laser)
+        if W.tofLaserSize then W.tofLaserSize.Set(math.floor(Config.Tof_LaserSize or 11), true) end
         W.tofLaserDur.Set(math.floor((Config.Tof_LaserDuration or 0.6) * 1000), true)
         W.tofHm.Set(Config.Hitmarker == true, true); W.tofHm.SetColor(Config.Color_Hitmarker)
         W.tofHmMode.Set(Config.HitmarkerMode or "On Killer", true)
@@ -9188,6 +9257,7 @@ local function CreateNexaraCustomUI(ctx)
         W.veilAim.Set(Config.Veil_Aimbot == true, true); W.veilAim.SetKey(Config.Veil_AimKeyCode, true)
         W.veilLineup.Set(Config.Veil_ThrowLineup == true, true); W.veilLineup.SetColor(Config.Color_Veil_Lineup)
         W.veilLaser.Set(Config.Veil_Laser == true, true); W.veilLaser.SetColor(Config.Color_Veil_Laser)
+        if W.veilLaserSize then W.veilLaserSize.Set(math.floor(Config.Veil_LaserSize or 20), true) end
         W.veilAuto.Set(Config.Veil_AutoOpenTarget ~= false, true)
         if W.veilWallCheck then W.veilWallCheck.Set(Config.Veil_WallCheck ~= false, true) end
         W.veilCh.Set(Config.Veil_Crosshair == true, true); W.veilCh.SetColor(Config.Color_Veil_Crosshair)
@@ -9208,6 +9278,68 @@ local function CreateNexaraCustomUI(ctx)
         W.pShadow.Set(Config.AutoParry_Skill_ShadowLeap == true, true)
         W.pDark.Set(Config.AutoParry_Skill_DarkSeverance == true, true)
         W.pChain.Set(Config.AutoParry_Skill_ChainsawDash == true, true)
+    end)
+    end
+
+    -- 4.5 AUTO FARM TAB
+    do
+    local AutoFarmTab = WindowObj:CreateAccordionTab("Auto Farm", "rbxassetid://10734966248")
+    local W = {}
+
+    local PumpkinFarmMod = WindowObj:CreateModule("Auto Farm", "Left", "Pumpkin Farm", "")
+    W.afPumpkins = PumpkinFarmMod:AddCheckbox("Auto Farm Pumpkins", Config.AutoFarmPumpkins == true, nil, function(v)
+        Config.AutoFarmPumpkins = v
+    end)
+    W.afCrush = PumpkinFarmMod:AddCheckbox("Auto Crush Near Pumpkin", Config.AutoCrushPumpkin == true, nil, function(v)
+        Config.AutoCrushPumpkin = v
+    end)
+    W.afSmartChase = PumpkinFarmMod:AddCheckbox("Vault & Pallet Loop", Config.AutoFarm_SmartChase ~= false, nil, function(v)
+        Config.AutoFarm_SmartChase = v
+    end)
+    W.afAvoid = PumpkinFarmMod:AddSlider("Avoid Killer Radius", 20, 90, math.floor(Config.AutoFarm_AvoidDist or 48), " studs", function(v)
+        Config.AutoFarm_AvoidDist = v
+    end)
+    W.afStatus = PumpkinFarmMod:AddLabel("Status: Idle")
+
+    local ServerHopMod = WindowObj:CreateModule("Auto Farm", "Right", "Server Hop", "")
+    W.hopSameReg = ServerHopMod:AddCheckbox("Same Region First", Config.ServerHop_SameRegion ~= false, nil, function(v)
+        Config.ServerHop_SameRegion = v
+    end)
+    W.hopStatus = ServerHopMod:AddLabel("Server: Ready")
+    ServerHopMod:AddButton("Hop Server (Starting Soon)", function()
+        if ctx.TriggerServerHop then
+            task.spawn(function()
+                pcall(ctx.TriggerServerHop)
+            end)
+        end
+    end)
+
+    table.insert(ConfigSys.SyncHandlers, function()
+        W.afPumpkins.Set(Config.AutoFarmPumpkins == true, true)
+        W.afCrush.Set(Config.AutoCrushPumpkin == true, true)
+        W.afSmartChase.Set(Config.AutoFarm_SmartChase ~= false, true)
+        W.afAvoid.Set(math.clamp(math.floor(tonumber(Config.AutoFarm_AvoidDist) or 48), 20, 90), true)
+        W.hopSameReg.Set(Config.ServerHop_SameRegion ~= false, true)
+    end)
+
+    local lastUiStat = 0
+    ConnectUI(RunService.Heartbeat, function()
+        if not MainFrame.Visible then return end
+        local now = os.clock()
+        if now - lastUiStat < 0.35 then return end
+        lastUiStat = now
+        if ctx.GetAutoFarmStatus then
+            local ok, s = pcall(ctx.GetAutoFarmStatus)
+            if ok and type(s) == "string" and W.afStatus.Get() ~= s then
+                W.afStatus.Set(s)
+            end
+        end
+        if ctx.GetServerHopStatus then
+            local ok, s = pcall(ctx.GetServerHopStatus)
+            if ok and type(s) == "string" and W.hopStatus.Get() ~= s then
+                W.hopStatus.Set(s)
+            end
+        end
     end)
     end
 
