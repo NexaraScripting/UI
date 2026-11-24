@@ -2603,7 +2603,8 @@ local function CreateNexaraCustomUI(ctx)
         ["Auto Skill Check"] = "เช็คสกิลออโต้",
         ["Flashlight"] = "ไฟฉาย",
         ["Fake Look"] = "หันหลังหลอก",
-        ["Auto Pallet"] = "วาร์ปพับไม้",
+        ["Auto Pallet"] = "พับไม้ออโต้",
+        ["Warp to Pallet"] = "วาร์ปพับไม้",
         ["Combat"] = "ต่อสู้",
         ["Visuals"] = "การแสดงผล",
         ["Auto Parry"] = "ออโต้แพรี่",
@@ -2666,6 +2667,11 @@ local function CreateNexaraCustomUI(ctx)
         ["Anti Fall Slow"] = "กันสโลว์ตกที่สูง",
         ["Killer Distance"] = "ระยะฆาตกร",
         ["Dead Hard"] = "พุ่งตัวสั้น (Dead Hard)",
+        ["Riot Shield"] = "โล่พุ่งชน (Riot Shield)",
+        ["Rotation Changer"] = "ปรับความเร็วเลี้ยวโล่",
+        ["Turn Speed"] = "ความเร็ว",
+        ["Speed"] = "ความเร็ว",
+        ["Riot Shield Aim"] = "ล็อคเป้าพุ่งโล่ (หลบสิ่งกีดขวาง)",
         ["Dash Distance"] = "ระยะพุ่ง",
         ["Dash Cooldown"] = "คูลดาวน์พุ่ง",
         ["Floating Button"] = "ปุ่มลอยบนหน้าจอ",
@@ -2762,7 +2768,7 @@ local function CreateNexaraCustomUI(ctx)
         ["Parry Radius"] = "ระยะแพรี่",
         ["Radius Circle"] = "วงระยะแพรี่",
         ["Legit Mode"] = "โหมดเนียน (ยกบล็อกสมจริง)",
-        ["Anti-Fake"] = "กันหลอกสบัดหนี (Anti-Fake)",
+        ["Anti-Fake (Beta)"] = "กันหลอกสบัดหนี (Beta)",
         ["Frenzy Slash"] = "แพรี่ Frenzy Slash",
         ["Shadow Leap"] = "แพรี่ Shadow Leap",
         ["Dark Severance"] = "แพรี่ Dark Severance",
@@ -7758,7 +7764,7 @@ local function CreateNexaraCustomUI(ctx)
         end,
         function(c) Config.Color_PalletNames = c end
     )
-    W.palMax = PalletModule:AddSlider("Pallet Max Distance", 50, 3000, Config.PalletMaxDist or 1500, " studs", function(v)
+    W.palMax = PalletModule:AddSlider("Pallet Max Distance", 20, 600, math.clamp(Config.PalletMaxDist or 250, 20, 600), " studs", function(v)
         Config.PalletMaxDist = v
     end)
     W.winAura = PalletModule:AddCheckbox("Window Chams", Config.ESP_WindowAura or Config.ESP_WindowChams, Config.Color_WindowAura or Color3.fromRGB(60, 200, 240),
@@ -7788,7 +7794,7 @@ local function CreateNexaraCustomUI(ctx)
             Config.Color_Windows = c
         end
     )
-    W.winMax = PalletModule:AddSlider("Window Max Distance", 50, 3000, Config.WindowMaxDist or 1500, " studs", function(v)
+    W.winMax = PalletModule:AddSlider("Window Max Distance", 20, 600, math.clamp(Config.WindowMaxDist or 250, 20, 600), " studs", function(v)
         Config.WindowMaxDist = v
     end)
 
@@ -7874,11 +7880,11 @@ local function CreateNexaraCustomUI(ctx)
         W.palAura.Set(Config.ESP_PalletAura == true, true); W.palAura.SetColor(Config.Color_PalletAura)
         W.palName.Set((Config.ESP_PalletNames == true or (Config.ESP_PalletNames == nil and Config.ESP_Pallets == true)), true); W.palName.SetColor(Config.Color_PalletNames)
         W.palDist.Set(Config.ESP_PalletDistance == true, true); W.palDist.SetColor(Config.Color_PalletNames)
-        W.palMax.Set(Config.PalletMaxDist or 1500, true)
+        W.palMax.Set(math.clamp(Config.PalletMaxDist or 250, 20, 600), true)
         W.winAura.Set((Config.ESP_WindowAura == true or Config.ESP_WindowChams == true), true); W.winAura.SetColor(Config.Color_WindowAura)
         W.winName.Set((Config.ESP_WindowNames == true or (Config.ESP_WindowNames == nil and Config.ESP_Windows == true)), true); W.winName.SetColor(Config.Color_WindowNames)
         W.winDist.Set(Config.ESP_WindowDistance == true, true); W.winDist.SetColor(Config.Color_WindowNames)
-        W.winMax.Set(Config.WindowMaxDist or 1500, true)
+        W.winMax.Set(math.clamp(Config.WindowMaxDist or 250, 20, 600), true)
         W.btChams.Set((Config.ESP_BearTrapChams == true or (Config.ESP_BearTrapChams == nil and Config.ESP_BearTraps == true)), true); W.btChams.SetColor(Config.Color_BearTraps)
         W.btName.Set((Config.ESP_BearTrapNames == true or (Config.ESP_BearTrapNames == nil and Config.ESP_BearTraps == true)), true); W.btName.SetColor(Config.Color_BearTraps)
         W.btDist.Set(Config.ESP_BearTrapDistance == true, true); W.btDist.SetColor(Config.Color_BearTraps)
@@ -8027,10 +8033,17 @@ local function CreateNexaraCustomUI(ctx)
     end
 
     local FastVaultMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Fast Vault", "")
-    W.fv = FastVaultMod:AddCheckbox("Always Fast Vault", Config.AlwaysFastVault, nil, function(v)
-        Config.AlwaysFastVault = v
-        _G.__Nexara_AlwaysFastVault = v
-    end)
+    W.fv = FastVaultMod:AddCheckboxWithKeybind("Always Fast Vault", Config.AlwaysFastVault, Config.AlwaysFastVaultKeyCode, function(v)
+        Config.AlwaysFastVault = (v == true)
+        _G.__Nexara_AlwaysFastVault = (v == true)
+        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
+    end, function(key)
+        Config.AlwaysFastVaultKeyCode = key
+        Config.AlwaysFastVaultKeyName = ConfigSys.FormatKey(key)
+        Config.AlwaysFastVaultKeyType = key and ((key.EnumType == Enum.UserInputType) and "Mouse" or "Keyboard") or "None"
+        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
+    end, { key = "FastVault_Mob", title = "Fast Vault", order = 5 })
+    ConfigSys.KeyedWidgets.AlwaysFastVault = W.fv
 
     local AutoDodgeMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Auto Dodge", "")
     W.abyssCrouch = AutoDodgeMod:AddCheckbox("Auto Crouch (Abyss Slash)", Config.AutoCrouch_Abyss, nil, function(v)
@@ -8359,9 +8372,21 @@ local function CreateNexaraCustomUI(ctx)
         if _G.Nexara_VD_RefreshNamecall then pcall(_G.Nexara_VD_RefreshNamecall) end
     end)
 
+    local RiotShieldMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Riot Shield", "")
+    W.riotRot = RiotShieldMod:AddCheckboxWithSlider("Rotation Changer", Config.RiotShield_RotEnabled == true, 1, 12, math.clamp(math.floor(tonumber(Config.RiotShield_RotSpeed) or 4), 1, 12), "x", "Speed",
+        function(v) Config.RiotShield_RotEnabled = (v == true) end,
+        function(v) Config.RiotShield_RotSpeed = v end
+    )
+    W.riotAim = RiotShieldMod:AddCheckbox("Riot Shield Aim", Config.RiotShield_AimEnabled == true, nil, function(v)
+        Config.RiotShield_AimEnabled = (v == true)
+    end)
+
     local AutoPalletMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Auto Pallet", "")
-    W.autoPallet = AutoPalletMod:AddCheckboxWithSlider("Auto Pallet", Config.AutoPallet_Enabled, 5, 16, math.floor(Config.AutoPallet_WarpRange or 10), " studs", "Range",
-        function(v) Config.AutoPallet_Enabled = v end,
+    W.autoPallet = AutoPalletMod:AddCheckbox("Auto Pallet", Config.AutoPallet_Enabled == true, nil, function(v)
+        Config.AutoPallet_Enabled = (v == true)
+    end)
+    W.autoPalletWarp = AutoPalletMod:AddCheckboxWithSlider("Warp to Pallet", Config.AutoPallet_Warp == true, 5, 16, math.floor(Config.AutoPallet_WarpRange or 10), " studs", "Range",
+        function(v) Config.AutoPallet_Warp = (v == true) end,
         function(v) Config.AutoPallet_WarpRange = v end
     )
     W.autoPalletKillerDist = AutoPalletMod:AddSlider("Killer Distance", 3, 10, math.floor(Config.AutoPallet_KillerDist or 5), " studs", function(v)
@@ -8960,6 +8985,7 @@ local function CreateNexaraCustomUI(ctx)
             W.stretched.SetSlider(Config.StretchedAmount or 133, true)
         end
         W.fv.Set(Config.AlwaysFastVault == true, true)
+        if W.fv.SetKey then W.fv.SetKey(Config.AlwaysFastVaultKeyCode, true) end
         if W.abyssCrouch then W.abyssCrouch.Set(Config.AutoCrouch_Abyss == true, true) end
         if W.veilDodge then W.veilDodge.Set(Config.AutoDodge_Veil == true, true) end
         if W.avCopyEn then W.avCopyEn.Set(Config.AvatarCopy_Enabled == true, true) end
@@ -8995,7 +9021,10 @@ local function CreateNexaraCustomUI(ctx)
         end
         if W.autoPallet then
             W.autoPallet.Set(Config.AutoPallet_Enabled == true, true)
-            W.autoPallet.SetSlider(math.floor(Config.AutoPallet_WarpRange or 10), true)
+        end
+        if W.autoPalletWarp then
+            W.autoPalletWarp.Set(Config.AutoPallet_Warp == true, true)
+            W.autoPalletWarp.SetSlider(math.floor(Config.AutoPallet_WarpRange or 10), true)
         end
         if W.autoPalletKillerDist then
             W.autoPalletKillerDist.Set(math.floor(Config.AutoPallet_KillerDist or 5), true)
@@ -9007,6 +9036,11 @@ local function CreateNexaraCustomUI(ctx)
         if W.deadHardBtn then W.deadHardBtn.Set(Config.Surv_DeadHardBtn ~= false, true) end
         if W.deadHardDist then W.deadHardDist.Set(math.floor(Config.Surv_DeadHardDist or 9), true) end
         if W.deadHardCd then W.deadHardCd.Set(math.floor(Config.Surv_DeadHardCd or 3), true) end
+        if W.riotRot then
+            W.riotRot.Set(Config.RiotShield_RotEnabled == true, true)
+            W.riotRot.SetSlider(math.clamp(math.floor(tonumber(Config.RiotShield_RotSpeed) or 4), 1, 12), true)
+        end
+        if W.riotAim then W.riotAim.Set(Config.RiotShield_AimEnabled == true, true) end
         if W.butcherHookSilent then W.butcherHookSilent.Set(Config.Butcher_HookSilentAim == true, true) end
         if W.hiddenDashLock then
             W.hiddenDashLock.Set(Config.Hidden_DashLock == true, true)
@@ -9219,7 +9253,7 @@ local function CreateNexaraCustomUI(ctx)
         W.pLegit = ParryAuto:AddCheckbox("Legit Mode", Config.AutoParry_LegitMode == true, nil, function(v)
             Config.AutoParry_LegitMode = (v == true)
         end)
-        W.pAntiFake = ParryAuto:AddCheckbox("Anti-Fake", Config.AutoParry_AntiFake == true, nil, function(v)
+        W.pAntiFake = ParryAuto:AddCheckbox("Anti-Fake (Beta)", Config.AutoParry_AntiFake == true, nil, function(v)
             Config.AutoParry_AntiFake = (v == true)
         end)
         ConfigSys.KeyedWidgets.AutoParry_AntiFake = W.pAntiFake
