@@ -1033,7 +1033,10 @@ local function CreateNexaraCustomUI(ctx)
         Theme.AccentHover = Config.UI_AccentColor:Lerp(Color3.new(1, 1, 1), 0.18)
     end
 
-    local MainFrame = Instance.new("CanvasGroup")
+    -- Use plain Frame on Mobile to avoid expensive offscreen CanvasGroup re-rasterization hitches over 3,000+ UI descendants.
+    local MainFrame = Instance.new(((_G.Nexara_IsMobileDevice and _G.Nexara_IsMobileDevice() == true)
+        or (UserInputService.TouchEnabled and (not UserInputService.KeyboardEnabled or not UserInputService.MouseEnabled))) and "Frame" or "CanvasGroup")
+    Theme._mainIsCanvas = MainFrame:IsA("CanvasGroup")
     MainFrame.Name = "MainFrame"
     MainFrame.Size = UDim2.fromOffset(900, 560)
     MainFrame.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1041,7 +1044,11 @@ local function CreateNexaraCustomUI(ctx)
     MainFrame.BackgroundColor3 = Theme.Background
     MainFrame.BorderSizePixel = 0
     MainFrame.Active = true
-    MainFrame.GroupTransparency = 0
+    if Theme._mainIsCanvas then
+        MainFrame.GroupTransparency = 0
+    else
+        MainFrame.ClipsDescendants = true
+    end
     MainFrame.Parent = ScreenGui
 
     local MainCorner = Instance.new("UICorner")
@@ -1275,7 +1282,7 @@ local function CreateNexaraCustomUI(ctx)
     local function ToggleUI(forceState)
         EnsureCap()
         SafeMainAccess()
-        local okVis, realVis = pcall(function() return MainFrame.Visible and MainFrame.GroupTransparency < 0.95 end)
+        local okVis, realVis = pcall(function() return MainFrame.Visible and (not Theme._mainIsCanvas or MainFrame.GroupTransparency < 0.95) end)
         local effVisible = okVis and realVis or UIState.Visible
         local targetState = (forceState ~= nil) and forceState or (not effVisible)
         if targetState == effVisible and targetState == UIState.Visible and not UIState.Animating then return end
@@ -1310,17 +1317,16 @@ local function CreateNexaraCustomUI(ctx)
             pcall(function()
                 MainFrame.Position = openStartPos
                 MainScale.Scale = curBaseScale * 0.90
-                MainFrame.GroupTransparency = 1
+                if Theme._mainIsCanvas then MainFrame.GroupTransparency = 1 end
                 MainFrame.Visible = true
             end)
 
+            local openProps = Theme._mainIsCanvas and { Position = openTargetPos, GroupTransparency = 0 } or { Position = openTargetPos }
             local okTw, tOpen, sOpen = pcall(function()
-                return TweenService:Create(MainFrame, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                    Position = openTargetPos,
-                    GroupTransparency = 0
-                }), TweenService:Create(MainScale, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-                    Scale = curBaseScale
-                })
+                return TweenService:Create(MainFrame, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), openProps),
+                    TweenService:Create(MainScale, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+                        Scale = curBaseScale
+                    })
             end)
             if okTw and tOpen and sOpen then
                 table.insert(UIState.Tweens, tOpen)
@@ -1334,7 +1340,7 @@ local function CreateNexaraCustomUI(ctx)
                     pcall(function()
                         MainFrame.Position = openTargetPos
                         MainScale.Scale = UIState.BaseScale or curBaseScale
-                        MainFrame.GroupTransparency = 0
+                        if Theme._mainIsCanvas then MainFrame.GroupTransparency = 0 end
                     end)
                     Theme._refreshScaledLayouts()
                 end)
@@ -1343,7 +1349,7 @@ local function CreateNexaraCustomUI(ctx)
                 pcall(function()
                     MainFrame.Position = openTargetPos
                     MainScale.Scale = UIState.BaseScale or curBaseScale
-                    MainFrame.GroupTransparency = 0
+                    if Theme._mainIsCanvas then MainFrame.GroupTransparency = 0 end
                     MainFrame.Visible = true
                 end)
                 Theme._refreshScaledLayouts()
@@ -1371,13 +1377,12 @@ local function CreateNexaraCustomUI(ctx)
                 end
             end
 
+            local closeProps = Theme._mainIsCanvas and { Position = closeTargetPos, GroupTransparency = 1 } or { Position = closeTargetPos }
             local okTw, tClose, sClose = pcall(function()
-                return TweenService:Create(MainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                    Position = closeTargetPos,
-                    GroupTransparency = 1
-                }), TweenService:Create(MainScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-                    Scale = curBaseScale * 0.90
-                })
+                return TweenService:Create(MainFrame, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), closeProps),
+                    TweenService:Create(MainScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                        Scale = curBaseScale * 0.90
+                    })
             end)
             if okTw and tClose and sClose then
                 table.insert(UIState.Tweens, tClose)
@@ -7923,10 +7928,19 @@ local function CreateNexaraCustomUI(ctx)
     W.stretched = PlayerCam:AddCheckboxWithSlider("Stretched Screen", Config.StretchedEnabled, 100, 200, math.floor(Config.StretchedAmount or 133), "%", "Stretch",
         function(v)
             Config.StretchedEnabled = v
-            if not v and ctx and ctx.RestoreCameraStretch then pcall(ctx.RestoreCameraStretch) end
+            if ctx and ctx.SyncCameraStretch then
+                pcall(ctx.SyncCameraStretch)
+            elseif not v and ctx and ctx.RestoreCameraStretch then
+                pcall(ctx.RestoreCameraStretch)
+            end
         end,
         function(v)
             Config.StretchedAmount = v
+            if ctx and ctx.SyncCameraStretch then
+                pcall(ctx.SyncCameraStretch)
+            elseif Config.StretchedEnabled and ctx and ctx.ApplyCameraStretch then
+                pcall(ctx.ApplyCameraStretch)
+            end
         end
     )
 
@@ -8389,7 +8403,7 @@ local function CreateNexaraCustomUI(ctx)
         function(v) Config.AutoPallet_Warp = (v == true) end,
         function(v) Config.AutoPallet_WarpRange = v end
     )
-    W.autoPalletKillerDist = AutoPalletMod:AddSlider("Killer Distance", 3, 10, math.floor(Config.AutoPallet_KillerDist or 5), " studs", function(v)
+    W.autoPalletKillerDist = AutoPalletMod:AddSlider("Killer Distance", 2, 10, math.floor(Config.AutoPallet_KillerDist or 5), " studs", function(v)
         Config.AutoPallet_KillerDist = v
     end)
 
@@ -9358,7 +9372,7 @@ local function CreateNexaraCustomUI(ctx)
 
     local lastUiStat = 0
     ConnectUI(RunService.Heartbeat, function()
-        if not MainFrame.Visible then return end
+        if not MainFrame.Visible or CurrentActivePage ~= Pages["Auto Farm"] then return end
         local now = os.clock()
         if now - lastUiStat < 0.35 then return end
         lastUiStat = now
@@ -10775,8 +10789,12 @@ local function CreateNexaraCustomUI(ctx)
         if Config.CustomFOVEnabled then
             pcall(function() workspace.CurrentCamera.FieldOfView = Config.FOV or 80 end)
         end
-        if not Config.StretchedEnabled and ctx and ctx.RestoreCameraStretch then
+        if ctx and ctx.SyncCameraStretch then
+            pcall(ctx.SyncCameraStretch)
+        elseif not Config.StretchedEnabled and ctx and ctx.RestoreCameraStretch then
             pcall(ctx.RestoreCameraStretch)
+        elseif Config.StretchedEnabled and ctx and ctx.ApplyCameraStretch then
+            pcall(ctx.ApplyCameraStretch)
         end
         if UIState.Touch and not UIState.UserSetPlatform and Config.PlatformMode ~= "Mobile" then
             Config.PlatformMode = "Mobile"
@@ -10860,13 +10878,11 @@ local function CreateNexaraCustomUI(ctx)
             local openStartPos = UDim2.new(openTargetPos.X.Scale, openTargetPos.X.Offset, openTargetPos.Y.Scale, openTargetPos.Y.Offset + 18)
             MainFrame.Position = openStartPos
             MainScale.Scale = (UIState.BaseScale or 1.0) * 0.90
-            MainFrame.GroupTransparency = 1
+            if Theme._mainIsCanvas then MainFrame.GroupTransparency = 1 end
             MainFrame.Visible = true
 
-            TweenService:Create(MainFrame, TweenInfo.new(0.26, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-                Position = openTargetPos,
-                GroupTransparency = 0
-            }):Play()
+            local initProps = Theme._mainIsCanvas and { Position = openTargetPos, GroupTransparency = 0 } or { Position = openTargetPos }
+            TweenService:Create(MainFrame, TweenInfo.new(0.26, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), initProps):Play()
             TweenService:Create(MainScale, TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
                 Scale = UIState.BaseScale or 1.0
             }):Play()
