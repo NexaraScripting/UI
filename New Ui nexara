@@ -2603,6 +2603,15 @@ local function CreateNexaraCustomUI(ctx)
         ["Reset Custom Camera"] = "รีเซ็ตมุมกล้อง",
         ["Movement Lag"] = "แรงหน่วงกล้อง (DBD)",
         ["Fast Vault"] = "ข้ามหน้าต่างไว",
+        ["Vault Speed"] = "ความเร็วข้ามหน้าต่าง",
+        ["Fake Perk"] = "เปิร์กจำลอง (Fake Perk)",
+        ["Quick Recovery"] = "วิ่งพุ่งหลังข้ามหน้าต่าง",
+        ["Perfect Landing"] = "ตกที่สูงวิ่งพุ่ง (Perfect Landing)",
+        ["Boost"] = "บูสต์",
+        ["Speed Boost"] = "วิ่งไวถาวร (Speed Boost)",
+        ["No Turn Slow"] = "เลี้ยวไม่สโลว์ (No Turn Slow)",
+        ["Flowstate"] = "ข้ามไว (Flowstate)",
+        ["Cooldown"] = "คูลดาวน์",
         ["Auto Dodge"] = "หลบสกิลออโต้",
         ["Avatar Copier"] = "ก๊อปปี้ชุด",
         ["Auto Skill Check"] = "เช็คสกิลออโต้",
@@ -8058,6 +8067,35 @@ local function CreateNexaraCustomUI(ctx)
         if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
     end, { key = "FastVault_Mob", title = "Fast Vault", order = 5 })
     ConfigSys.KeyedWidgets.AlwaysFastVault = W.fv
+    W.survVaultSpeed = FastVaultMod:AddCheckboxWithSlider("Vault Speed", Config.Surv_VaultSpeedEnabled, 100, 200, math.clamp(math.floor(tonumber(Config.Surv_VaultSpeed) or 130), 100, 200), "%", "Speed", function(v)
+        Config.Surv_VaultSpeedEnabled = (v == true)
+        if ctx and ctx.SyncSurvVaultSpeed then pcall(ctx.SyncSurvVaultSpeed) end
+    end, function(s)
+        Config.Surv_VaultSpeed = s
+        if Config.Surv_VaultSpeedEnabled and ctx and ctx.SyncSurvVaultSpeed then pcall(ctx.SyncSurvVaultSpeed) end
+    end)
+
+    local FakePerkMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Fake Perk", "")
+    W.survQuickRecovery = FakePerkMod:AddCheckboxWithSlider("Quick Recovery", Config.Surv_QuickRecovery, 10, 80, math.clamp(math.floor(tonumber(Config.Surv_QuickRecoveryBoost) or 30), 10, 80), "%", "Boost", function(v)
+        Config.Surv_QuickRecovery = (v == true)
+        if not v and not Config.Surv_PerfectLanding and ctx and ctx.StopQuickRecovery then pcall(ctx.StopQuickRecovery) end
+    end, function(s)
+        Config.Surv_QuickRecoveryBoost = s
+    end)
+    W.survPerfectLanding = FakePerkMod:AddCheckboxWithSlider("Perfect Landing", Config.Surv_PerfectLanding, 10, 70, math.clamp(math.floor(tonumber(Config.Surv_PerfectLandingBoost) or 40), 10, 70), "%", "Boost", function(v)
+        Config.Surv_PerfectLanding = (v == true)
+        if ctx and ctx.SyncPerfectLanding then pcall(ctx.SyncPerfectLanding) end
+        if not v and not Config.Surv_QuickRecovery and ctx and ctx.StopQuickRecovery then pcall(ctx.StopQuickRecovery) end
+    end, function(s)
+        Config.Surv_PerfectLandingBoost = s
+    end)
+    W.survFlowstate = FakePerkMod:AddCheckboxWithSlider("Flowstate", Config.Surv_Flowstate, 0, 60, math.clamp(math.floor(tonumber(Config.Surv_FlowstateCd) or 30), 0, 60), "s", "Cooldown", function(v)
+        Config.Surv_Flowstate = (v == true)
+        if ctx and ctx.SyncFlowstate then pcall(ctx.SyncFlowstate) end
+    end, function(s)
+        Config.Surv_FlowstateCd = s
+        if Config.Surv_Flowstate and ctx and ctx.SyncFlowstate then pcall(ctx.SyncFlowstate) end
+    end)
 
     local AutoDodgeMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Auto Dodge", "")
     W.abyssCrouch = AutoDodgeMod:AddCheckbox("Auto Crouch (Abyss Slash)", Config.AutoCrouch_Abyss, nil, function(v)
@@ -8330,7 +8368,7 @@ local function CreateNexaraCustomUI(ctx)
         }
     )
 
-    local AutoSkillMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Auto Skill Check", "")
+    local AutoSkillMod = WindowObj:CreateModule("Miscellaneous_General", "Right", "Auto Skill Check", "")
     W.scGen = AutoSkillMod:AddCheckboxWithDropdown("Generator Skill Check", Config.AutoSkillCheck, { "Random", "Perfect", "Normal" }, Config.AutoSkillCheckMode or "Perfect", function(v)
         Config.AutoSkillCheck = v
     end, function(mode)
@@ -8340,7 +8378,7 @@ local function CreateNexaraCustomUI(ctx)
         Config.AutoSkillCheck_Trap = v
     end)
 
-    local FlashlightMod = WindowObj:CreateModule("Miscellaneous_Players", "Right", "Flashlight", "")
+    local FlashlightMod = WindowObj:CreateModule("Miscellaneous_General", "Right", "Flashlight", "")
     W.blind = FlashlightMod:AddCheckbox("Flashlight Blind Progress", Config.BlindProgressEnabled, nil, function(v)
         Config.BlindProgressEnabled = v
     end)
@@ -8349,21 +8387,6 @@ local function CreateNexaraCustomUI(ctx)
     end, function(v)
         Config.Surv_FlashlightLockSmooth = v
     end)
-
-    local FakeLookMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Fake Look", "")
-    W.survFakeLook = FakeLookMod:AddCheckboxWithKeybind("Backwards Look", Config.Surv_FakeBackLook, Config.Surv_FakeBackLookKeyCode, function(v)
-        Config.Surv_FakeBackLook = v
-        if not v and AutoParry and AutoParry.StopSurvFakeLook then
-            pcall(AutoParry.StopSurvFakeLook)
-        end
-        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
-    end, function(key)
-        Config.Surv_FakeBackLookKeyCode = key
-        Config.Surv_FakeBackLookKeyName = ConfigSys.FormatKey(key)
-        Config.Surv_FakeBackLookKeyType = key and ((key.EnumType == Enum.UserInputType) and "Mouse" or "Keyboard") or "None"
-        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
-    end)
-    ConfigSys.KeyedWidgets.Surv_FakeBackLook = W.survFakeLook
 
     local SurvMoveMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Movement", "")
     W.survMoonwalk = SurvMoveMod:AddCheckboxWithKeybind("Moonwalk", Config.Surv_Moonwalk, Config.Surv_MoonwalkKeyCode, function(v)
@@ -8385,8 +8408,32 @@ local function CreateNexaraCustomUI(ctx)
         if AutoParry and AutoParry.SyncAntiFallSlow then pcall(AutoParry.SyncAntiFallSlow) end
         if _G.Nexara_VD_RefreshNamecall then pcall(_G.Nexara_VD_RefreshNamecall) end
     end)
+    W.survFakeLook = SurvMoveMod:AddCheckboxWithKeybind("Backwards Look", Config.Surv_FakeBackLook, Config.Surv_FakeBackLookKeyCode, function(v)
+        Config.Surv_FakeBackLook = v
+        if not v and AutoParry and AutoParry.StopSurvFakeLook then
+            pcall(AutoParry.StopSurvFakeLook)
+        end
+        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
+    end, function(key)
+        Config.Surv_FakeBackLookKeyCode = key
+        Config.Surv_FakeBackLookKeyName = ConfigSys.FormatKey(key)
+        Config.Surv_FakeBackLookKeyType = key and ((key.EnumType == Enum.UserInputType) and "Mouse" or "Keyboard") or "None"
+        if ctx.UpdateKeybindsHUD then pcall(ctx.UpdateKeybindsHUD) end
+    end)
+    ConfigSys.KeyedWidgets.Surv_FakeBackLook = W.survFakeLook
+    W.survConstSpeed = SurvMoveMod:AddCheckboxWithSlider("Speed Boost", Config.Surv_ConstSpeedEnabled == true, 1, 2, math.clamp(math.floor(tonumber(Config.Surv_ConstSpeedPct) or 2), 1, 2), "%", "Boost", function(v)
+        Config.Surv_ConstSpeedEnabled = (v == true)
+        if ctx and ctx.SyncConstSpeed then pcall(ctx.SyncConstSpeed) end
+    end, function(s)
+        Config.Surv_ConstSpeedPct = s
+        if Config.Surv_ConstSpeedEnabled and ctx and ctx.SyncConstSpeed then pcall(ctx.SyncConstSpeed) end
+    end)
+    W.survNoTurnSlow = SurvMoveMod:AddCheckbox("No Turn Slow", Config.Surv_NoTurnSlow == true, nil, function(v)
+        Config.Surv_NoTurnSlow = (v == true)
+        if ctx and ctx.SyncNoTurnSlow then pcall(ctx.SyncNoTurnSlow) end
+    end)
 
-    local RiotShieldMod = WindowObj:CreateModule("Miscellaneous_Players", "Left", "Riot Shield", "")
+    local RiotShieldMod = WindowObj:CreateModule("Miscellaneous_General", "Right", "Riot Shield", "")
     W.riotRot = RiotShieldMod:AddCheckboxWithSlider("Rotation Changer", Config.RiotShield_RotEnabled == true, 1, 12, math.clamp(math.floor(tonumber(Config.RiotShield_RotSpeed) or 4), 1, 12), "x", "Speed",
         function(v) Config.RiotShield_RotEnabled = (v == true) end,
         function(v) Config.RiotShield_RotSpeed = v end
@@ -8467,6 +8514,13 @@ local function CreateNexaraCustomUI(ctx)
         end
     end, function(s)
         Config.Killer_LungeLockSmooth = s
+    end)
+    W.killerFastVault = KillerCombatMod:AddCheckboxWithSlider("Fast Vault", Config.Killer_FastVault, 100, 300, math.clamp(math.floor(tonumber(Config.Killer_FastVaultSpeed) or 150), 100, 300), "%", "Speed", function(v)
+        Config.Killer_FastVault = (v == true)
+        if ctx and ctx.SyncKillerFastVault then pcall(ctx.SyncKillerFastVault) end
+    end, function(s)
+        Config.Killer_FastVaultSpeed = s
+        if Config.Killer_FastVault and ctx and ctx.SyncKillerFastVault then pcall(ctx.SyncKillerFastVault) end
     end)
 
     local LightingMod = WindowObj:CreateModule("Miscellaneous_Lightings", "Full", "Lighting", "")
@@ -9000,6 +9054,28 @@ local function CreateNexaraCustomUI(ctx)
         end
         W.fv.Set(Config.AlwaysFastVault == true, true)
         if W.fv.SetKey then W.fv.SetKey(Config.AlwaysFastVaultKeyCode, true) end
+        if W.survVaultSpeed then
+            W.survVaultSpeed.Set(Config.Surv_VaultSpeedEnabled == true, true)
+            W.survVaultSpeed.SetSlider(math.clamp(math.floor(tonumber(Config.Surv_VaultSpeed) or 130), 100, 200), true)
+            if ctx and ctx.SyncSurvVaultSpeed then pcall(ctx.SyncSurvVaultSpeed) end
+        end
+        if W.survQuickRecovery then
+            W.survQuickRecovery.Set(Config.Surv_QuickRecovery == true, true)
+            W.survQuickRecovery.SetSlider(math.clamp(math.floor(tonumber(Config.Surv_QuickRecoveryBoost) or 30), 10, 80), true)
+        end
+        if W.survPerfectLanding then
+            W.survPerfectLanding.Set(Config.Surv_PerfectLanding == true, true)
+            W.survPerfectLanding.SetSlider(math.clamp(math.floor(tonumber(Config.Surv_PerfectLandingBoost) or 40), 10, 70), true)
+            if ctx and ctx.SyncPerfectLanding then pcall(ctx.SyncPerfectLanding) end
+        end
+        if not Config.Surv_QuickRecovery and not Config.Surv_PerfectLanding and ctx and ctx.StopQuickRecovery then
+            pcall(ctx.StopQuickRecovery)
+        end
+        if W.survFlowstate then
+            W.survFlowstate.Set(Config.Surv_Flowstate == true, true)
+            W.survFlowstate.SetSlider(math.clamp(math.floor(tonumber(Config.Surv_FlowstateCd) or 30), 0, 60), true)
+            if ctx and ctx.SyncFlowstate then pcall(ctx.SyncFlowstate) end
+        end
         if W.abyssCrouch then W.abyssCrouch.Set(Config.AutoCrouch_Abyss == true, true) end
         if W.veilDodge then W.veilDodge.Set(Config.AutoDodge_Veil == true, true) end
         if W.avCopyEn then W.avCopyEn.Set(Config.AvatarCopy_Enabled == true, true) end
@@ -9033,6 +9109,15 @@ local function CreateNexaraCustomUI(ctx)
         if W.survAntiFallSlow then
             W.survAntiFallSlow.Set(Config.Surv_AntiFallSlow == true, true)
         end
+        if W.survConstSpeed then
+            W.survConstSpeed.Set(Config.Surv_ConstSpeedEnabled == true, true)
+            W.survConstSpeed.SetSlider(math.clamp(math.floor(tonumber(Config.Surv_ConstSpeedPct) or 2), 1, 2), true)
+            if ctx and ctx.SyncConstSpeed then pcall(ctx.SyncConstSpeed) end
+        end
+        if W.survNoTurnSlow then
+            W.survNoTurnSlow.Set(Config.Surv_NoTurnSlow == true, true)
+            if ctx and ctx.SyncNoTurnSlow then pcall(ctx.SyncNoTurnSlow) end
+        end
         if W.autoPallet then
             W.autoPallet.Set(Config.AutoPallet_Enabled == true, true)
         end
@@ -9063,6 +9148,11 @@ local function CreateNexaraCustomUI(ctx)
         if W.killerLungeLock then
             W.killerLungeLock.Set(Config.Killer_LungeLock == true, true)
             W.killerLungeLock.SetSlider(math.floor(Config.Killer_LungeLockSmooth or 18), true)
+        end
+        if W.killerFastVault then
+            W.killerFastVault.Set(Config.Killer_FastVault == true, true)
+            W.killerFastVault.SetSlider(math.clamp(math.floor(tonumber(Config.Killer_FastVaultSpeed) or 150), 100, 300), true)
+            if ctx and ctx.SyncKillerFastVault then pcall(ctx.SyncKillerFastVault) end
         end
         W.fb.Set(Config.Fullbright == true, true)
         W.nf.Set((Config.NoFog == true or Config.RemoveFog == true), true)
@@ -10786,6 +10876,15 @@ local function CreateNexaraCustomUI(ctx)
             pcall(ctx.ApplyWorldCustomNow)
         end
         _G.__Nexara_AlwaysFastVault = (Config.AlwaysFastVault == true)
+        if ctx and ctx.SyncKillerFastVault then pcall(ctx.SyncKillerFastVault) end
+        if ctx and ctx.SyncSurvVaultSpeed then pcall(ctx.SyncSurvVaultSpeed) end
+        if ctx and ctx.SyncPerfectLanding then pcall(ctx.SyncPerfectLanding) end
+        if ctx and ctx.SyncFlowstate then pcall(ctx.SyncFlowstate) end
+        if ctx and ctx.SyncConstSpeed then pcall(ctx.SyncConstSpeed) end
+        if ctx and ctx.SyncNoTurnSlow then pcall(ctx.SyncNoTurnSlow) end
+        if not Config.Surv_QuickRecovery and not Config.Surv_PerfectLanding and ctx and ctx.StopQuickRecovery then
+            pcall(ctx.StopQuickRecovery)
+        end
         if Config.CustomFOVEnabled then
             pcall(function() workspace.CurrentCamera.FieldOfView = Config.FOV or 80 end)
         end
